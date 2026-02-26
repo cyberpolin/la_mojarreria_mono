@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "MOJARRERIA",
+    "slug": "mojarreria-mobile",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/images/favicon.png",
+    "scheme": "mojarreria",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "adaptiveIcon": {
+        "image": "./assets/images/taku.png",
+        "backgroundColor": "#f9703e",
+        "imageWidth": 512,
+        "imageHeight": 512
+      },
+      "package": "com.mojarreria.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/favicon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#f9703e"
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "LANDSCAPE"
+        }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "kondo-soft",
+          "project": "react-native"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {}
+    },
+    "ios": {
+      "bundleIdentifier": "com.mojarreria.mobile"
+    }
+  }
+}

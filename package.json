@@ -1,0 +1,17 @@
+{
+  "name": "mojarreria",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.5",
+  "scripts": {
+    "dev": "bash ./scripts/dev.sh",
+    "dev:lan": "bash ./scripts/dev-lan.sh",
+    "dev:mobile": "pnpm --filter @mojarreria/mobile start",
+    "dev:web": "pnpm --filter @mojarreria/web dev",
+    "dev:api": "pnpm --filter @mojarreria/api dev",
+    "seed:products": "pnpm --filter @mojarreria/api run seed:products",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  }
+}
