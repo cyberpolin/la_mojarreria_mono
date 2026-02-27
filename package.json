@@ -9,6 +9,8 @@
     }
   },
   "scripts": {
+    "build": "npm --prefix ./apps/api install --include=dev && npm --prefix ./apps/api run build",
+    "start": "npm --prefix ./apps/api run start",
     "dev": "bash ./scripts/dev.sh",
     "dev:lan": "bash ./scripts/dev-lan.sh",
     "dev:mobile": "pnpm --filter @mojarreria/mobile start",
