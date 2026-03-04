@@ -1,5 +1,6 @@
 import {
   CostControlPayload,
+  FixedOperatingExpenseRecord,
   ProductOption,
   ProductRecipeItemRecord,
   RawMaterialPurchaseRecord,
@@ -72,6 +73,16 @@ const COST_CONTROL_QUERY = `
         unit
       }
     }
+    fixedOperatingExpenses(orderBy: [{ name: asc }], take: 100) {
+      id
+      name
+      costCents
+      renewalDays
+      active
+      notes
+      createdAt
+      updatedAt
+    }
     products(orderBy: [{ name: asc }]) {
       id
       name
@@ -85,6 +96,7 @@ export const getCostControlData = async (): Promise<CostControlPayload> => {
     rawMaterials: RawMaterialRecord[];
     rawMaterialPurchases: RawMaterialPurchaseRecord[];
     productRecipeItems: ProductRecipeItemRecord[];
+    fixedOperatingExpenses: FixedOperatingExpenseRecord[];
     products: ProductOption[];
   }>(COST_CONTROL_QUERY);
 
@@ -92,6 +104,7 @@ export const getCostControlData = async (): Promise<CostControlPayload> => {
     rawMaterials: data.rawMaterials ?? [],
     purchases: data.rawMaterialPurchases ?? [],
     recipeItems: data.productRecipeItems ?? [],
+    fixedExpenses: data.fixedOperatingExpenses ?? [],
     products: data.products ?? [],
   };
 };
@@ -204,6 +217,68 @@ export const deletePurchase = async (id: string) => {
   const mutation = `
     mutation DeleteRawMaterialPurchase($where: RawMaterialPurchaseWhereUniqueInput!) {
       deleteRawMaterialPurchase(where: $where) { id }
+    }
+  `;
+  await execute(mutation, { where: { id } });
+};
+
+export const createFixedExpense = async (input: {
+  name: string;
+  costCents: number;
+  renewalDays: number;
+  active?: boolean;
+  notes?: string;
+}) => {
+  const mutation = `
+    mutation CreateFixedOperatingExpense($data: FixedOperatingExpenseCreateInput!) {
+      createFixedOperatingExpense(data: $data) { id }
+    }
+  `;
+  await execute(mutation, {
+    data: {
+      name: input.name.trim(),
+      costCents: input.costCents,
+      renewalDays: input.renewalDays,
+      active: input.active ?? true,
+      notes: input.notes?.trim() || "",
+    },
+  });
+};
+
+export const updateFixedExpense = async (
+  id: string,
+  input: {
+    name: string;
+    costCents: number;
+    renewalDays: number;
+    active: boolean;
+    notes?: string;
+  },
+) => {
+  const mutation = `
+    mutation UpdateFixedOperatingExpense(
+      $where: FixedOperatingExpenseWhereUniqueInput!
+      $data: FixedOperatingExpenseUpdateInput!
+    ) {
+      updateFixedOperatingExpense(where: $where, data: $data) { id }
+    }
+  `;
+  await execute(mutation, {
+    where: { id },
+    data: {
+      name: input.name.trim(),
+      costCents: input.costCents,
+      renewalDays: input.renewalDays,
+      active: input.active,
+      notes: input.notes?.trim() || "",
+    },
+  });
+};
+
+export const deleteFixedExpense = async (id: string) => {
+  const mutation = `
+    mutation DeleteFixedOperatingExpense($where: FixedOperatingExpenseWhereUniqueInput!) {
+      deleteFixedOperatingExpense(where: $where) { id }
     }
   `;
   await execute(mutation, { where: { id } });

@@ -289,6 +289,22 @@ export function OperationalDashboardClient({
               title="Gross Margin"
               value={`${metrics.grossMarginPct.toFixed(2)}%`}
             />
+            <MetricCard
+              title="Fixed Expenses"
+              value={toMoney(metrics.allocatedFixedExpensesCents)}
+            />
+            <MetricCard
+              title="Fixed Expense Ratio"
+              value={`${metrics.fixedExpenseRatioPct.toFixed(2)}%`}
+            />
+            <MetricCard
+              title="Operating Profit"
+              value={toMoney(metrics.operatingProfitCents)}
+            />
+            <MetricCard
+              title="Operating Margin"
+              value={`${metrics.operatingMarginPct.toFixed(2)}%`}
+            />
             <MetricCard title="Money In" value={toMoney(metrics.moneyIn)} />
             <MetricCard title="Money Out" value={toMoney(metrics.moneyOut)} />
             <MetricCard title="Net" value={toMoney(metrics.net)} />

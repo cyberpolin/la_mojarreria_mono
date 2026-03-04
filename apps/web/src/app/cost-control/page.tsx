@@ -34,6 +34,8 @@ const toLocalInput = (iso: string | null) => {
 const fromLocalInput = (value: string) =>
   value ? new Date(value).toISOString() : undefined;
 
+const toMoney = (value: number) => `$${(value / 100).toFixed(2)}`;
+
 function WizardInfo({ text }: { text: string }) {
   return (
     <span
@@ -109,6 +111,13 @@ export default function CostControlPage() {
     qtyPerProduct: "",
     wastePct: "0",
   });
+  const [newFixedExpense, setNewFixedExpense] = useState({
+    name: "",
+    costCents: "",
+    renewalDays: "30",
+    active: true,
+    notes: "",
+  });
 
   const [materialEdits, setMaterialEdits] = useState<
     Record<string, { name: string; unit: "kg" | "l" | "u"; active: boolean }>
@@ -134,6 +143,18 @@ export default function CostControlPage() {
         rawMaterialId: string;
         qtyPerProduct: string;
         wastePct: string;
+      }
+    >
+  >({});
+  const [fixedExpenseEdits, setFixedExpenseEdits] = useState<
+    Record<
+      string,
+      {
+        name: string;
+        costCents: string;
+        renewalDays: string;
+        active: boolean;
+        notes: string;
       }
     >
   >({});
@@ -244,6 +265,20 @@ export default function CostControlPage() {
           ]),
         ),
       );
+      setFixedExpenseEdits(
+        Object.fromEntries(
+          (payload.fixedExpenses ?? []).map((item) => [
+            item.id,
+            {
+              name: item.name,
+              costCents: String(item.costCents ?? 0),
+              renewalDays: String(item.renewalDays ?? 30),
+              active: item.active,
+              notes: item.notes ?? "",
+            },
+          ]),
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
@@ -295,6 +330,7 @@ export default function CostControlPage() {
 
   const materialOptions = useMemo(() => data?.rawMaterials ?? [], [data]);
   const productOptions = useMemo(() => data?.products ?? [], [data]);
+  const fixedExpenses = useMemo(() => data?.fixedExpenses ?? [], [data]);
   const isDevEnv = process.env.NODE_ENV === "development";
   const hasProducts = productOptions.length > 0;
   const hasRecipes = (data?.recipeItems?.length ?? 0) > 0;
@@ -675,8 +711,8 @@ export default function CostControlPage() {
           </p>
           <h1 className="text-2xl font-semibold text-slate-50">Cost Control</h1>
           <p className="text-sm text-slate-300">
-            Manage raw materials, purchases (last price), and product recipes
-            from web.
+            Manage raw materials, recurring fixed expenses, last-price
+            purchases, and product recipes from web.
           </p>
         </div>
         <Link
@@ -711,6 +747,19 @@ export default function CostControlPage() {
               >
                 Products
               </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsContextMenuOpen(false);
+                  const el = document.getElementById(
+                    "cost-control-card-fixed-expenses",
+                  );
+                  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-left text-sm text-slate-100 hover:bg-slate-800"
+              >
+                Fixed expenses
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -1852,6 +1901,273 @@ export default function CostControlPage() {
                         onClick={() =>
                           runMutation("DELETE", {
                             entity: "purchase",
+                            id: item.id,
+                          })
+                        }
+                        className="h-9 rounded border border-slate-700 bg-slate-800 px-3 text-xs text-slate-200 hover:bg-slate-700"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </AppCard>
+
+        <AppCard id="cost-control-card-fixed-expenses">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-100">
+                Recurring fixed expenses
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Add business expenses like gas, soap, or cleaning supplies. The
+                system allocates a daily share using cost / renewal days and
+                factors it into operating profit.
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300">
+              Active daily allocation:{" "}
+              <span className="font-medium text-slate-100">
+                {toMoney(
+                  fixedExpenses
+                    .filter((item) => item.active && item.renewalDays > 0)
+                    .reduce(
+                      (sum, item) =>
+                        sum + Math.round(item.costCents / item.renewalDays),
+                      0,
+                    ),
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-5">
+            <input
+              value={newFixedExpense.name}
+              onChange={(e) =>
+                setNewFixedExpense((prev) => ({
+                  ...prev,
+                  name: e.target.value,
+                }))
+              }
+              placeholder="Expense name"
+              className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100"
+            />
+            <input
+              type="number"
+              value={newFixedExpense.costCents}
+              onChange={(e) =>
+                setNewFixedExpense((prev) => ({
+                  ...prev,
+                  costCents: e.target.value,
+                }))
+              }
+              placeholder="Cost (cents)"
+              className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100"
+            />
+            <input
+              type="number"
+              min={1}
+              value={newFixedExpense.renewalDays}
+              onChange={(e) =>
+                setNewFixedExpense((prev) => ({
+                  ...prev,
+                  renewalDays: e.target.value,
+                }))
+              }
+              placeholder="Renewal days"
+              className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100"
+            />
+            <label className="inline-flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={newFixedExpense.active}
+                onChange={(e) =>
+                  setNewFixedExpense((prev) => ({
+                    ...prev,
+                    active: e.target.checked,
+                  }))
+                }
+              />
+              Active
+            </label>
+            <input
+              value={newFixedExpense.notes}
+              onChange={(e) =>
+                setNewFixedExpense((prev) => ({
+                  ...prev,
+                  notes: e.target.value,
+                }))
+              }
+              placeholder="Notes"
+              className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 md:col-span-2"
+            />
+            <button
+              onClick={() =>
+                runMutation("POST", {
+                  entity: "fixedExpense",
+                  name: newFixedExpense.name,
+                  costCents: Number(newFixedExpense.costCents || 0),
+                  renewalDays: Number(newFixedExpense.renewalDays || 0),
+                  active: newFixedExpense.active,
+                  notes: newFixedExpense.notes,
+                }).then(() =>
+                  setNewFixedExpense({
+                    name: "",
+                    costCents: "",
+                    renewalDays: "30",
+                    active: true,
+                    notes: "",
+                  }),
+                )
+              }
+              disabled={
+                saving ||
+                !newFixedExpense.name.trim() ||
+                Number(newFixedExpense.renewalDays || 0) <= 0
+              }
+              className="h-10 rounded-lg border border-slate-700 bg-slate-100 px-3 text-sm font-medium text-slate-900 hover:bg-slate-50 disabled:opacity-60 md:col-span-3"
+            >
+              Add fixed expense
+            </button>
+          </div>
+
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-xs uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="px-2 py-2 text-left">Name</th>
+                  <th className="px-2 py-2 text-right">Cost</th>
+                  <th className="px-2 py-2 text-right">Renewal Days</th>
+                  <th className="px-2 py-2 text-right">Daily Share</th>
+                  <th className="px-2 py-2 text-left">Active</th>
+                  <th className="px-2 py-2 text-left">Notes</th>
+                  <th className="px-2 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {fixedExpenses.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-2 py-2">
+                      <input
+                        value={fixedExpenseEdits[item.id]?.name ?? ""}
+                        onChange={(e) =>
+                          setFixedExpenseEdits((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              ...prev[item.id],
+                              name: e.target.value,
+                            },
+                          }))
+                        }
+                        className="h-9 w-full rounded border border-slate-700 bg-slate-950 px-2 text-slate-100"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number"
+                        value={fixedExpenseEdits[item.id]?.costCents ?? ""}
+                        onChange={(e) =>
+                          setFixedExpenseEdits((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              ...prev[item.id],
+                              costCents: e.target.value,
+                            },
+                          }))
+                        }
+                        className="h-9 w-28 rounded border border-slate-700 bg-slate-950 px-2 text-right text-slate-100"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={fixedExpenseEdits[item.id]?.renewalDays ?? ""}
+                        onChange={(e) =>
+                          setFixedExpenseEdits((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              ...prev[item.id],
+                              renewalDays: e.target.value,
+                            },
+                          }))
+                        }
+                        className="h-9 w-24 rounded border border-slate-700 bg-slate-950 px-2 text-right text-slate-100"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-right text-slate-300">
+                      {toMoney(
+                        (() => {
+                          const renewalDays = Number(
+                            fixedExpenseEdits[item.id]?.renewalDays ?? 0,
+                          );
+                          const costCents = Number(
+                            fixedExpenseEdits[item.id]?.costCents ?? 0,
+                          );
+                          if (renewalDays <= 0) return 0;
+                          return Math.round(costCents / renewalDays);
+                        })(),
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(fixedExpenseEdits[item.id]?.active)}
+                        onChange={(e) =>
+                          setFixedExpenseEdits((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              ...prev[item.id],
+                              active: e.target.checked,
+                            },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        value={fixedExpenseEdits[item.id]?.notes ?? ""}
+                        onChange={(e) =>
+                          setFixedExpenseEdits((prev) => ({
+                            ...prev,
+                            [item.id]: {
+                              ...prev[item.id],
+                              notes: e.target.value,
+                            },
+                          }))
+                        }
+                        className="h-9 w-full rounded border border-slate-700 bg-slate-950 px-2 text-slate-100"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-right space-x-2">
+                      <button
+                        onClick={() =>
+                          runMutation("PATCH", {
+                            entity: "fixedExpense",
+                            id: item.id,
+                            name: fixedExpenseEdits[item.id]?.name ?? "",
+                            costCents: Number(
+                              fixedExpenseEdits[item.id]?.costCents ?? 0,
+                            ),
+                            renewalDays: Number(
+                              fixedExpenseEdits[item.id]?.renewalDays ?? 0,
+                            ),
+                            active: Boolean(fixedExpenseEdits[item.id]?.active),
+                            notes: fixedExpenseEdits[item.id]?.notes ?? "",
+                          })
+                        }
+                        className="h-9 rounded border border-slate-700 bg-slate-200 px-3 text-xs font-medium text-slate-900 hover:bg-slate-100"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() =>
+                          runMutation("DELETE", {
+                            entity: "fixedExpense",
                             id: item.id,
                           })
                         }

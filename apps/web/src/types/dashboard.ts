@@ -22,6 +22,10 @@ export type DailyCloseDashboard = {
   cogsCents: number;
   grossProfitCents: number;
   grossMarginBps: number;
+  allocatedFixedExpensesCents: number;
+  fixedExpenseRatioBps: number;
+  operatingProfitCents: number;
+  operatingMarginBps: number;
   costingStatus: "PENDING" | "COMPLETE" | "PARTIAL";
   costingWarnings: {
     missingRecipe?: string[];
@@ -93,6 +97,10 @@ export type DashboardMetrics = {
   cogsCents: number;
   grossProfitCents: number;
   grossMarginPct: number;
+  allocatedFixedExpensesCents: number;
+  fixedExpenseRatioPct: number;
+  operatingProfitCents: number;
+  operatingMarginPct: number;
   moneyIn: number;
   moneyOut: number;
   net: number;

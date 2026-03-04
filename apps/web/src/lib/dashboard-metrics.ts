@@ -16,6 +16,10 @@ export const buildDashboardMetrics = (
       cogsCents: 0,
       grossProfitCents: 0,
       grossMarginPct: 0,
+      allocatedFixedExpensesCents: 0,
+      fixedExpenseRatioPct: 0,
+      operatingProfitCents: 0,
+      operatingMarginPct: 0,
       moneyIn: 0,
       moneyOut: 0,
       net: 0,
@@ -30,6 +34,14 @@ export const buildDashboardMetrics = (
   const grossProfitCents = close.grossProfitCents ?? salesTotal - cogsCents;
   const grossMarginPct =
     salesTotal > 0 ? (grossProfitCents / salesTotal) * 100 : 0;
+  const allocatedFixedExpensesCents = close.allocatedFixedExpensesCents ?? 0;
+  const fixedExpenseRatioPct =
+    salesTotal > 0 ? (allocatedFixedExpensesCents / salesTotal) * 100 : 0;
+  const operatingProfitCents =
+    close.operatingProfitCents ??
+    grossProfitCents - allocatedFixedExpensesCents;
+  const operatingMarginPct =
+    salesTotal > 0 ? (operatingProfitCents / salesTotal) * 100 : 0;
   const moneyIn = close.cashReceived + close.bankTransfersReceived;
   const moneyOut = close.deliveryCashPaid + close.otherCashExpenses;
   const net = moneyIn - moneyOut;
@@ -40,6 +52,10 @@ export const buildDashboardMetrics = (
     cogsCents,
     grossProfitCents,
     grossMarginPct,
+    allocatedFixedExpensesCents,
+    fixedExpenseRatioPct,
+    operatingProfitCents,
+    operatingMarginPct,
     moneyIn,
     moneyOut,
     net,
@@ -65,6 +81,10 @@ export const dashboardMetricsConsoleCheck = () => {
     cogsCents: 5600,
     grossProfitCents: 6400,
     grossMarginBps: 5333,
+    allocatedFixedExpensesCents: 900,
+    fixedExpenseRatioBps: 750,
+    operatingProfitCents: 5500,
+    operatingMarginBps: 4583,
     costingStatus: "COMPLETE" as const,
     costingWarnings: null,
     notes: "",
@@ -101,6 +121,18 @@ export const dashboardMetricsConsoleCheck = () => {
   console.log(
     "[dashboard-metrics.check] grossMarginPct:",
     `${metrics.grossMarginPct.toFixed(2)}%`,
+  );
+  console.log(
+    "[dashboard-metrics.check] fixedExpenses:",
+    formatMoney(metrics.allocatedFixedExpensesCents),
+  );
+  console.log(
+    "[dashboard-metrics.check] operatingProfit:",
+    formatMoney(metrics.operatingProfitCents),
+  );
+  console.log(
+    "[dashboard-metrics.check] operatingMarginPct:",
+    `${metrics.operatingMarginPct.toFixed(2)}%`,
   );
   console.log(
     "[dashboard-metrics.check] descuadre:",

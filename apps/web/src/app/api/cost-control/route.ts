@@ -3,13 +3,16 @@ import {
   createPurchase,
   createRawMaterial,
   createRecipeItem,
+  createFixedExpense,
   deletePurchase,
   deleteRawMaterial,
   deleteRecipeItem,
+  deleteFixedExpense,
   getCostControlData,
   updatePurchase,
   updateRawMaterial,
   updateRecipeItem,
+  updateFixedExpense,
 } from "@/lib/cost-control";
 
 export async function GET() {
@@ -50,6 +53,17 @@ export async function POST(request: NextRequest) {
         quantity: Number(body.quantity ?? 0),
         totalCostCents: Number(body.totalCostCents ?? 0),
         supplier: body.supplier ? String(body.supplier) : undefined,
+        notes: body.notes ? String(body.notes) : undefined,
+      });
+      return NextResponse.json({ ok: true }, { status: 201 });
+    }
+
+    if (entity === "fixedExpense") {
+      await createFixedExpense({
+        name: String(body.name ?? ""),
+        costCents: Number(body.costCents ?? 0),
+        renewalDays: Number(body.renewalDays ?? 0),
+        active: Boolean(body.active ?? true),
         notes: body.notes ? String(body.notes) : undefined,
       });
       return NextResponse.json({ ok: true }, { status: 201 });
@@ -109,6 +123,17 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
 
+    if (entity === "fixedExpense") {
+      await updateFixedExpense(id, {
+        name: String(body.name ?? ""),
+        costCents: Number(body.costCents ?? 0),
+        renewalDays: Number(body.renewalDays ?? 0),
+        active: Boolean(body.active ?? true),
+        notes: body.notes ? String(body.notes) : undefined,
+      });
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
     if (entity === "recipe") {
       await updateRecipeItem(id, {
         productId: String(body.productId ?? ""),
@@ -149,6 +174,11 @@ export async function DELETE(request: NextRequest) {
 
     if (entity === "purchase") {
       await deletePurchase(id);
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
+
+    if (entity === "fixedExpense") {
+      await deleteFixedExpense(id);
       return NextResponse.json({ ok: true }, { status: 200 });
     }
 

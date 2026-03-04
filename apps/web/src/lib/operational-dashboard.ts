@@ -27,6 +27,10 @@ const DASHBOARD_QUERY = `
       cogsCents
       grossProfitCents
       grossMarginBps
+      allocatedFixedExpensesCents
+      fixedExpenseRatioBps
+      operatingProfitCents
+      operatingMarginBps
       costingStatus
       costingWarnings
       notes

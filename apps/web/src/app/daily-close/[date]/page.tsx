@@ -55,6 +55,22 @@ export default async function DailyCloseDetailPage({
           title="Gross Margin"
           value={`${(close.grossMarginBps / 100).toFixed(2)}%`}
         />
+        <MetricCard
+          title="Fixed Expenses"
+          value={toMoney(close.allocatedFixedExpensesCents)}
+        />
+        <MetricCard
+          title="Fixed Expense Ratio"
+          value={`${(close.fixedExpenseRatioBps / 100).toFixed(2)}%`}
+        />
+        <MetricCard
+          title="Operating Profit"
+          value={toMoney(close.operatingProfitCents)}
+        />
+        <MetricCard
+          title="Operating Margin"
+          value={`${(close.operatingMarginBps / 100).toFixed(2)}%`}
+        />
         <MetricCard title="Money In" value={toMoney(moneyIn)} />
         <MetricCard title="Money Out" value={toMoney(moneyOut)} />
         <MetricCard title="Net" value={toMoney(moneyIn - moneyOut)} />

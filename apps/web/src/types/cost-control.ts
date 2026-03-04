@@ -42,9 +42,21 @@ export type ProductRecipeItemRecord = {
   wastePct: number;
 };
 
+export type FixedOperatingExpenseRecord = {
+  id: string;
+  name: string;
+  costCents: number;
+  renewalDays: number;
+  active: boolean;
+  notes: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type CostControlPayload = {
   rawMaterials: RawMaterialRecord[];
   purchases: RawMaterialPurchaseRecord[];
   recipeItems: ProductRecipeItemRecord[];
+  fixedExpenses: FixedOperatingExpenseRecord[];
   products: ProductOption[];
 };
