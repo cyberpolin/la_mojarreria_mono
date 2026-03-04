@@ -1,0 +1,65 @@
+{
+  "engines": {
+    "node": "20.19.4"
+  },
+  "name": "@mojarreria/api",
+  "version": "1.0.3",
+  "private": true,
+  "overrides": {
+    "next": "^14.2.35"
+  },
+  "scripts": {
+    "postinstall": "npm run prisma:ensure-client",
+    "normalize:deps": "bash ./scripts/normalize-deps.sh",
+    "prisma:ensure-client": "bash ./scripts/ensure-prisma-client.sh",
+    "prisma:generate": "env -u DATABASE_URL -u SHADOW_DATABASE_URL npx prisma generate --schema=./schema.prisma",
+    "prisma:push:dev": "env -u DATABASE_URL -u SHADOW_DATABASE_URL npx prisma db push --accept-data-loss --schema=./schema.prisma",
+    "migrate:dev:reset": "env -u DATABASE_URL -u SHADOW_DATABASE_URL npx prisma migrate reset --force --schema=./schema.prisma && npm run prisma:generate",
+    "migrate:dev": "env -u DATABASE_URL -u SHADOW_DATABASE_URL npx prisma migrate dev --schema=./schema.prisma && npm run prisma:generate",
+    "migrate:dev:repair": "env -u DATABASE_URL -u SHADOW_DATABASE_URL npx prisma migrate diff --from-migrations ./migrations --to-schema-datasource ./schema.prisma --shadow-database-url \"$SHADOW_DATABASE_URL\"",
+    "migrate:prod": "npx prisma migrate deploy --schema=./schema.prisma",
+    "start:prod": "npm run migrate:prod && ./node_modules/.bin/keystone start",
+    "build:prod": "npm run build && npm run start:prod",
+    "local-dev": "npx concurrently \"npm run ssl\" \"npm run dev\"",
+    "ssl": "npx local-ssl-proxy --key local.api.crm.lamojarreria.com-key.pem --cert local.api.crm.lamojarreria.com.pem --source 9000 --target 3000",
+    "dev": "npm run normalize:deps && npm run prisma:ensure-client && npm run prisma:push:dev && env -u DATABASE_URL -u SHADOW_DATABASE_URL NODE_ENV=development PORT=3000 ./node_modules/.bin/keystone dev",
+    "start": "npm run normalize:deps && npm run prisma:ensure-client && NODE_ENV=production PORT=3000 ./node_modules/.bin/keystone start",
+    "build:dev": "npm run normalize:deps && npm run prisma:ensure-client && env -u DATABASE_URL -u SHADOW_DATABASE_URL ./node_modules/.bin/keystone build",
+    "build": "npm run normalize:deps && npm run prisma:ensure-client && env -u DATABASE_URL -u SHADOW_DATABASE_URL ./node_modules/.bin/keystone build",
+    "seed:dev": "bash ./scripts/run-seed-dev.sh",
+    "seed:prod": "bash ./scripts/run-seed-prod.sh",
+    "seed": "bash ./scripts/run-seed.sh",
+    "seed:products": "bash ./scripts/run-seed-products.sh",
+    "seed:sync-logs": "node ./scripts/seed-sync-logs.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'No lint configured yet for @mojarreria/api'",
+    "test": "echo 'No tests configured yet for @mojarreria/api'"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@keystone-6/auth": "^8.0.0",
+    "@keystone-6/cloudinary": "^8.0.0",
+    "@keystone-6/core": "^6.5.1",
+    "@keystone-6/fields-document": "^9.0.0",
+    "@prisma/client": "5.22",
+    "@sentry/node": "^9.29.0",
+    "@whiskeysockets/baileys": "^6.7.17",
+    "axios": "^1.8.4",
+    "baileys": "^6.7.17",
+    "bcryptjs": "^2.4.3",
+    "express": "^5.1.0",
+    "node-cron": "^4.2.1",
+    "prisma": "5.22",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "typescript": "^5.5.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11",
+    "@types/qrcode": "^1.5.5",
+    "@types/qrcode-terminal": "^0.12.2",
+    "date-fns": "^4.1.0",
+    "typescript": "^5.5.0"
+  }
+}

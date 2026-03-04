@@ -1,0 +1,10 @@
+node_modules
+auth_info/
+.keystone/
+keystone.db
+*.log
+.env*
+.nvmrc
+*.DS_STORE
+
+/lib/generated/prisma
