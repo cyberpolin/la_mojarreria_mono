@@ -25,7 +25,7 @@ export const clearSessionCookie = () => {
 
 export const getSessionToken = () => cookies().get(SESSION_COOKIE)?.value;
 
-export const buildAuthHeaders = () => {
+export const buildAuthHeaders = (): Record<string, string> => {
   const token = getSessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
