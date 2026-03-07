@@ -188,6 +188,10 @@ type DailyClose {
   cogsCents: Int
   grossProfitCents: Int
   grossMarginBps: Int
+  allocatedFixedExpensesCents: Int
+  fixedExpenseRatioBps: Int
+  operatingProfitCents: Int
+  operatingMarginBps: Int
   costingWarnings: JSON
   costingStatus: String
   notes: String
@@ -229,6 +233,10 @@ input DailyCloseWhereInput {
   cogsCents: IntFilter
   grossProfitCents: IntFilter
   grossMarginBps: IntFilter
+  allocatedFixedExpensesCents: IntFilter
+  fixedExpenseRatioBps: IntFilter
+  operatingProfitCents: IntFilter
+  operatingMarginBps: IntFilter
   costingStatus: StringFilter
   notes: StringFilter
   status: StringFilter
@@ -269,6 +277,10 @@ input DailyCloseOrderByInput {
   cogsCents: OrderDirection
   grossProfitCents: OrderDirection
   grossMarginBps: OrderDirection
+  allocatedFixedExpensesCents: OrderDirection
+  fixedExpenseRatioBps: OrderDirection
+  operatingProfitCents: OrderDirection
+  operatingMarginBps: OrderDirection
   costingStatus: OrderDirection
   notes: OrderDirection
   status: OrderDirection
@@ -288,6 +300,10 @@ input DailyCloseUpdateInput {
   cogsCents: Int
   grossProfitCents: Int
   grossMarginBps: Int
+  allocatedFixedExpensesCents: Int
+  fixedExpenseRatioBps: Int
+  operatingProfitCents: Int
+  operatingMarginBps: Int
   costingWarnings: JSON
   costingStatus: String
   notes: String
@@ -335,6 +351,10 @@ input DailyCloseCreateInput {
   cogsCents: Int
   grossProfitCents: Int
   grossMarginBps: Int
+  allocatedFixedExpensesCents: Int
+  fixedExpenseRatioBps: Int
+  operatingProfitCents: Int
+  operatingMarginBps: Int
   costingWarnings: JSON
   costingStatus: String
   notes: String
@@ -750,6 +770,72 @@ input ProductRecipeItemCreateInput {
 input ProductRelateToOneForCreateInput {
   create: ProductCreateInput
   connect: ProductWhereUniqueInput
+}
+
+type FixedOperatingExpense {
+  id: ID!
+  name: String
+  costCents: Int
+  renewalDays: Int
+  active: Boolean
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input FixedOperatingExpenseWhereUniqueInput {
+  id: ID
+  name: String
+}
+
+input FixedOperatingExpenseWhereInput {
+  AND: [FixedOperatingExpenseWhereInput!]
+  OR: [FixedOperatingExpenseWhereInput!]
+  NOT: [FixedOperatingExpenseWhereInput!]
+  id: IDFilter
+  name: StringFilter
+  costCents: IntFilter
+  renewalDays: IntFilter
+  active: BooleanFilter
+  notes: StringFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input FixedOperatingExpenseOrderByInput {
+  id: OrderDirection
+  name: OrderDirection
+  costCents: OrderDirection
+  renewalDays: OrderDirection
+  active: OrderDirection
+  notes: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input FixedOperatingExpenseUpdateInput {
+  name: String
+  costCents: Int
+  renewalDays: Int
+  active: Boolean
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input FixedOperatingExpenseUpdateArgs {
+  where: FixedOperatingExpenseWhereUniqueInput!
+  data: FixedOperatingExpenseUpdateInput!
+}
+
+input FixedOperatingExpenseCreateInput {
+  name: String
+  costCents: Int
+  renewalDays: Int
+  active: Boolean
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
 }
 
 type EmployeeSchedule {
@@ -2022,6 +2108,25 @@ type Mutation {
   deleteProductRecipeItems(
     where: [ProductRecipeItemWhereUniqueInput!]!
   ): [ProductRecipeItem]
+  createFixedOperatingExpense(
+    data: FixedOperatingExpenseCreateInput!
+  ): FixedOperatingExpense
+  createFixedOperatingExpenses(
+    data: [FixedOperatingExpenseCreateInput!]!
+  ): [FixedOperatingExpense]
+  updateFixedOperatingExpense(
+    where: FixedOperatingExpenseWhereUniqueInput!
+    data: FixedOperatingExpenseUpdateInput!
+  ): FixedOperatingExpense
+  updateFixedOperatingExpenses(
+    data: [FixedOperatingExpenseUpdateArgs!]!
+  ): [FixedOperatingExpense]
+  deleteFixedOperatingExpense(
+    where: FixedOperatingExpenseWhereUniqueInput!
+  ): FixedOperatingExpense
+  deleteFixedOperatingExpenses(
+    where: [FixedOperatingExpenseWhereUniqueInput!]!
+  ): [FixedOperatingExpense]
   createEmployeeSchedule(data: EmployeeScheduleCreateInput!): EmployeeSchedule
   createEmployeeSchedules(
     data: [EmployeeScheduleCreateInput!]!
@@ -2235,6 +2340,17 @@ type Query {
     cursor: ProductRecipeItemWhereUniqueInput
   ): [ProductRecipeItem!]
   productRecipeItemsCount(where: ProductRecipeItemWhereInput! = {}): Int
+  fixedOperatingExpense(
+    where: FixedOperatingExpenseWhereUniqueInput!
+  ): FixedOperatingExpense
+  fixedOperatingExpenses(
+    where: FixedOperatingExpenseWhereInput! = {}
+    orderBy: [FixedOperatingExpenseOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: FixedOperatingExpenseWhereUniqueInput
+  ): [FixedOperatingExpense!]
+  fixedOperatingExpensesCount(where: FixedOperatingExpenseWhereInput! = {}): Int
   employeeSchedule(where: EmployeeScheduleWhereUniqueInput!): EmployeeSchedule
   employeeSchedules(
     where: EmployeeScheduleWhereInput! = {}
@@ -2541,6 +2657,10 @@ type DailyCloseDashboard {
   cogsCents: Int!
   grossProfitCents: Int!
   grossMarginBps: Int!
+  allocatedFixedExpensesCents: Int!
+  fixedExpenseRatioBps: Int!
+  operatingProfitCents: Int!
+  operatingMarginBps: Int!
   costingStatus: String!
   costingWarnings: JSON
   notes: String!

@@ -28,29 +28,33 @@ model DailyCloseRaw {
 }
 
 model DailyClose {
-  id                    String           @id @default(uuid()) @postgresql.Uuid
-  deviceId              String           @unique @default("")
-  date                  String           @unique @default("")
-  cashReceived          Int              @default(0)
-  bankTransfersReceived Int              @default(0)
-  deliveryCashPaid      Int              @default(0)
-  otherCashExpenses     Int              @default(0)
-  expectedTotal         Int              @default(0)
-  totalFromItems        Int              @default(0)
-  cogsCents             Int              @default(0)
-  grossProfitCents      Int              @default(0)
-  grossMarginBps        Int              @default(0)
-  costingWarnings       Json?
-  costingStatus         String           @default("PENDING")
-  notes                 String           @default("")
-  status                String           @default("ACTIVE")
-  items                 DailyCloseItem[] @relation("DailyCloseItem_close")
-  sourceRaw             DailyCloseRaw?   @relation("DailyClose_sourceRaw", fields: [sourceRawId], references: [id])
-  sourceRawId           String?          @unique @map("sourceRaw") @postgresql.Uuid
-  closedBy              User?            @relation("DailyClose_closedBy", fields: [closedById], references: [id])
-  closedById            String?          @map("closedBy") @postgresql.Uuid
-  createdAt             DateTime?        @default(now())
-  updatedAt             DateTime?        @updatedAt
+  id                          String           @id @default(uuid()) @postgresql.Uuid
+  deviceId                    String           @unique @default("")
+  date                        String           @unique @default("")
+  cashReceived                Int              @default(0)
+  bankTransfersReceived       Int              @default(0)
+  deliveryCashPaid            Int              @default(0)
+  otherCashExpenses           Int              @default(0)
+  expectedTotal               Int              @default(0)
+  totalFromItems              Int              @default(0)
+  cogsCents                   Int              @default(0)
+  grossProfitCents            Int              @default(0)
+  grossMarginBps              Int              @default(0)
+  allocatedFixedExpensesCents Int              @default(0)
+  fixedExpenseRatioBps        Int              @default(0)
+  operatingProfitCents        Int              @default(0)
+  operatingMarginBps          Int              @default(0)
+  costingWarnings             Json?
+  costingStatus               String           @default("PENDING")
+  notes                       String           @default("")
+  status                      String           @default("ACTIVE")
+  items                       DailyCloseItem[] @relation("DailyCloseItem_close")
+  sourceRaw                   DailyCloseRaw?   @relation("DailyClose_sourceRaw", fields: [sourceRawId], references: [id])
+  sourceRawId                 String?          @unique @map("sourceRaw") @postgresql.Uuid
+  closedBy                    User?            @relation("DailyClose_closedBy", fields: [closedById], references: [id])
+  closedById                  String?          @map("closedBy") @postgresql.Uuid
+  createdAt                   DateTime?        @default(now())
+  updatedAt                   DateTime?        @updatedAt
 
   @@index([closedById])
 }
@@ -119,6 +123,17 @@ model ProductRecipeItem {
 
   @@index([productId])
   @@index([rawMaterialId])
+}
+
+model FixedOperatingExpense {
+  id          String    @id @default(uuid()) @postgresql.Uuid
+  name        String    @unique @default("")
+  costCents   Int       @default(0)
+  renewalDays Int       @default(30)
+  active      Boolean   @default(true)
+  notes       String    @default("")
+  createdAt   DateTime? @default(now())
+  updatedAt   DateTime? @updatedAt
 }
 
 model EmployeeSchedule {
