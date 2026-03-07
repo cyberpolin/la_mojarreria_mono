@@ -3,6 +3,7 @@ import {
   ErrorLogFilters,
   ErrorLogResult,
 } from "@/types/error-log";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -87,7 +88,7 @@ export const getErrorLogs = async (
   try {
     const res = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
       body: JSON.stringify({
         query: GRAPHQL_QUERY,
         variables: {

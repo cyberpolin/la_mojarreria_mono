@@ -1,4 +1,5 @@
 import { ProductCreateInput, ProductRecord } from "@/types/product";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
 
 type GraphQLResponse<T> = {
   data?: T;
@@ -43,7 +44,7 @@ const CREATE_PRODUCT_MUTATION = `
 async function execute<T>(query: string, variables?: Record<string, unknown>) {
   const response = await fetch(getEndpoint(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
     body: JSON.stringify({ query, variables }),
     cache: "no-store",
   });

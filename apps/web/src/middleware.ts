@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, getExpectedSessionToken } from "@/lib/web-auth";
+import { SESSION_COOKIE } from "@/lib/web-auth";
 
-const PUBLIC_PATHS = ["/login", "/favicon.ico", "/robots.txt", "/sitemap.xml"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/logout",
+  "/favicon.ico",
+  "/robots.txt",
+  "/sitemap.xml",
+];
 
 const isPublicPath = (pathname: string) =>
   PUBLIC_PATHS.some((path) => pathname.startsWith(path)) ||
@@ -14,9 +20,8 @@ export function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  const expected = getExpectedSessionToken();
 
-  if (token && token === expected) {
+  if (token) {
     return NextResponse.next();
   }
 

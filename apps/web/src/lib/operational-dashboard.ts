@@ -6,6 +6,7 @@ import {
   SyncStatusInfo,
   WeeklyProductBaseline,
 } from "@/types/dashboard";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
 
 type GraphQLResponse<T> = {
   data?: T;
@@ -107,7 +108,7 @@ export const fetchDashboardPayload = async ({
   const endpoint = getEndpoint();
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
     body: JSON.stringify({
       query: DASHBOARD_QUERY,
       variables: { date, recentDays, baselineDays },

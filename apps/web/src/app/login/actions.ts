@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { validateCredentials } from "@/lib/web-auth";
+import { getGraphqlEndpoint } from "@/lib/web-auth";
 import { clearSessionCookie, setSessionCookie } from "@/lib/web-auth.server";
 
 type LoginState = {
@@ -19,11 +19,73 @@ export async function loginAction(
     return { error: "Email and password are required." };
   }
 
-  if (!validateCredentials(email, password)) {
+  const response = await fetch(getGraphqlEndpoint(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: `
+        mutation Authenticate($email: String!, $password: String!) {
+          authenticateAuthWithPassword(email: $email, password: $password) {
+            ... on AuthAuthenticationWithPasswordSuccess {
+              sessionToken
+              item {
+                id
+                email
+                user {
+                  id
+                  name
+                  role
+                }
+              }
+            }
+            ... on AuthAuthenticationWithPasswordFailure {
+              message
+            }
+          }
+        }
+      `,
+      variables: { email, password },
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
     clearSessionCookie();
-    return { error: "Invalid credentials." };
+    return { error: "Login failed. Please try again." };
   }
 
-  setSessionCookie();
+  const payload = (await response.json()) as {
+    data?: {
+      authenticateAuthWithPassword:
+        | {
+            sessionToken: string;
+            item: {
+              email: string;
+              user?: { id: string; name?: string | null; role?: string | null };
+            };
+          }
+        | { message?: string };
+    };
+    errors?: Array<{ message?: string }>;
+  };
+
+  if (payload.errors?.length) {
+    clearSessionCookie();
+    return { error: payload.errors[0]?.message ?? "Login failed." };
+  }
+
+  const result = payload.data?.authenticateAuthWithPassword;
+  if (!result || "message" in result || !result.sessionToken) {
+    clearSessionCookie();
+    return { error: result?.message ?? "Invalid credentials." };
+  }
+
+  const role = result.item.user?.role ?? "";
+  if (role !== "ADMIN") {
+    clearSessionCookie();
+    return { error: "Access denied." };
+  }
+
+  setSessionCookie(result.sessionToken);
   redirect("/");
 }

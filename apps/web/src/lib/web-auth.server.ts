@@ -1,8 +1,7 @@
 import { cookies } from "next/headers";
-import { getExpectedSessionToken, SESSION_COOKIE } from "./web-auth";
+import { SESSION_COOKIE } from "./web-auth";
 
-export const setSessionCookie = () => {
-  const token = getExpectedSessionToken();
+export const setSessionCookie = (token: string) => {
   const store = cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -22,4 +21,11 @@ export const clearSessionCookie = () => {
     path: "/",
     maxAge: 0,
   });
+};
+
+export const getSessionToken = () => cookies().get(SESSION_COOKIE)?.value;
+
+export const buildAuthHeaders = () => {
+  const token = getSessionToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };

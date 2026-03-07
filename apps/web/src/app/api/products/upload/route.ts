@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
 
 const getApiBaseUrl = () => {
   const graphqlUrl =
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
       `${getApiBaseUrl()}/rest/uploads/product-image`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
         body: JSON.stringify(body),
         cache: "no-store",
       },

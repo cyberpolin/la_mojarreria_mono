@@ -4,6 +4,7 @@ import {
   TeamEmployeeRecord,
   TeamScheduleRecord,
 } from "@/types/team-control";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
 
 type GraphQLResponse<T> = {
   data?: T;
@@ -29,7 +30,7 @@ async function execute<T>(query: string, variables?: Record<string, unknown>) {
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
         body: requestBody,
         cache: "no-store",
       });

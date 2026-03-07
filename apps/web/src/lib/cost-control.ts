@@ -6,6 +6,7 @@ import {
   RawMaterialPurchaseRecord,
   RawMaterialRecord,
 } from "@/types/cost-control";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
 
 type GraphQLResponse<T> = {
   data?: T;
@@ -20,7 +21,7 @@ const getEndpoint = () =>
 async function execute<T>(query: string, variables?: Record<string, unknown>) {
   const response = await fetch(getEndpoint(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
     body: JSON.stringify({ query, variables }),
     cache: "no-store",
   });
