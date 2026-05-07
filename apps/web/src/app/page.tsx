@@ -20,6 +20,18 @@ export default function HomePage() {
           </a>
           <a
             className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            href="/onboarding"
+          >
+            Start Owner Onboarding
+          </a>
+          <a
+            className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            href="/admin/owner-onboarding"
+          >
+            Run Admin Owner Onboarding
+          </a>
+          <a
+            className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
             href="/ui-system"
           >
             Open UI System
@@ -59,6 +71,12 @@ export default function HomePage() {
             href="/weekly"
           >
             Open Weekly Summary
+          </a>
+          <a
+            className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            href="/logout"
+          >
+            Logout
           </a>
         </div>
       </section>

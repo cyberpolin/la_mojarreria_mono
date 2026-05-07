@@ -4,6 +4,10 @@ import { SESSION_COOKIE } from "@/lib/web-auth";
 const PUBLIC_PATHS = [
   "/login",
   "/logout",
+  "/onboarding",
+  "/papas-gratis",
+  "/api/restaurant",
+  "/api/restaurant/logo",
   "/favicon.ico",
   "/robots.txt",
   "/sitemap.xml",

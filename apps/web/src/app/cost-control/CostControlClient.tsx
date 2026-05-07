@@ -173,7 +173,7 @@ export default function CostControlClient() {
   >([{ rawMaterialId: "", qtyPerProduct: "0.100", wastePct: "0" }]);
   const [teamFullName, setTeamFullName] = useState("");
   const [teamRole, setTeamRole] = useState<
-    "COOK" | "ASSISTANT" | "DELIVERY" | "ADMIN"
+    "COOK" | "ASSISTANT" | "DELIVERY" | "OWNER" | "ADMIN"
   >("COOK");
   const [teamActive, setTeamActive] = useState(true);
   const [teamPhoneOrUsername, setTeamPhoneOrUsername] = useState("");
@@ -1191,7 +1191,8 @@ export default function CostControlClient() {
                           | "COOK"
                           | "ASSISTANT"
                           | "DELIVERY"
-                          | "ADMIN",
+                          | "ADMIN"
+                          | "OWNER",
                       )
                     }
                     className="h-10 rounded border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100"
@@ -1199,6 +1200,7 @@ export default function CostControlClient() {
                     <option value="COOK">Cook</option>
                     <option value="ASSISTANT">Assistant</option>
                     <option value="DELIVERY">Delivery</option>
+                    <option value="OWNER">Owner</option>
                     <option value="ADMIN">Admin</option>
                   </select>
                 </label>

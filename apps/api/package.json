@@ -29,6 +29,7 @@
     "seed:dev": "bash ./scripts/run-seed-dev.sh",
     "seed:prod": "bash ./scripts/run-seed-prod.sh",
     "seed": "bash ./scripts/run-seed.sh",
+    "reset:local:prod-seed": "bash ./scripts/reset-local-prod-seed.sh",
     "seed:products": "bash ./scripts/run-seed-products.sh",
     "seed:sync-logs": "node ./scripts/seed-sync-logs.js",
     "typecheck": "tsc --noEmit",

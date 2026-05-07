@@ -81,11 +81,57 @@ export async function loginAction(
   }
 
   const role = result.item.user?.role ?? "";
-  if (role !== "ADMIN") {
+  if (role !== "ADMIN" && role !== "OWNER") {
     clearSessionCookie();
     return { error: "Access denied." };
   }
 
+  const bootstrapQuery = `
+    query BootstrapState {
+      restaurants(orderBy: [{ createdAt: desc }], take: 1) {
+        name
+      }
+      users(where: { role: { equals: "OWNER" } }, take: 1) {
+        id
+      }
+    }
+  `;
+
+  let ownerExists = false;
+  let restaurantReady = false;
+  try {
+    const bootstrapResponse = await fetch(getGraphqlEndpoint(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: bootstrapQuery }),
+      cache: "no-store",
+    });
+    if (bootstrapResponse.ok) {
+      const payload = (await bootstrapResponse.json()) as {
+        data?: {
+          users?: Array<{ id: string }>;
+          restaurants?: Array<{ name?: string | null }>;
+        };
+      };
+      ownerExists = Boolean(payload.data?.users?.length);
+      restaurantReady = Boolean(payload.data?.restaurants?.[0]?.name?.trim());
+    }
+  } catch {
+    // fall back to defaults
+  }
+
   setSessionCookie(result.sessionToken);
-  redirect("/");
+
+  if (role === "ADMIN") {
+    if (!ownerExists) {
+      redirect("/admin/owner-onboarding");
+    }
+    redirect("/dashboard");
+  }
+
+  if (!restaurantReady) {
+    redirect("/onboarding");
+  }
+
+  redirect("/dashboard");
 }

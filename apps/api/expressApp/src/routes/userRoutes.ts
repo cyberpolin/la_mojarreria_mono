@@ -6,6 +6,7 @@ import {
   getUserOrders,
   getUserChats,
   createUser,
+  createPromoUser,
 } from "../controllers/userController";
 import { routeFactory } from "../utils/withCtx";
 
@@ -16,4 +17,5 @@ export default (app: Express, commonContext: Context) => {
   router.get("/users/:id/orders", getUserOrders);
   router.get("/users/:id/chats", getUserChats);
   router.post("/users", createUser);
+  router.post("/users/promo", createPromoUser);
 };

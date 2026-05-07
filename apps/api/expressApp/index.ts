@@ -6,6 +6,7 @@ import registerOrderRoutes from "./src/routes/orderRoutes";
 import registerWhatsAppRoutes from "./src/routes/whatsAppRoutes";
 import registerDailyClosesRoutes from "./src/routes/dailyClosesRoutes";
 import registerProductUploadRoutes from "./src/routes/productUploadRoutes";
+import registerRestaurantUploadRoutes from "./src/routes/restaurantUploadRoutes";
 import express from "express";
 import { Express } from "express";
 
@@ -36,13 +37,13 @@ export default async (app: Express, commonContext: Context) => {
   registerOrderRoutes(router, commonContext);
   registerWhatsAppRoutes(router, commonContext);
   if (!isBuildCommand) {
-    const { default: registerBaileysRoutes } = await import(
-      "./src/routes/baileysRoutes"
-    );
+    const { default: registerBaileysRoutes } =
+      await import("./src/routes/baileysRoutes");
     registerBaileysRoutes(router, commonContext);
   }
   registerDailyClosesRoutes(router, commonContext);
   registerProductUploadRoutes(router, commonContext);
+  registerRestaurantUploadRoutes(router, commonContext);
 
   app.use("/rest", router);
 };

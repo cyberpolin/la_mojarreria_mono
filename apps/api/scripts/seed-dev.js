@@ -9,6 +9,15 @@ const SUPERADMIN_USER_ID = "11111111-1111-4111-8111-111111111111";
 const SUPERADMIN_NAME = "Super Admin";
 const SUPERADMIN_PHONE = "521999999999";
 const SUPERADMIN_PIN = process.env.SUPERADMIN_PIN || "1234";
+const RESTAURANT_SEED = {
+  name: "La Mojarreria",
+  description: "Mariscos frescos y recetas familiares.",
+  logo: {
+    publicId: "seed/restaurant/logo",
+    secureUrl:
+      "https://res.cloudinary.com/demo/image/upload/v1/samples/food/fish-vegetables.jpg",
+  },
+};
 
 const PRODUCT_SEEDS = [
   {
@@ -154,6 +163,19 @@ async function seedSuperAdmin() {
       pin: SUPERADMIN_PIN,
     },
   });
+}
+
+async function seedRestaurant() {
+  const existing = await prisma.restaurant.findFirst();
+  if (existing) {
+    await prisma.restaurant.update({
+      where: { id: existing.id },
+      data: RESTAURANT_SEED,
+    });
+    return;
+  }
+
+  await prisma.restaurant.create({ data: RESTAURANT_SEED });
 }
 
 async function seedDailyCloseRaw() {
@@ -700,6 +722,7 @@ async function seedTeamControl() {
 
 async function main() {
   await seedSuperAdmin();
+  await seedRestaurant();
   await seedProducts();
   await seedCostCatalog();
   await seedFixedExpenses();

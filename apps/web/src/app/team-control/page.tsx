@@ -6,7 +6,13 @@ import { AppCard } from "@/components/ui/card";
 import { TeamControlPayload, TeamRole } from "@/types/team-control";
 
 const dayOptions = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-const roleOptions: TeamRole[] = ["COOK", "ASSISTANT", "DELIVERY", "ADMIN"];
+const roleOptions: TeamRole[] = [
+  "COOK",
+  "ASSISTANT",
+  "DELIVERY",
+  "OWNER",
+  "ADMIN",
+];
 
 export default function TeamControlPage() {
   const [data, setData] = useState<TeamControlPayload | null>(null);

@@ -2,6 +2,7 @@ export type TeamRole =
   | "COOK"
   | "ASSISTANT"
   | "DELIVERY"
+  | "OWNER"
   | "ADMIN"
   | "AGENT"
   | "CLIENT";

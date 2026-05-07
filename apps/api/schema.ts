@@ -47,6 +47,7 @@ import { RawMaterialPurchase } from "./lists/RawMaterialPurchase";
 import { ProductRecipeItem } from "./lists/ProductRecipeItem";
 import { FixedOperatingExpense } from "./lists/FixedOperatingExpense";
 import { EmployeeSchedule } from "./lists/EmployeeSchedule";
+import { Restaurant } from "./lists/Restaurant";
 // Lists
 
 //This will prevent all graphql
@@ -83,6 +84,7 @@ export const lists = {
   ProductRecipeItem,
   FixedOperatingExpense,
   EmployeeSchedule,
+  Restaurant,
   Auth: list({
     fields: {
       email: text({ validation: { isRequired: true }, isIndexed: "unique" }),
@@ -127,6 +129,9 @@ export const lists = {
       name: text({ validation: { isRequired: true }, isIndexed: "unique" }),
       phone: text({ validation: { isRequired: true }, isIndexed: "unique" }),
       address: text({ validation: { isRequired: false } }),
+      latitude: float({ db: { isNullable: true } }),
+      longitude: float({ db: { isNullable: true } }),
+      receivedPromo: checkbox({ defaultValue: false }),
       createdAt: timestamp({ defaultValue: { kind: "now" } }),
       messages: relationship({ ref: "Message.user", many: true }),
       orders: relationship({ ref: "Order.client", many: true }),
@@ -142,6 +147,7 @@ export const lists = {
           { label: "delivery", value: "DELIVERY" },
           { label: "cook", value: "COOK" },
           { label: "assistant", value: "ASSISTANT" },
+          { label: "owner", value: "OWNER" },
           { label: "admin", value: "ADMIN" },
         ],
       }),
@@ -253,9 +259,8 @@ export const lists = {
                 );
                 return; // Si está en modo build, no envía el mensaje
               }
-              const { waClient } = await import(
-                "./expressApp/src/whatsAppServer/lib/WhatsAppInit"
-              );
+              const { waClient } =
+                await import("./expressApp/src/whatsAppServer/lib/WhatsAppInit");
               await waClient.sendText(
                 `${chat?.user?.phone}@s.whatsapp.net`,
                 item.content,

@@ -1,0 +1,62 @@
+import { NextRequest, NextResponse } from "next/server";
+import { buildAuthHeaders } from "@/lib/web-auth.server";
+
+const getApiBaseUrl = () => {
+  const graphqlUrl =
+    process.env.KEYSTONE_GRAPHQL_URL ??
+    process.env.NEXT_PUBLIC_KEYSTONE_GRAPHQL_URL ??
+    "http://localhost:3000/api/graphql";
+
+  try {
+    const url = new URL(graphqlUrl);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "http://localhost:3000";
+  }
+};
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json()) as {
+      dataUrl?: string;
+      restaurantName?: string;
+    };
+
+    if (!body.dataUrl || !body.restaurantName) {
+      return NextResponse.json(
+        { error: "dataUrl and restaurantName are required" },
+        { status: 400 },
+      );
+    }
+
+    const response = await fetch(
+      `${getApiBaseUrl()}/rest/uploads/restaurant-logo`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      },
+    );
+
+    const payload = (await response.json()) as {
+      image?: unknown;
+      error?: string;
+    };
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: payload.error ?? `Upload failed (${response.status})` },
+        { status: response.status },
+      );
+    }
+
+    return NextResponse.json(payload, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to upload logo",
+      },
+      { status: 500 },
+    );
+  }
+}

@@ -76,3 +76,89 @@ export const createUser = async (req: Request, res: Response, ctx: Context) => {
     res.status(500).json({ error: "Error al crear usuario" });
   }
 };
+
+// POST /users/promo
+export const createPromoUser = async (
+  req: Request,
+  res: Response,
+  ctx: Context,
+) => {
+  const { name, phone, latitude, longitude, address } = req.body;
+
+  if (!name || !phone) {
+    return res
+      .status(400)
+      .json({ error: "Faltan campos requeridos: name, phone" });
+  }
+
+  const latNum =
+    latitude !== undefined && latitude !== null && latitude !== ""
+      ? Number(latitude)
+      : null;
+  const lngNum =
+    longitude !== undefined && longitude !== null && longitude !== ""
+      ? Number(longitude)
+      : null;
+
+  if (
+    (latNum !== null && Number.isNaN(latNum)) ||
+    (lngNum !== null && Number.isNaN(lngNum))
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Latitude/longitude deben ser numéricos" });
+  }
+
+  try {
+    const existingUser = await ctx.prisma.user.findFirst({
+      where: {
+        OR: [{ phone }, { name }],
+      },
+    });
+
+    if (existingUser) {
+      // Si ya existe y no tiene promo, actualizar datos y marcar promo
+      if (!existingUser.receivedPromo) {
+        const updated = await ctx.prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            name,
+            phone,
+            address: address ?? "",
+            latitude: latNum,
+            longitude: lngNum,
+            receivedPromo: true,
+          },
+        });
+        return res
+          .status(200)
+          .json({ message: "ok", user: updated, updatedPromo: true });
+      }
+
+      // Si ya tiene promo, solo devolver ok
+      return res
+        .status(200)
+        .json({ message: "ok", user: existingUser, updatedPromo: false });
+    }
+
+    const user = await ctx.prisma.user.create({
+      data: {
+        name,
+        phone,
+        address: address ?? "",
+        latitude: latNum,
+        longitude: lngNum,
+        receivedPromo: true,
+      },
+    });
+
+    res.status(201).json(user);
+  } catch (err: any) {
+    if (err?.code === "P2002") {
+      return res
+        .status(409)
+        .json({ error: "El usuario ya existe con ese nombre o teléfono" });
+    }
+    res.status(500).json({ error: "Error al crear usuario" });
+  }
+};

@@ -906,6 +906,59 @@ input EmployeeScheduleCreateInput {
   updatedAt: DateTime
 }
 
+type Restaurant {
+  id: ID!
+  name: String
+  description: String
+  logo: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input RestaurantWhereUniqueInput {
+  id: ID
+}
+
+input RestaurantWhereInput {
+  AND: [RestaurantWhereInput!]
+  OR: [RestaurantWhereInput!]
+  NOT: [RestaurantWhereInput!]
+  id: IDFilter
+  name: StringFilter
+  description: StringFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input RestaurantOrderByInput {
+  id: OrderDirection
+  name: OrderDirection
+  description: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input RestaurantUpdateInput {
+  name: String
+  description: String
+  logo: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input RestaurantUpdateArgs {
+  where: RestaurantWhereUniqueInput!
+  data: RestaurantUpdateInput!
+}
+
+input RestaurantCreateInput {
+  name: String
+  description: String
+  logo: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 type Auth {
   id: ID!
   email: String
@@ -2144,6 +2197,15 @@ type Mutation {
   deleteEmployeeSchedules(
     where: [EmployeeScheduleWhereUniqueInput!]!
   ): [EmployeeSchedule]
+  createRestaurant(data: RestaurantCreateInput!): Restaurant
+  createRestaurants(data: [RestaurantCreateInput!]!): [Restaurant]
+  updateRestaurant(
+    where: RestaurantWhereUniqueInput!
+    data: RestaurantUpdateInput!
+  ): Restaurant
+  updateRestaurants(data: [RestaurantUpdateArgs!]!): [Restaurant]
+  deleteRestaurant(where: RestaurantWhereUniqueInput!): Restaurant
+  deleteRestaurants(where: [RestaurantWhereUniqueInput!]!): [Restaurant]
   createAuth(data: AuthCreateInput!): Auth
   createAuths(data: [AuthCreateInput!]!): [Auth]
   updateAuth(where: AuthWhereUniqueInput!, data: AuthUpdateInput!): Auth
@@ -2360,6 +2422,15 @@ type Query {
     cursor: EmployeeScheduleWhereUniqueInput
   ): [EmployeeSchedule!]
   employeeSchedulesCount(where: EmployeeScheduleWhereInput! = {}): Int
+  restaurant(where: RestaurantWhereUniqueInput!): Restaurant
+  restaurants(
+    where: RestaurantWhereInput! = {}
+    orderBy: [RestaurantOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: RestaurantWhereUniqueInput
+  ): [Restaurant!]
+  restaurantsCount(where: RestaurantWhereInput! = {}): Int
   auth(where: AuthWhereUniqueInput!): Auth
   auths(
     where: AuthWhereInput! = {}
