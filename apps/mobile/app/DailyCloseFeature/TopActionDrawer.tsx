@@ -60,6 +60,11 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
     navigation.navigate(Screens.CheckInOutScreen);
   };
 
+  const openActivePromos = () => {
+    onClose();
+    navigation.navigate(Screens.ActivePromosScreen);
+  };
+
   return (
     <View style={styles.overlay}>
       <Pressable style={styles.backdrop} onPress={onClose} />
@@ -81,6 +86,11 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
             icon="people-outline"
             label="Employees Assistant"
             onPress={openEmployeesAssistant}
+          />
+          <IconTile
+            icon="pricetag-outline"
+            label="Active Promos"
+            onPress={openActivePromos}
           />
           <IconTile icon="cube-outline" label="Inventario" onPress={onClose} />
           <IconTile

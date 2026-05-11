@@ -1079,6 +1079,9 @@ type User {
   name: String
   phone: String
   address: String
+  latitude: Float
+  longitude: Float
+  receivedPromo: Boolean
   createdAt: DateTime
   messages(
     where: MessageWhereInput! = {}
@@ -1134,6 +1137,9 @@ input UserWhereInput {
   name: StringFilter
   phone: StringFilter
   address: StringFilter
+  latitude: FloatNullableFilter
+  longitude: FloatNullableFilter
+  receivedPromo: BooleanFilter
   createdAt: DateTimeNullableFilter
   messages: MessageManyRelationFilter
   orders: OrderManyRelationFilter
@@ -1143,6 +1149,17 @@ input UserWhereInput {
   schedule: EmployeeScheduleWhereInput
   dailyCloses: DailyCloseManyRelationFilter
   active: BooleanFilter
+}
+
+input FloatNullableFilter {
+  equals: Float
+  in: [Float!]
+  notIn: [Float!]
+  lt: Float
+  lte: Float
+  gt: Float
+  gte: Float
+  not: FloatNullableFilter
 }
 
 input MessageManyRelationFilter {
@@ -1174,6 +1191,9 @@ input UserOrderByInput {
   name: OrderDirection
   phone: OrderDirection
   address: OrderDirection
+  latitude: OrderDirection
+  longitude: OrderDirection
+  receivedPromo: OrderDirection
   createdAt: OrderDirection
   role: OrderDirection
   active: OrderDirection
@@ -1183,6 +1203,9 @@ input UserUpdateInput {
   name: String
   phone: String
   address: String
+  latitude: Float
+  longitude: Float
+  receivedPromo: Boolean
   createdAt: DateTime
   messages: MessageRelateToManyForUpdateInput
   orders: OrderRelateToManyForUpdateInput
@@ -1243,6 +1266,9 @@ input UserCreateInput {
   name: String
   phone: String
   address: String
+  latitude: Float
+  longitude: Float
+  receivedPromo: Boolean
   createdAt: DateTime
   messages: MessageRelateToManyForCreateInput
   orders: OrderRelateToManyForCreateInput
@@ -1591,17 +1617,6 @@ input ProductWhereInput {
   stock: StockManyRelationFilter
   recipeItems: ProductRecipeItemManyRelationFilter
   timeProcess: StringNullableFilter
-}
-
-input FloatNullableFilter {
-  equals: Float
-  in: [Float!]
-  notIn: [Float!]
-  lt: Float
-  lte: Float
-  gt: Float
-  gte: Float
-  not: FloatNullableFilter
 }
 
 input StockManyRelationFilter {

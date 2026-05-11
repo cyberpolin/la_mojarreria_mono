@@ -56,6 +56,12 @@ export default function HomePage() {
           </a>
           <a
             className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            href="/active-promos"
+          >
+            Open Active Promotions
+          </a>
+          <a
+            className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
             href="/cost-control"
           >
             Open Cost Control

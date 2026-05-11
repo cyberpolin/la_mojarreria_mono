@@ -6,6 +6,8 @@ const PUBLIC_PATHS = [
   "/logout",
   "/onboarding",
   "/papas-gratis",
+  "/active-promos",
+  "/api/active-promos",
   "/api/restaurant",
   "/api/restaurant/logo",
   "/favicon.ico",

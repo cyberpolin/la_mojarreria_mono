@@ -393,12 +393,13 @@ export default function OnboardingPage() {
       if (!response.ok || !payload.restaurant) {
         throw new Error(payload.error ?? "Failed to save restaurant.");
       }
+      const restaurant = payload.restaurant;
       setState((prev) => ({
         ...prev,
         restaurant: {
-          name: payload.restaurant.name,
-          description: payload.restaurant.description ?? "",
-          logo: payload.restaurant.logo ?? null,
+          name: restaurant.name,
+          description: restaurant.description ?? "",
+          logo: restaurant.logo ?? null,
         },
       }));
       return true;

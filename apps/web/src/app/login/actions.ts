@@ -8,6 +8,26 @@ type LoginState = {
   error?: string;
 };
 
+type AuthSuccess = {
+  sessionToken: string;
+  item: {
+    email: string;
+    user?: { id: string; name?: string | null; role?: string | null };
+  };
+};
+
+type AuthFailure = { message?: string };
+
+const isAuthSuccess = (
+  result: AuthSuccess | AuthFailure | undefined,
+): result is AuthSuccess =>
+  Boolean(
+    result &&
+      "sessionToken" in result &&
+      typeof result.sessionToken === "string" &&
+      result.sessionToken,
+  );
+
 export async function loginAction(
   _prevState: LoginState,
   formData: FormData,
@@ -56,15 +76,7 @@ export async function loginAction(
 
   const payload = (await response.json()) as {
     data?: {
-      authenticateAuthWithPassword:
-        | {
-            sessionToken: string;
-            item: {
-              email: string;
-              user?: { id: string; name?: string | null; role?: string | null };
-            };
-          }
-        | { message?: string };
+      authenticateAuthWithPassword: AuthSuccess | AuthFailure;
     };
     errors?: Array<{ message?: string }>;
   };
@@ -75,9 +87,10 @@ export async function loginAction(
   }
 
   const result = payload.data?.authenticateAuthWithPassword;
-  if (!result || "message" in result || !result.sessionToken) {
+  if (!isAuthSuccess(result)) {
     clearSessionCookie();
-    return { error: result?.message ?? "Invalid credentials." };
+    const message = result && "message" in result ? result.message : undefined;
+    return { error: message ?? "Invalid credentials." };
   }
 
   const role = result.item.user?.role ?? "";

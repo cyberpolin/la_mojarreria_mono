@@ -9,6 +9,7 @@ export enum Screens {
   OutcomeReportScreen = "OutcomeReportScreen",
   IncomeOutputResumeScreen = "IncomeOutputResumeScreen",
   AllReportsScreen = "AllReportsScreen",
+  ActivePromosScreen = "ActivePromosScreen",
   EmployeeAssistantStep1Screen = "EmployeeAssistantStep1Screen",
   EmployeeAssistantStep2Screen = "EmployeeAssistantStep2Screen",
   EmployeeAssistantStep3Screen = "EmployeeAssistantStep3Screen",

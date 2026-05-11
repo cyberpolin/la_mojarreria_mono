@@ -181,22 +181,22 @@ model Auth {
 }
 
 model User {
-  id           String            @id @default(uuid()) @postgresql.Uuid
-  name         String            @unique @default("")
-  phone        String            @unique @default("")
-  address      String            @default("")
-  latitude     Float?
-  longitude    Float?
-  receivedPromo Boolean          @default(false)
-  createdAt    DateTime?         @default(now())
-  messages     Message[]         @relation("Message_user")
-  orders       Order[]           @relation("Order_client")
-  chatSessions ChatSession[]     @relation("ChatSession_user")
-  auth         Auth?             @relation("Auth_user")
-  role         String?
-  schedule     EmployeeSchedule? @relation("EmployeeSchedule_user")
-  dailyCloses  DailyClose[]      @relation("DailyClose_closedBy")
-  active       Boolean           @default(true)
+  id            String            @id @default(uuid()) @postgresql.Uuid
+  name          String            @unique @default("")
+  phone         String            @unique @default("")
+  address       String            @default("")
+  latitude      Float?
+  longitude     Float?
+  receivedPromo Boolean           @default(false)
+  createdAt     DateTime?         @default(now())
+  messages      Message[]         @relation("Message_user")
+  orders        Order[]           @relation("Order_client")
+  chatSessions  ChatSession[]     @relation("ChatSession_user")
+  auth          Auth?             @relation("Auth_user")
+  role          String?
+  schedule      EmployeeSchedule? @relation("EmployeeSchedule_user")
+  dailyCloses   DailyClose[]      @relation("DailyClose_closedBy")
+  active        Boolean           @default(true)
 }
 
 model Agent {

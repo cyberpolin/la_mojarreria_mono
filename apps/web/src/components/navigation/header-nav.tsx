@@ -10,6 +10,7 @@ const links = [
   { href: "/cost-control", label: "Cost Control" },
   { href: "/team-control", label: "Team Control" },
   { href: "/products", label: "Products" },
+  { href: "/active-promos", label: "Active Promos" },
   { href: "/sync-logs", label: "Sync Logs" },
   { href: "/admin/error-logs", label: "Error Logs" },
   { href: "/weekly", label: "Weekly" },

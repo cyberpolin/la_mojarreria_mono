@@ -45,6 +45,9 @@ DIM_SCREEN_VALUE="$(to_bool "${EXPO_PUBLIC_DIM_SCREEN:-false}")"
 DIM_TIMEOUT_VALUE="${EXPO_PUBLIC_DIM_TIMEOUT:-1}"
 DIM_TO_VALUE="${EXPO_PUBLIC_DIM_TO:-0.2}"
 API_URL_VALUE="${EXPO_PUBLIC_API_URL:-}"
+WA_API_BASE_URL_VALUE="${EXPO_PUBLIC_MOJARRERIA_WA_API_BASE_URL:-https://api.wa.lamojarreria.com}"
+WA_API_KEY_VALUE="${EXPO_PUBLIC_MOJARRERIA_WA_API_KEY:-}"
+WA_CLIENT_DOMAIN_VALUE="${EXPO_PUBLIC_MOJARRERIA_WA_CLIENT_DOMAIN:-lamojarreria.com}"
 QR_URL_VALUE="${EXPO_PUBLIC_QR_URL:-}"
 PIN_EMAIL_VALUE="${EXPO_PUBLIC_PIN_EMAIL:-}"
 BOOTSTRAP_TEAM_USER_ID_VALUE="${EXPO_PUBLIC_BOOTSTRAP_TEAM_USER_ID:-11111111-1111-4111-8111-111111111111}"
@@ -88,6 +91,9 @@ type AppConfig = {
     to: number;
   };
   apiUrl: string;
+  waApiBaseUrl: string;
+  waApiKey: string;
+  waClientDomain: string;
   qrUrl: string;
   pinEmail: string;
   bootstrapTeamUser: {
@@ -120,6 +126,9 @@ export const APP_CONFIG: AppConfig = {
     to: $DIM_TO_VALUE,
   },
   apiUrl: $(quote_ts "$API_URL_VALUE"),
+  waApiBaseUrl: $(quote_ts "$WA_API_BASE_URL_VALUE"),
+  waApiKey: $(quote_ts "$WA_API_KEY_VALUE"),
+  waClientDomain: $(quote_ts "$WA_CLIENT_DOMAIN_VALUE"),
   qrUrl: $(quote_ts "$QR_URL_VALUE"),
   pinEmail: $(quote_ts "$PIN_EMAIL_VALUE"),
   bootstrapTeamUser: {
