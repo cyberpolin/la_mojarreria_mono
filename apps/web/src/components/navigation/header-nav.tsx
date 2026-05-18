@@ -19,13 +19,27 @@ const links = [
   { href: "/ui-system", label: "UI System" },
 ];
 
+const productionLinks = new Set([
+  "/cost-control",
+  "/close-reports",
+  "/expenses",
+  "/weekly",
+]);
+
+const isLocalEnv =
+  process.env.NEXT_PUBLIC_ENV === "local" ||
+  (!process.env.NEXT_PUBLIC_ENV && process.env.NODE_ENV === "development");
+
 export function HeaderNav() {
   const router = useRouter();
   const pathname = usePathname();
+  const visibleLinks = isLocalEnv
+    ? links
+    : links.filter((link) => productionLinks.has(link.href));
 
   return (
     <nav className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-2 px-4 py-3 md:px-6">
-      {links.map((link) => (
+      {visibleLinks.map((link) => (
         <Link
           key={link.href}
           href={link.href}
