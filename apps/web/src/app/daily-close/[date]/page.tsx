@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { fetchDashboardPayload } from "@/lib/operational-dashboard";
+import { getExpensesByDate } from "@/lib/expenses";
 import { formatDailyCloseSummary } from "@/lib/daily-close-summary";
 import { CopySummaryButton } from "@/components/dashboard/copy-summary-button";
 import { AppCard, MetricCard } from "@/components/ui/card";
@@ -17,10 +18,20 @@ export default async function DailyCloseDetailPage({
     recentDays: 14,
     baselineDays: 14,
   }).catch(() => null);
+  const expensePayload = await getExpensesByDate({
+    date: params.date,
+    take: 100,
+  }).catch(() => ({ expenses: [] }));
 
   if (!data || !data.close) notFound();
 
   const close = data.close;
+  const expenses = expensePayload.expenses;
+  const expensesTotal = expenses.reduce(
+    (sum, expense) => sum + expense.amountCents,
+    0,
+  );
+  const roughEarnings = close.totalFromItems - expensesTotal;
   const moneyIn = close.cashReceived + close.bankTransfersReceived;
   const moneyOut = close.deliveryCashPaid + close.otherCashExpenses;
 
@@ -71,6 +82,8 @@ export default async function DailyCloseDetailPage({
           title="Operating Margin"
           value={`${(close.operatingMarginBps / 100).toFixed(2)}%`}
         />
+        <MetricCard title="Daily Expenses" value={toMoney(expensesTotal)} />
+        <MetricCard title="Rough Earnings" value={toMoney(roughEarnings)} />
         <MetricCard title="Money In" value={toMoney(moneyIn)} />
         <MetricCard title="Money Out" value={toMoney(moneyOut)} />
         <MetricCard title="Net" value={toMoney(moneyIn - moneyOut)} />
@@ -107,6 +120,62 @@ export default async function DailyCloseDetailPage({
               </tbody>
             </table>
           </div>
+        </AppCard>
+
+        <AppCard>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-slate-100">Expenses</h2>
+            <Link
+              href="/expenses"
+              className="text-xs text-slate-300 underline underline-offset-4 hover:text-slate-50"
+            >
+              Add expense
+            </Link>
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-xs uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="px-2 py-2 text-left">Concept</th>
+                  <th className="px-2 py-2 text-right">Amount</th>
+                  <th className="px-2 py-2 text-left">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {expenses.map((expense) => (
+                  <tr key={expense.id}>
+                    <td className="px-2 py-2 text-slate-100">
+                      {expense.concept}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-2 text-right text-slate-100">
+                      {toMoney(expense.amountCents)}
+                    </td>
+                    <td className="px-2 py-2 text-slate-300">
+                      {expense.notes || "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {expenses.length > 0 ? (
+                <tfoot>
+                  <tr className="border-t border-slate-700">
+                    <td className="px-2 py-2 font-medium text-slate-100">
+                      Total
+                    </td>
+                    <td className="px-2 py-2 text-right font-medium text-slate-100">
+                      {toMoney(expensesTotal)}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              ) : null}
+            </table>
+          </div>
+          {expenses.length === 0 ? (
+            <p className="mt-3 rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-400">
+              No expenses for this close date.
+            </p>
+          ) : null}
         </AppCard>
 
         <aside className="space-y-4">
