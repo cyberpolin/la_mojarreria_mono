@@ -46,6 +46,7 @@ import { RawMaterial } from "./lists/RawMaterial";
 import { RawMaterialPurchase } from "./lists/RawMaterialPurchase";
 import { ProductRecipeItem } from "./lists/ProductRecipeItem";
 import { FixedOperatingExpense } from "./lists/FixedOperatingExpense";
+import { DailyExpense } from "./lists/DailyExpense";
 import { EmployeeSchedule } from "./lists/EmployeeSchedule";
 import { Restaurant } from "./lists/Restaurant";
 // Lists
@@ -83,6 +84,7 @@ export const lists = {
   RawMaterialPurchase,
   ProductRecipeItem,
   FixedOperatingExpense,
+  DailyExpense,
   EmployeeSchedule,
   Restaurant,
   Auth: list({
@@ -259,8 +261,9 @@ export const lists = {
                 );
                 return; // Si está en modo build, no envía el mensaje
               }
-              const { waClient } =
-                await import("./expressApp/src/whatsAppServer/lib/WhatsAppInit");
+              const { waClient } = await import(
+                "./expressApp/src/whatsAppServer/lib/WhatsAppInit"
+              );
               await waClient.sendText(
                 `${chat?.user?.phone}@s.whatsapp.net`,
                 item.content,

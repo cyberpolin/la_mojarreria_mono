@@ -178,6 +178,31 @@ async function seedRestaurant() {
   await prisma.restaurant.create({ data: RESTAURANT_SEED });
 }
 
+async function seedDailyExpenses() {
+  await prisma.dailyExpense.deleteMany({
+    where: {
+      concept: { startsWith: "Seed " },
+    },
+  });
+
+  await prisma.dailyExpense.createMany({
+    data: [
+      {
+        date: "2026-02-24",
+        concept: "Seed ice purchase",
+        amountCents: 35000,
+        notes: "Development sample expense.",
+      },
+      {
+        date: "2026-02-25",
+        concept: "Seed cleaning supplies",
+        amountCents: 22000,
+        notes: "Development sample expense.",
+      },
+    ],
+  });
+}
+
 async function seedDailyCloseRaw() {
   await prisma.dailyCloseItem.deleteMany({
     where: {
@@ -730,6 +755,7 @@ async function main() {
   await seedProducts();
   await seedCostCatalog();
   await seedFixedExpenses();
+  await seedDailyExpenses();
   await seedDailyCloseRaw();
   await processRawToNormalizedClose();
   await seedSyncLogs();

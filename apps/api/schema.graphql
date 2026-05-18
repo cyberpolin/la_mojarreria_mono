@@ -836,6 +836,66 @@ input FixedOperatingExpenseCreateInput {
   updatedAt: DateTime
 }
 
+type DailyExpense {
+  id: ID!
+  date: String
+  concept: String
+  amountCents: Int
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input DailyExpenseWhereUniqueInput {
+  id: ID
+}
+
+input DailyExpenseWhereInput {
+  AND: [DailyExpenseWhereInput!]
+  OR: [DailyExpenseWhereInput!]
+  NOT: [DailyExpenseWhereInput!]
+  id: IDFilter
+  date: StringFilter
+  concept: StringFilter
+  amountCents: IntFilter
+  notes: StringFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input DailyExpenseOrderByInput {
+  id: OrderDirection
+  date: OrderDirection
+  concept: OrderDirection
+  amountCents: OrderDirection
+  notes: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input DailyExpenseUpdateInput {
+  date: String
+  concept: String
+  amountCents: Int
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input DailyExpenseUpdateArgs {
+  where: DailyExpenseWhereUniqueInput!
+  data: DailyExpenseUpdateInput!
+}
+
+input DailyExpenseCreateInput {
+  date: String
+  concept: String
+  amountCents: Int
+  notes: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 type EmployeeSchedule {
   id: ID!
   user: User
@@ -2193,6 +2253,15 @@ type Mutation {
   deleteFixedOperatingExpenses(
     where: [FixedOperatingExpenseWhereUniqueInput!]!
   ): [FixedOperatingExpense]
+  createDailyExpense(data: DailyExpenseCreateInput!): DailyExpense
+  createDailyExpenses(data: [DailyExpenseCreateInput!]!): [DailyExpense]
+  updateDailyExpense(
+    where: DailyExpenseWhereUniqueInput!
+    data: DailyExpenseUpdateInput!
+  ): DailyExpense
+  updateDailyExpenses(data: [DailyExpenseUpdateArgs!]!): [DailyExpense]
+  deleteDailyExpense(where: DailyExpenseWhereUniqueInput!): DailyExpense
+  deleteDailyExpenses(where: [DailyExpenseWhereUniqueInput!]!): [DailyExpense]
   createEmployeeSchedule(data: EmployeeScheduleCreateInput!): EmployeeSchedule
   createEmployeeSchedules(
     data: [EmployeeScheduleCreateInput!]!
@@ -2426,6 +2495,15 @@ type Query {
     cursor: FixedOperatingExpenseWhereUniqueInput
   ): [FixedOperatingExpense!]
   fixedOperatingExpensesCount(where: FixedOperatingExpenseWhereInput! = {}): Int
+  dailyExpense(where: DailyExpenseWhereUniqueInput!): DailyExpense
+  dailyExpenses(
+    where: DailyExpenseWhereInput! = {}
+    orderBy: [DailyExpenseOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: DailyExpenseWhereUniqueInput
+  ): [DailyExpense!]
+  dailyExpensesCount(where: DailyExpenseWhereInput! = {}): Int
   employeeSchedule(where: EmployeeScheduleWhereUniqueInput!): EmployeeSchedule
   employeeSchedules(
     where: EmployeeScheduleWhereInput! = {}

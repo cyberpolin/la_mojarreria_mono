@@ -138,6 +138,19 @@ model FixedOperatingExpense {
   updatedAt   DateTime? @updatedAt
 }
 
+model DailyExpense {
+  id          String    @id @default(uuid()) @postgresql.Uuid
+  date        String    @default("")
+  concept     String    @default("")
+  amountCents Int       @default(0)
+  notes       String    @default("")
+  createdAt   DateTime? @default(now())
+  updatedAt   DateTime? @updatedAt
+
+  @@index([date])
+  @@index([concept])
+}
+
 model EmployeeSchedule {
   id           String    @id @default(uuid()) @postgresql.Uuid
   user         User?     @relation("EmployeeSchedule_user", fields: [userId], references: [id])
