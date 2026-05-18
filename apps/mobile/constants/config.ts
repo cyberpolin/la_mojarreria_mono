@@ -56,7 +56,7 @@ export const APP_CONFIG: AppConfig = {
   pinEmail: "cyberpolin@gmail.com",
   bootstrapTeamUser: {
     userId: "11111111-1111-4111-8111-111111111111",
-    name: "SuperAdmin",
+    name: "Super_Admin",
     phone: "521999999999",
     pin: "1234",
   },

@@ -14,6 +14,8 @@ const TIMEOUT = APP_CONFIG.timeoutMs;
 // If there is no conection within TIMEOUT ms, the request will be aborted, no more hanging!
 const apolloTimeout = new ApolloLinkTimeout(TIMEOUT) as unknown as ApolloLink;
 const uri = `${APP_CONFIG.apiUrl}/api/graphql`;
+console.log("================================");
+console.log("Apollo Client URI:", uri);
 
 const apolloLink = new HttpLink({
   uri,

@@ -88,9 +88,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.koden.taku'
+    namespace 'com.mojarreria.mobile'
     defaultConfig {
-        applicationId 'com.koden.taku'
+        applicationId 'com.mojarreria.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

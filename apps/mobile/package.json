@@ -5,6 +5,7 @@
   "scripts": {
     "env:generate": "bash ./scripts/env-to-config.sh",
     "env:generate:local": "bash ./scripts/env-to-config.sh ./.env.local",
+    "env:generate:production": "bash ./scripts/env-to-config.sh ./.env.production",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
@@ -13,6 +14,8 @@
     "lint": "expo lint",
     "lint:fix": "eslint . --fix",
     "build": "expo prebuild --platform android",
+    "build:android:apk": "cd android && NODE_ENV=production SENTRY_DISABLE_AUTO_UPLOAD=true ./gradlew assembleRelease",
+    "build:android:aab": "cd android && NODE_ENV=production SENTRY_DISABLE_AUTO_UPLOAD=true ./gradlew bundleRelease",
     "typecheck": "tsc --noEmit"
   },
   "jest": {

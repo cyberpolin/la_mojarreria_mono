@@ -107,6 +107,7 @@ export default function OperatorLoginScreen({ navigation }: Props) {
 
       if (isInternetReachable) {
         try {
+          console.log("Attempting online validation for operator login...");
           const response = await client.mutate<{
             validateDailyCloseOperator: {
               success: boolean;
@@ -124,7 +125,11 @@ export default function OperatorLoginScreen({ navigation }: Props) {
             },
             fetchPolicy: "no-cache",
           });
-
+          console.log(">>>", {
+            phone: phone.trim(),
+            pin: pin.trim(),
+          });
+          console.log("Online validation response:", response);
           const result = response.data?.validateDailyCloseOperator;
           if (result?.success && result.userId && result.name && result.phone) {
             resolved = {

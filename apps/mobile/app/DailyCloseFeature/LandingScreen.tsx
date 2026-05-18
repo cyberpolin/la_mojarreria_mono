@@ -78,7 +78,7 @@ export default function LandingScreen(props: Props) {
           Ver el resumen de hoy!
         </OptionalButton>
       ) : null}
-      <SecondaryButton
+      {/* <SecondaryButton
         style={{ marginTop: 12 }}
         textStyle={{ fontSize: 12 }}
         onPress={() => {
@@ -86,7 +86,7 @@ export default function LandingScreen(props: Props) {
         }}
       >
         Trigger error
-      </SecondaryButton>
+      </SecondaryButton> */}
 
       <SecondaryButton
         style={{

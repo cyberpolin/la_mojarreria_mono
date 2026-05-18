@@ -29,6 +29,8 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="myapp"/>
         <data android:scheme="com.koden.taku"/>
+        <data android:scheme="mojarreria"/>
+        <data android:scheme="com.mojarreria.mobile"/>
       </intent-filter>
     </activity>
   </application>

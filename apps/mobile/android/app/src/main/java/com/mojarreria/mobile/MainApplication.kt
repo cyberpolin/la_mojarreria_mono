@@ -1,4 +1,4 @@
-package com.koden.taku
+package com.mojarreria.mobile
 
 import android.app.Application
 import android.content.res.Configuration

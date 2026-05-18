@@ -1,5 +1,8 @@
 import { APP_CONFIG } from "@/constants/config";
 
+// if env development
+const isDevelopment = APP_CONFIG.env === "development";
+
 const ENV_VARS: Record<string, string> = {
   EXPO_PUBLIC_ENV: APP_CONFIG.env,
   EXPO_PUBLIC_DEVICE_ID: APP_CONFIG.deviceId,
@@ -11,7 +14,9 @@ const ENV_VARS: Record<string, string> = {
   EXPO_PUBLIC_DIM_SCREEN: String(APP_CONFIG.dimScreen.enabled),
   EXPO_PUBLIC_DIM_TIMEOUT: APP_CONFIG.dimScreen.timeout,
   EXPO_PUBLIC_DIM_TO: String(APP_CONFIG.dimScreen.to),
-  EXPO_PUBLIC_API_URL: APP_CONFIG.apiUrl,
+  EXPO_PUBLIC_API_URL: isDevelopment
+    ? "http://192.168.0.251:3000"
+    : APP_CONFIG.apiUrl,
   EXPO_PUBLIC_QR_URL: APP_CONFIG.qrUrl,
   EXPO_PUBLIC_PIN_EMAIL: APP_CONFIG.pinEmail,
   EXPO_PUBLIC_BOOTSTRAP_TEAM_USER_ID: APP_CONFIG.bootstrapTeamUser.userId,

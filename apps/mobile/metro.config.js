@@ -13,7 +13,10 @@ config.resolver.nodeModulesPaths = [
 ];
 config.resolver.alias = {
   ...(config.resolver.alias || {}),
-  axios: require.resolve("axios/dist/browser/axios.cjs"),
+  axios: path.join(
+    path.dirname(require.resolve("axios/package.json")),
+    "dist/browser/axios.cjs",
+  ),
 };
 
 module.exports = config;

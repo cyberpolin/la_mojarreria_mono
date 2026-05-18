@@ -1,4 +1,4 @@
-package com.koden.taku
+package com.mojarreria.mobile
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
