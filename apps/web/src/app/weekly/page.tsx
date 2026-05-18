@@ -5,6 +5,9 @@ import { AppCard, MetricCard } from "@/components/ui/card";
 
 const toMoney = (value: number) => `$${(value / 100).toFixed(2)}`;
 
+const moneyTone = (value: number) =>
+  value < 0 ? "text-red-300" : "text-slate-100";
+
 const toDateInput = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -198,6 +201,7 @@ export default async function WeeklyPage({
             <MetricCard
               title="Rough Earnings"
               value={toMoney(totals.roughEarnings)}
+              valueClassName={moneyTone(totals.roughEarnings)}
             />
             <MetricCard
               title="Cash Balance"
@@ -238,7 +242,9 @@ export default async function WeeklyPage({
                         <td className="whitespace-nowrap px-2 py-2 text-right text-slate-300">
                           {toMoney(row.expenseTotal)}
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right text-slate-100">
+                        <td
+                          className={`whitespace-nowrap px-2 py-2 text-right ${moneyTone(row.roughEarnings)}`}
+                        >
                           {toMoney(row.roughEarnings)}
                         </td>
                         <td className="px-2 py-2 text-right text-slate-300">

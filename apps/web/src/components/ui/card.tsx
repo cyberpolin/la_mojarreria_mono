@@ -34,13 +34,26 @@ type MetricCardProps = {
   title: string;
   value: string;
   className?: string;
+  valueClassName?: string;
 };
 
-export function MetricCard({ title, value, className }: MetricCardProps) {
+export function MetricCard({
+  title,
+  value,
+  className,
+  valueClassName,
+}: MetricCardProps) {
   return (
     <AppCard className={className}>
       <p className="text-xs uppercase tracking-wide text-slate-400">{title}</p>
-      <p className="mt-2 text-xl font-semibold text-slate-50">{value}</p>
+      <p
+        className={join(
+          "mt-2 text-xl font-semibold text-slate-50",
+          valueClassName,
+        )}
+      >
+        {value}
+      </p>
     </AppCard>
   );
 }
