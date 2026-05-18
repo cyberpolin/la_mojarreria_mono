@@ -438,44 +438,48 @@ async function processRawToNormalizedClose() {
         0,
       );
 
-      const close = await prisma.dailyClose.upsert({
-        where: { date: raw.date },
-        create: {
+      const closeData = {
+        cashReceived: Number(payload.cashReceived ?? 0),
+        bankTransfersReceived: Number(payload.bankTransfersReceived ?? 0),
+        deliveryCashPaid: Number(payload.deliveryCashPaid ?? 0),
+        otherCashExpenses: Number(payload.otherCashExpenses ?? 0),
+        expectedTotal: Number(payload.expectedTotal ?? totalFromItems),
+        totalFromItems,
+        cogsCents: 0,
+        grossProfitCents: totalFromItems,
+        grossMarginBps: 10000,
+        costingStatus: "PENDING",
+        costingWarnings: null,
+        notes: String(payload.notes ?? raw.notes ?? ""),
+        status: "ACTIVE",
+        sourceRawId: raw.id,
+      };
+
+      const existingClose = await prisma.dailyClose.findFirst({
+        where: {
           deviceId: raw.deviceId,
           date: raw.date,
-          cashReceived: Number(payload.cashReceived ?? 0),
-          bankTransfersReceived: Number(payload.bankTransfersReceived ?? 0),
-          deliveryCashPaid: Number(payload.deliveryCashPaid ?? 0),
-          otherCashExpenses: Number(payload.otherCashExpenses ?? 0),
-          expectedTotal: Number(payload.expectedTotal ?? totalFromItems),
-          totalFromItems,
-          cogsCents: 0,
-          grossProfitCents: totalFromItems,
-          grossMarginBps: 10000,
-          costingStatus: "PENDING",
-          costingWarnings: null,
-          notes: String(payload.notes ?? raw.notes ?? ""),
-          status: "ACTIVE",
-          sourceRawId: raw.id,
         },
-        update: {
-          deviceId: raw.deviceId,
-          cashReceived: Number(payload.cashReceived ?? 0),
-          bankTransfersReceived: Number(payload.bankTransfersReceived ?? 0),
-          deliveryCashPaid: Number(payload.deliveryCashPaid ?? 0),
-          otherCashExpenses: Number(payload.otherCashExpenses ?? 0),
-          expectedTotal: Number(payload.expectedTotal ?? totalFromItems),
-          totalFromItems,
-          cogsCents: 0,
-          grossProfitCents: totalFromItems,
-          grossMarginBps: 10000,
-          costingStatus: "PENDING",
-          costingWarnings: null,
-          notes: String(payload.notes ?? raw.notes ?? ""),
-          status: "ACTIVE",
-          sourceRawId: raw.id,
-        },
+        select: { id: true },
       });
+
+      const close = existingClose?.id
+        ? await prisma.dailyClose.update({
+            where: { id: existingClose.id },
+            data: {
+              deviceId: raw.deviceId,
+              ...closeData,
+            },
+            select: { id: true },
+          })
+        : await prisma.dailyClose.create({
+            data: {
+              deviceId: raw.deviceId,
+              date: raw.date,
+              ...closeData,
+            },
+            select: { id: true },
+          });
 
       await prisma.dailyCloseItem.deleteMany({ where: { closeId: close.id } });
 

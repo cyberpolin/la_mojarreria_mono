@@ -29,8 +29,8 @@ model DailyCloseRaw {
 
 model DailyClose {
   id                          String           @id @default(uuid()) @postgresql.Uuid
-  deviceId                    String           @unique @default("")
-  date                        String           @unique @default("")
+  deviceId                    String           @default("")
+  date                        String           @default("")
   cashReceived                Int              @default(0)
   bankTransfersReceived       Int              @default(0)
   deliveryCashPaid            Int              @default(0)
@@ -56,6 +56,8 @@ model DailyClose {
   createdAt                   DateTime?        @default(now())
   updatedAt                   DateTime?        @updatedAt
 
+  @@index([deviceId])
+  @@index([date])
   @@index([closedById])
 }
 

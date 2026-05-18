@@ -2,7 +2,6 @@
 // ../../../../schema/lists/DailyCloseRaw.ts
 
 import { graphql } from "@keystone-6/core";
-import { upsertByFindFirst } from "../../../lib/utils";
 import { logSyncResult } from "../../../lib/logSyncResult";
 import { processDailyCloseRaw } from "../../src/utils/dailyClose/processDailyCloseRaw";
 
@@ -32,35 +31,38 @@ export const upsertDailyCloseRaw = graphql.field({
     // if (!/^\d{4}-\d{2}-\d{2}$/.test(args.date)) throw new Error("Invalid date");
 
     try {
-      await upsertByFindFirst(
-        context.prisma.dailyCloseRaw,
-        {
-          deviceId: args.deviceId,
-          date: args.date,
-        },
-        {
-          deviceId: args.deviceId,
-          date: args.date,
-          payload: args.payload,
-          status: "RECEIVED",
-          receivedAt: new Date(syncedAt),
-        },
-        {
-          // update should not be used really
-          payload: args.payload,
-          status: "RECEIVED",
-          receivedAt: new Date(syncedAt),
-          errorMessage: null,
-          processedAt: null,
-        },
-      );
       rawRecord = await context.prisma.dailyCloseRaw.findFirst({
         where: {
           deviceId: args.deviceId,
           date: args.date,
         },
+        orderBy: { receivedAt: "desc" },
         select: { id: true },
       });
+
+      if (rawRecord?.id) {
+        await context.prisma.dailyCloseRaw.update({
+          where: { id: rawRecord.id },
+          data: {
+            payload: args.payload,
+            status: "RECEIVED",
+            receivedAt: new Date(syncedAt),
+            errorMessage: null,
+            processedAt: null,
+          },
+        });
+      } else {
+        rawRecord = await context.prisma.dailyCloseRaw.create({
+          data: {
+            deviceId: args.deviceId,
+            date: args.date,
+            payload: args.payload,
+            status: "RECEIVED",
+            receivedAt: new Date(syncedAt),
+          },
+          select: { id: true },
+        });
+      }
 
       await processDailyCloseRaw({
         context,

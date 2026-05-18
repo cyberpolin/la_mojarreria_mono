@@ -57,36 +57,48 @@ export const processDailyCloseRaw = async ({
     0,
   );
 
-  const close = await context.prisma.dailyClose.upsert({
-    where: { date: payload.date },
-    create: {
+  const closeData = {
+    cashReceived: Number(payload.cashReceived ?? 0),
+    bankTransfersReceived: Number(payload.bankTransfersReceived ?? 0),
+    deliveryCashPaid: Number(payload.deliveryCashPaid ?? 0),
+    otherCashExpenses: Number(payload.otherCashExpenses ?? 0),
+    expectedTotal: Number(payload.expectedTotal ?? totalFromItems),
+    totalFromItems,
+    notes: String(payload.notes ?? ""),
+    status: "ACTIVE",
+    sourceRawId: rawId ?? null,
+    ...(closingUser?.id ? { closedById: closingUser.id } : {}),
+  };
+
+  const existingClose = await context.prisma.dailyClose.findFirst({
+    where: {
       deviceId,
       date: payload.date,
-      cashReceived: Number(payload.cashReceived ?? 0),
-      bankTransfersReceived: Number(payload.bankTransfersReceived ?? 0),
-      deliveryCashPaid: Number(payload.deliveryCashPaid ?? 0),
-      otherCashExpenses: Number(payload.otherCashExpenses ?? 0),
-      expectedTotal: Number(payload.expectedTotal ?? totalFromItems),
-      totalFromItems,
-      notes: String(payload.notes ?? ""),
-      status: "ACTIVE",
-      sourceRawId: rawId ?? null,
-      ...(closingUser?.id ? { closedById: closingUser.id } : {}),
     },
-    update: {
-      deviceId,
-      cashReceived: Number(payload.cashReceived ?? 0),
-      bankTransfersReceived: Number(payload.bankTransfersReceived ?? 0),
-      deliveryCashPaid: Number(payload.deliveryCashPaid ?? 0),
-      otherCashExpenses: Number(payload.otherCashExpenses ?? 0),
-      expectedTotal: Number(payload.expectedTotal ?? totalFromItems),
-      totalFromItems,
-      notes: String(payload.notes ?? ""),
-      status: "ACTIVE",
-      sourceRawId: rawId ?? null,
-      ...(closingUser?.id ? { closedById: closingUser.id } : {}),
-    },
+    select: { id: true },
   });
+
+  const close = existingClose?.id
+    ? await context.prisma.dailyClose.update({
+        where: { id: existingClose.id },
+        data: {
+          deviceId,
+          ...closeData,
+        },
+        select: { id: true },
+      })
+    : await context.prisma.dailyClose.create({
+        data: {
+          deviceId,
+          date: payload.date,
+          ...closeData,
+        },
+        select: { id: true },
+      });
+
+  if (!close?.id) {
+    throw new Error("Daily close could not be created or updated.");
+  }
 
   await context.prisma.dailyCloseItem.deleteMany({
     where: { closeId: close.id },

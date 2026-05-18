@@ -18,12 +18,12 @@ export const DailyClose = list({
   fields: {
     deviceId: text({
       validation: { isRequired: true },
-      isIndexed: "unique",
+      isIndexed: true,
     }),
 
     date: text({
       validation: { isRequired: true },
-      isIndexed: "unique",
+      isIndexed: true,
       ui: { description: "YYYY-MM-DD" },
     }),
     // Normalized totals (centavos)
@@ -137,6 +137,5 @@ export const DailyClose = list({
     },
   },
 
-  // ⚠️ Unique index for upsert: needs Prisma @@unique([deviceId, date])
-  // Keystone list config may not support compound unique in your version; do it in Prisma (recommended).
+  // Compound unique index is maintained in Prisma migrations: @@unique([deviceId, date]).
 });

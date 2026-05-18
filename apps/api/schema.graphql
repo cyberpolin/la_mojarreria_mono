@@ -212,8 +212,6 @@ type DailyClose {
 
 input DailyCloseWhereUniqueInput {
   id: ID
-  deviceId: String
-  date: String
   sourceRaw: DailyCloseRawWhereUniqueInput
 }
 

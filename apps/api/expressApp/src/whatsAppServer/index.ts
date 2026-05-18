@@ -30,31 +30,46 @@ export const upsertDailyCloseRaw = async ({
 }: UpsertDailyCloseArgs) => {
   const nowIso = new Date().toISOString();
 
-  let record;
+  let record: { id: string; date: string } | null = null;
   try {
-    // 🔑 Esto depende del UNIQUE: @@unique([deviceId, date])
-    record = await context.prisma.dailyCloseRaw.upsert({
+    record = await context.prisma.dailyCloseRaw.findFirst({
       where: {
-        deviceId_date: {
-          deviceId,
-          date: payload.date,
-        },
-      },
-      create: {
         deviceId,
         date: payload.date,
-        payload, // JSON crudo tal cual
-        status: "RECEIVED",
-        receivedAt: new Date(nowIso),
       },
-      update: {
-        // Si lo mandan de nuevo, reemplazamos el payload y refrescamos receivedAt
-        payload,
-        status: "RECEIVED",
-        receivedAt: new Date(nowIso),
-        errorMessage: null,
-        processedAt: null,
-      },
+      orderBy: { receivedAt: "desc" },
+      select: { id: true, date: true },
+    });
+
+    if (record?.id) {
+      await context.prisma.dailyCloseRaw.update({
+        where: { id: record.id },
+        data: {
+          payload,
+          status: "RECEIVED",
+          receivedAt: new Date(nowIso),
+          errorMessage: null,
+          processedAt: null,
+        },
+      });
+    } else {
+      record = await context.prisma.dailyCloseRaw.create({
+        data: {
+          deviceId,
+          date: payload.date,
+          payload,
+          status: "RECEIVED",
+          receivedAt: new Date(nowIso),
+        },
+        select: { id: true, date: true },
+      });
+    }
+
+    await processDailyCloseRaw({
+      context,
+      deviceId,
+      payload,
+      rawId: record.id,
     });
   } catch (error) {
     if (record?.id) {
@@ -79,13 +94,6 @@ export const upsertDailyCloseRaw = async ({
     });
     throw error;
   }
-
-  await processDailyCloseRaw({
-    context,
-    deviceId,
-    payload,
-    rawId: record.id,
-  });
 
   await logSyncResult({
     context,
