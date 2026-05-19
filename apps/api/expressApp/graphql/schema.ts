@@ -110,7 +110,7 @@ export const properextendGraphqlSchema = graphql.extend((base) => {
       costingWarnings: graphql.field({
         type: graphql.JSON,
         resolve(item) {
-          return item.costingWarnings ?? null;
+          return (item.costingWarnings ?? null) as any;
         },
       }),
       notes: graphql.field({ type: graphql.nonNull(graphql.String) }),
@@ -237,11 +237,252 @@ export const properextendGraphqlSchema = graphql.extend((base) => {
       raw: graphql.field({
         type: graphql.nonNull(graphql.JSON),
         resolve(item) {
-          return item.raw ?? {};
+          return (item.raw ?? {}) as any;
         },
       }),
     },
   });
+
+  const AttendanceEmployeeSchedule = graphql.object<{
+    days: unknown;
+    shiftStart: string;
+    shiftEnd: string;
+    breakMinutes: number;
+    active: boolean;
+  }>()({
+    name: "AttendanceEmployeeSchedule",
+    fields: {
+      days: graphql.field({
+        type: graphql.JSON,
+        resolve(item) {
+          return item.days as any;
+        },
+      }),
+      shiftStart: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      shiftEnd: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      breakMinutes: graphql.field({ type: graphql.nonNull(graphql.Int) }),
+      active: graphql.field({ type: graphql.nonNull(graphql.Boolean) }),
+    },
+  });
+
+  const AttendanceEmployee = graphql.object<{
+    userId: string;
+    name: string;
+    phone: string;
+    role: string | null;
+    pin: string;
+    deviceId: string;
+    active: boolean;
+    schedule: {
+      days: unknown;
+      shiftStart: string;
+      shiftEnd: string;
+      breakMinutes: number;
+      active: boolean;
+    } | null;
+  }>()({
+    name: "AttendanceEmployee",
+    fields: {
+      userId: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      name: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      phone: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      role: graphql.field({ type: graphql.String }),
+      pin: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      deviceId: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      active: graphql.field({ type: graphql.nonNull(graphql.Boolean) }),
+      schedule: graphql.field({ type: AttendanceEmployeeSchedule }),
+    },
+  });
+
+  const AttendanceLogSummary = graphql.object<{
+    id: string;
+    userId: string;
+    deviceId: string;
+    date: string;
+    clockInAt: string | null;
+    clockOutAt: string | null;
+    durationMinutes: number;
+    status: string;
+    checkInMutationId: string;
+    checkOutMutationId: string | null;
+  }>()({
+    name: "AttendanceLogSummary",
+    fields: {
+      id: graphql.field({ type: graphql.nonNull(graphql.ID) }),
+      userId: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      deviceId: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      date: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      clockInAt: graphql.field({ type: graphql.String }),
+      clockOutAt: graphql.field({ type: graphql.String }),
+      durationMinutes: graphql.field({ type: graphql.nonNull(graphql.Int) }),
+      status: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      checkInMutationId: graphql.field({
+        type: graphql.nonNull(graphql.String),
+      }),
+      checkOutMutationId: graphql.field({ type: graphql.String }),
+    },
+  });
+
+  const AttendanceValidationResult = graphql.object<{
+    success: boolean;
+    message: string;
+    employee: any | null;
+    openLog: any | null;
+  }>()({
+    name: "AttendanceValidationResult",
+    fields: {
+      success: graphql.field({ type: graphql.nonNull(graphql.Boolean) }),
+      message: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      employee: graphql.field({ type: AttendanceEmployee }),
+      openLog: graphql.field({ type: AttendanceLogSummary }),
+    },
+  });
+
+  const AttendanceMutationResult = graphql.object<{
+    success: boolean;
+    message: string;
+    action: string | null;
+    pendingPreviousCheckout: boolean;
+    log: any | null;
+  }>()({
+    name: "AttendanceMutationResult",
+    fields: {
+      success: graphql.field({ type: graphql.nonNull(graphql.Boolean) }),
+      message: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      action: graphql.field({ type: graphql.String }),
+      pendingPreviousCheckout: graphql.field({
+        type: graphql.nonNull(graphql.Boolean),
+      }),
+      log: graphql.field({ type: AttendanceLogSummary }),
+    },
+  });
+
+  const PendingAttendanceCheckIn = graphql.object<{
+    userId: string;
+    name: string;
+    phone: string;
+    role: string | null;
+    deviceId: string;
+    shiftStart: string;
+    shiftEnd: string;
+    breakMinutes: number;
+  }>()({
+    name: "PendingAttendanceCheckIn",
+    fields: {
+      userId: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      name: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      phone: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      role: graphql.field({ type: graphql.String }),
+      deviceId: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      shiftStart: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      shiftEnd: graphql.field({ type: graphql.nonNull(graphql.String) }),
+      breakMinutes: graphql.field({ type: graphql.nonNull(graphql.Int) }),
+    },
+  });
+
+  const normalizePhone = (value: string) => value.replace(/\D/g, "");
+  const normalizeDayToken = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  const dayAliasesByIndex = [
+    ["sun", "sunday", "domingo", "dom"],
+    ["mon", "monday", "lunes", "lun"],
+    ["tue", "tuesday", "martes", "mar"],
+    ["wed", "wednesday", "miercoles", "mie", "miércoles"],
+    ["thu", "thursday", "jueves", "jue"],
+    ["fri", "friday", "viernes", "vie"],
+    ["sat", "saturday", "sabado", "sab", "sábado"],
+  ];
+  const isAllowedToday = (schedule: any, date: Date) => {
+    if (!schedule?.active) return false;
+    const days = Array.isArray(schedule.days) ? schedule.days : [];
+    if (days.length === 0) return true;
+    const todayAliases =
+      dayAliasesByIndex[date.getDay()].map(normalizeDayToken);
+    return days.some((day: unknown) =>
+      todayAliases.includes(normalizeDayToken(String(day))),
+    );
+  };
+  const parseDateOnly = (date: string) => {
+    const [year, month, day] = date.split("-").map(Number);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day, 12, 0, 0);
+  };
+  const toAttendanceEmployee = (assignment: any) => ({
+    userId: assignment.user.id,
+    name: assignment.user.name ?? "",
+    phone: assignment.user.phone ?? "",
+    role: assignment.user.role ?? null,
+    pin: String(assignment.user.auth?.pin ?? ""),
+    deviceId: assignment.deviceId,
+    active: Boolean(assignment.user.active && assignment.active),
+    schedule: assignment.user.schedule
+      ? {
+          days: assignment.user.schedule.days ?? [],
+          shiftStart: assignment.user.schedule.shiftStart ?? "",
+          shiftEnd: assignment.user.schedule.shiftEnd ?? "",
+          breakMinutes: Number(assignment.user.schedule.breakMinutes ?? 0),
+          active: Boolean(assignment.user.schedule.active),
+        }
+      : null,
+  });
+  const toAttendanceLogSummary = (log: any) =>
+    log
+      ? {
+          id: log.id,
+          userId: log.userId ?? "",
+          deviceId: log.deviceId ?? "",
+          date: log.date ?? "",
+          clockInAt: log.clockInAt?.toISOString?.() ?? null,
+          clockOutAt: log.clockOutAt?.toISOString?.() ?? null,
+          durationMinutes: Number(log.durationMinutes ?? 0),
+          status: log.status ?? "",
+          checkInMutationId: log.checkInMutationId ?? "",
+          checkOutMutationId: log.checkOutMutationId ?? null,
+        }
+      : null;
+  const resolveAttendanceEmployee = async (
+    context: any,
+    phone: string,
+    pin: string,
+    deviceId: string,
+  ) => {
+    const normalizedPhone = normalizePhone(phone);
+    const assignments = await context.prisma.employeeDeviceAssignment.findMany({
+      where: {
+        deviceId,
+        active: true,
+        user: {
+          is: {
+            active: true,
+            auth: {
+              is: {
+                pin,
+              },
+            },
+          },
+        },
+      },
+      include: {
+        user: {
+          include: {
+            auth: true,
+            schedule: true,
+          },
+        },
+      },
+    });
+    return (
+      assignments.find(
+        (assignment: any) =>
+          assignment.user &&
+          normalizePhone(assignment.user.phone ?? "") === normalizedPhone,
+      ) ?? null
+    );
+  };
 
   const resolveSyncStatus = async (
     context: any,
@@ -625,9 +866,405 @@ export const properextendGraphqlSchema = graphql.extend((base) => {
             }));
         },
       }),
+      attendanceEmployees: graphql.field({
+        type: graphql.nonNull(
+          graphql.list(graphql.nonNull(AttendanceEmployee)),
+        ),
+        args: {
+          deviceId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        async resolve(_root, args, context) {
+          const assignments =
+            await context.prisma.employeeDeviceAssignment.findMany({
+              where: {
+                deviceId: String(args.deviceId ?? "").trim(),
+                active: true,
+                user: {
+                  is: {
+                    active: true,
+                    auth: {
+                      is: {
+                        pin: { not: null },
+                      },
+                    },
+                  },
+                },
+              },
+              include: {
+                user: {
+                  include: {
+                    auth: true,
+                    schedule: true,
+                  },
+                },
+              },
+              orderBy: [{ updatedAt: "desc" }],
+            });
+
+          return assignments
+            .filter((assignment: any) => assignment.user?.auth?.pin)
+            .map(toAttendanceEmployee);
+        },
+      }),
+      pendingAttendanceCheckIns: graphql.field({
+        type: graphql.nonNull(
+          graphql.list(graphql.nonNull(PendingAttendanceCheckIn)),
+        ),
+        args: {
+          deviceId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          date: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        async resolve(_root, args, context) {
+          const deviceId = String(args.deviceId ?? "").trim();
+          const date = String(args.date ?? "").trim();
+          const parsedDate = parseDateOnly(date);
+
+          if (!deviceId || !parsedDate) return [];
+
+          const assignments =
+            await context.prisma.employeeDeviceAssignment.findMany({
+              where: {
+                deviceId,
+                active: true,
+                user: {
+                  is: {
+                    active: true,
+                    schedule: {
+                      is: {
+                        active: true,
+                      },
+                    },
+                  },
+                },
+              },
+              include: {
+                user: {
+                  include: {
+                    schedule: true,
+                  },
+                },
+              },
+              orderBy: [{ updatedAt: "desc" }],
+            });
+
+          const logs = await context.prisma.attendanceLog.findMany({
+            where: {
+              deviceId,
+              date,
+              clockInAt: { not: null },
+            },
+            select: { userId: true },
+          });
+          const checkedInUserIds = new Set(
+            logs.map((log: any) => log.userId).filter(Boolean),
+          );
+
+          return assignments
+            .filter((assignment: any) => {
+              if (!assignment.user?.schedule) return false;
+              if (checkedInUserIds.has(assignment.user.id)) return false;
+              return isAllowedToday(assignment.user.schedule, parsedDate);
+            })
+            .map((assignment: any) => ({
+              userId: assignment.user.id,
+              name: assignment.user.name ?? "",
+              phone: assignment.user.phone ?? "",
+              role: assignment.user.role ?? null,
+              deviceId: assignment.deviceId,
+              shiftStart: assignment.user.schedule?.shiftStart ?? "",
+              shiftEnd: assignment.user.schedule?.shiftEnd ?? "",
+              breakMinutes: Number(assignment.user.schedule?.breakMinutes ?? 0),
+            }));
+        },
+      }),
     },
     mutation: {
       upsertDailyCloseRaw,
+      validateAttendanceEmployee: graphql.field({
+        type: graphql.nonNull(AttendanceValidationResult),
+        args: {
+          deviceId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          phone: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          pin: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        async resolve(_root, args, context) {
+          const deviceId = String(args.deviceId ?? "").trim();
+          const phone = String(args.phone ?? "").trim();
+          const pin = String(args.pin ?? "").trim();
+
+          if (!deviceId || !phone || !pin) {
+            return {
+              success: false,
+              message: "Device, phone and PIN are required.",
+              employee: null,
+              openLog: null,
+            };
+          }
+
+          const assignment = await resolveAttendanceEmployee(
+            context,
+            phone,
+            pin,
+            deviceId,
+          );
+
+          if (!assignment?.user) {
+            return {
+              success: false,
+              message: "Invalid credentials or employee is not assigned here.",
+              employee: null,
+              openLog: null,
+            };
+          }
+
+          if (!isAllowedToday(assignment.user.schedule, new Date())) {
+            return {
+              success: false,
+              message: "Employee is not scheduled for today.",
+              employee: toAttendanceEmployee(assignment),
+              openLog: null,
+            };
+          }
+
+          const openLog = await context.prisma.attendanceLog.findFirst({
+            where: {
+              userId: assignment.user.id,
+              deviceId,
+              status: "OPEN",
+            },
+            orderBy: [{ clockInAt: "desc" }],
+          });
+
+          const closedToday = await context.prisma.attendanceLog.findFirst({
+            where: {
+              userId: assignment.user.id,
+              deviceId,
+              date: new Date().toISOString().slice(0, 10),
+              status: "CLOSED",
+            },
+            orderBy: [{ clockOutAt: "desc" }],
+          });
+
+          if (!openLog && closedToday) {
+            return {
+              success: false,
+              message: "Employee already completed check-in/out today.",
+              employee: toAttendanceEmployee(assignment),
+              openLog: null,
+            };
+          }
+
+          return {
+            success: true,
+            message: "Validated.",
+            employee: toAttendanceEmployee(assignment),
+            openLog: toAttendanceLogSummary(openLog),
+          };
+        },
+      }),
+      recordAttendanceEvent: graphql.field({
+        type: graphql.nonNull(AttendanceMutationResult),
+        args: {
+          deviceId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          userId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          action: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          occurredAt: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          date: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+          mutationId: graphql.arg({ type: graphql.nonNull(graphql.String) }),
+        },
+        async resolve(_root, args, context) {
+          const deviceId = String(args.deviceId ?? "").trim();
+          const userId = String(args.userId ?? "").trim();
+          const action = String(args.action ?? "").trim();
+          const date = String(args.date ?? "").trim();
+          const mutationId = String(args.mutationId ?? "").trim();
+          const occurredAt = new Date(String(args.occurredAt ?? ""));
+
+          if (
+            !deviceId ||
+            !userId ||
+            !date ||
+            !mutationId ||
+            Number.isNaN(occurredAt.getTime())
+          ) {
+            return {
+              success: false,
+              message: "Invalid attendance payload.",
+              action: null,
+              pendingPreviousCheckout: false,
+              log: null,
+            };
+          }
+
+          const existing = await context.prisma.attendanceLog.findFirst({
+            where: {
+              OR: [
+                { checkInMutationId: mutationId },
+                { checkOutMutationId: mutationId },
+              ],
+            },
+          });
+          if (existing) {
+            return {
+              success: true,
+              message: "Already recorded.",
+              action,
+              pendingPreviousCheckout: false,
+              log: toAttendanceLogSummary(existing),
+            };
+          }
+
+          const assignment =
+            await context.prisma.employeeDeviceAssignment.findFirst({
+              where: {
+                userId,
+                deviceId,
+                active: true,
+                user: {
+                  is: {
+                    active: true,
+                  },
+                },
+              },
+              include: {
+                user: {
+                  include: {
+                    auth: true,
+                    schedule: true,
+                  },
+                },
+              },
+            });
+
+          if (!assignment?.user) {
+            return {
+              success: false,
+              message: "Employee is not assigned here.",
+              action: null,
+              pendingPreviousCheckout: false,
+              log: null,
+            };
+          }
+
+          const openLog = await context.prisma.attendanceLog.findFirst({
+            where: {
+              userId: assignment.user.id,
+              deviceId,
+              status: "OPEN",
+            },
+            orderBy: [{ clockInAt: "desc" }],
+          });
+
+          if (action === "CHECK_IN") {
+            if (!isAllowedToday(assignment.user.schedule, occurredAt)) {
+              return {
+                success: false,
+                message: "Employee is not scheduled for this day.",
+                action,
+                pendingPreviousCheckout: false,
+                log: null,
+              };
+            }
+
+            if (openLog) {
+              return {
+                success: false,
+                message: "Employee has a pending checkout.",
+                action,
+                pendingPreviousCheckout: true,
+                log: toAttendanceLogSummary(openLog),
+              };
+            }
+
+            const closedToday = await context.prisma.attendanceLog.findFirst({
+              where: {
+                userId: assignment.user.id,
+                deviceId,
+                date,
+                status: "CLOSED",
+              },
+              orderBy: [{ clockOutAt: "desc" }],
+            });
+
+            if (closedToday) {
+              return {
+                success: false,
+                message: "Employee already completed check-in/out today.",
+                action,
+                pendingPreviousCheckout: false,
+                log: toAttendanceLogSummary(closedToday),
+              };
+            }
+
+            const created = await context.prisma.attendanceLog.create({
+              data: {
+                userId: assignment.user.id,
+                deviceId,
+                date,
+                clockInAt: occurredAt,
+                status: "OPEN",
+                source: "mobile",
+                checkInMutationId: mutationId,
+              },
+            });
+
+            return {
+              success: true,
+              message: "Check-in recorded.",
+              action,
+              pendingPreviousCheckout: false,
+              log: toAttendanceLogSummary(created),
+            };
+          }
+
+          if (action === "CHECK_OUT") {
+            if (!openLog) {
+              return {
+                success: false,
+                message: "No open check-in found.",
+                action,
+                pendingPreviousCheckout: false,
+                log: null,
+              };
+            }
+
+            const durationMinutes = openLog.clockInAt
+              ? Math.max(
+                  0,
+                  Math.floor(
+                    (occurredAt.getTime() - openLog.clockInAt.getTime()) /
+                      60000,
+                  ),
+                )
+              : 0;
+            const updated = await context.prisma.attendanceLog.update({
+              where: { id: openLog.id },
+              data: {
+                clockOutAt: occurredAt,
+                durationMinutes,
+                status: "CLOSED",
+                checkOutMutationId: mutationId,
+              },
+            });
+
+            return {
+              success: true,
+              message: "Check-out recorded.",
+              action,
+              pendingPreviousCheckout: false,
+              log: toAttendanceLogSummary(updated),
+            };
+          }
+
+          return {
+            success: false,
+            message: "Unsupported attendance action.",
+            action: null,
+            pendingPreviousCheckout: false,
+            log: null,
+          };
+        },
+      }),
       validateDailyCloseOperator: graphql.field({
         type: graphql.nonNull(DailyCloseOperatorValidationResult),
         args: {

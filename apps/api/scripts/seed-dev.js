@@ -728,7 +728,7 @@ async function seedTeamControl() {
     await prisma.employeeSchedule.update({
       where: { id: existingSchedule.id },
       data: {
-        days: ["Fri", "Sat", "Sun"],
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         shiftStart: "10:00",
         shiftEnd: "18:00",
         breakMinutes: 30,
@@ -739,7 +739,7 @@ async function seedTeamControl() {
     await prisma.employeeSchedule.create({
       data: {
         userId: employee.id,
-        days: ["Fri", "Sat", "Sun"],
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
         shiftStart: "10:00",
         shiftEnd: "18:00",
         breakMinutes: 30,
@@ -747,6 +747,19 @@ async function seedTeamControl() {
       },
     });
   }
+
+  await prisma.employeeDeviceAssignment.upsert({
+    where: { userId: employee.id },
+    update: {
+      deviceId: "Kiosk001",
+      active: true,
+    },
+    create: {
+      userId: employee.id,
+      deviceId: "Kiosk001",
+      active: true,
+    },
+  });
 }
 
 async function main() {

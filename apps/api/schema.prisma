@@ -164,6 +164,39 @@ model EmployeeSchedule {
   updatedAt    DateTime? @updatedAt
 }
 
+model EmployeeDeviceAssignment {
+  id        String    @id @default(uuid()) @postgresql.Uuid
+  user      User?     @relation("EmployeeDeviceAssignment_user", fields: [userId], references: [id])
+  userId    String?   @unique @map("user") @postgresql.Uuid
+  deviceId  String    @default("")
+  active    Boolean   @default(true)
+  createdAt DateTime? @default(now())
+  updatedAt DateTime? @updatedAt
+
+  @@index([deviceId])
+}
+
+model AttendanceLog {
+  id                 String    @id @default(uuid()) @postgresql.Uuid
+  user               User?     @relation("AttendanceLog_user", fields: [userId], references: [id])
+  userId             String?   @map("user") @postgresql.Uuid
+  deviceId           String    @default("")
+  date               String    @default("")
+  clockInAt          DateTime?
+  clockOutAt         DateTime?
+  durationMinutes    Int?      @default(0)
+  status             String    @default("OPEN")
+  source             String    @default("mobile")
+  checkInMutationId  String    @unique @default("")
+  checkOutMutationId String?   @unique
+  createdAt          DateTime? @default(now())
+  updatedAt          DateTime? @updatedAt
+
+  @@index([userId])
+  @@index([deviceId])
+  @@index([date])
+}
+
 model Restaurant {
   id          String    @id @default(uuid()) @postgresql.Uuid
   name        String    @default("")
@@ -196,22 +229,24 @@ model Auth {
 }
 
 model User {
-  id            String            @id @default(uuid()) @postgresql.Uuid
-  name          String            @unique @default("")
-  phone         String            @unique @default("")
-  address       String            @default("")
-  latitude      Float?
-  longitude     Float?
-  receivedPromo Boolean           @default(false)
-  createdAt     DateTime?         @default(now())
-  messages      Message[]         @relation("Message_user")
-  orders        Order[]           @relation("Order_client")
-  chatSessions  ChatSession[]     @relation("ChatSession_user")
-  auth          Auth?             @relation("Auth_user")
-  role          String?
-  schedule      EmployeeSchedule? @relation("EmployeeSchedule_user")
-  dailyCloses   DailyClose[]      @relation("DailyClose_closedBy")
-  active        Boolean           @default(true)
+  id               String                    @id @default(uuid()) @postgresql.Uuid
+  name             String                    @unique @default("")
+  phone            String                    @unique @default("")
+  address          String                    @default("")
+  latitude         Float?
+  longitude        Float?
+  receivedPromo    Boolean                   @default(false)
+  createdAt        DateTime?                 @default(now())
+  messages         Message[]                 @relation("Message_user")
+  orders           Order[]                   @relation("Order_client")
+  chatSessions     ChatSession[]             @relation("ChatSession_user")
+  auth             Auth?                     @relation("Auth_user")
+  role             String?
+  schedule         EmployeeSchedule?         @relation("EmployeeSchedule_user")
+  deviceAssignment EmployeeDeviceAssignment? @relation("EmployeeDeviceAssignment_user")
+  attendanceLogs   AttendanceLog[]           @relation("AttendanceLog_user")
+  dailyCloses      DailyClose[]              @relation("DailyClose_closedBy")
+  active           Boolean                   @default(true)
 }
 
 model Agent {

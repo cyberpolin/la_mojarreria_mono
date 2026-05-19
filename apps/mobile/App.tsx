@@ -1,17 +1,29 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import * as Sentry from "@sentry/react-native";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  createNavigationContainerRef,
+  NavigationContainer,
+} from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import GlobalProvider from "@/GlobalProvider";
 import { ApolloProvider } from "@apollo/client";
 import { StatusBar } from "expo-status-bar";
-import { AppState, View } from "react-native";
+import {
+  AppState,
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import Inventory from "./app/(drawer)/Inventory";
 import Board from "./app/(drawer)/Board";
 // import useAuth from "./hooks/UseAuth";
 import Toast from "react-native-toast-message";
 import * as SplashScreen from "expo-splash-screen";
 import LandingNavigationStack from "./app/DailyCloseFeature/NavigationStack";
+import { RootStackParamList } from "./app/DailyCloseFeature/NavigationStack";
+import { Screens } from "./app/DailyCloseFeature/Types";
 import { useDailyCloseStore } from "./app/DailyCloseFeature/useDailyCloseStore";
 
 import GeneralErrorScreen from "./app/DailyCloseFeature/GeneralErrorScreen";
@@ -34,11 +46,16 @@ import {
   hasCachedOperators,
   syncDailyCloseOperators,
 } from "./app/DailyCloseFeature/operatorCache";
+import {
+  fetchPendingAttendanceCheckIns,
+  PendingAttendanceCheckIn,
+} from "./app/DailyCloseFeature/checkInOutStorage";
 
 // TODO: Error boundary testing with .env variable missing
 SplashScreen.preventAutoHideAsync();
 
 const Stack = createStackNavigator();
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const BUSINESS_HOURS_KEEP_AWAKE_TAG = "business-hours-keep-awake";
 const KEEP_AWAKE_ENABLED = APP_CONFIG.keepAwake.enabled;
 const KEEP_AWAKE_FROM = APP_CONFIG.keepAwake.from;
@@ -235,6 +252,10 @@ const RootComponent = () => {
   const shouldSync = useDailyCloseStore((s) => s.shouldSync());
   const { addTask, removeTask } = useIntervalTasks();
   const { data: health, error: healthError } = useHealth(true);
+  const [pendingCheckIns, setPendingCheckIns] = useState<
+    PendingAttendanceCheckIn[]
+  >([]);
+  const [showPendingCheckIns, setShowPendingCheckIns] = useState(false);
   const dimmerStateRef = useRef<{
     lastActivityAt: number;
     isDimmed: boolean;
@@ -263,10 +284,10 @@ const RootComponent = () => {
     restoreBrightness();
   }, [restoreBrightness]);
 
-  console.log("[ROOT]:state", {
-    lastSyncedDate: state.lastSyncedDate,
-    closesByDate: state.closesByDate,
-  });
+  // console.log("[ROOT]:state", {
+  //   lastSyncedDate: state.lastSyncedDate,
+  //   closesByDate: state.closesByDate,
+  // });
 
   useEffect(() => {
     if (health) console.log("[HEALTH]:", health);
@@ -344,6 +365,40 @@ const RootComponent = () => {
   ]);
 
   useEffect(() => {
+    if (!health?.ok || !isInternetReachable) {
+      removeTask("pendingAttendanceCheckIns");
+      return;
+    }
+
+    const refreshPendingCheckIns = async () => {
+      const pending = await fetchPendingAttendanceCheckIns(
+        client,
+        dayjs().format("YYYY-MM-DD"),
+      );
+      setPendingCheckIns(pending);
+      setShowPendingCheckIns(pending.length > 0);
+    };
+
+    refreshPendingCheckIns().catch((error) => {
+      reportError(error, {
+        tags: { scope: "pending_attendance_checkins" },
+      });
+    });
+
+    addTask("pendingAttendanceCheckIns", async () => {
+      try {
+        await refreshPendingCheckIns();
+      } catch (error) {
+        reportError(error, {
+          tags: { scope: "pending_attendance_checkins" },
+        });
+      }
+    });
+
+    return () => removeTask("pendingAttendanceCheckIns");
+  }, [addTask, health?.ok, isInternetReachable, removeTask]);
+
+  useEffect(() => {
     if (!DIM_SCREEN_ENABLED) {
       removeTask("dimScreen");
       return;
@@ -401,7 +456,7 @@ const RootComponent = () => {
           return false;
         }}
       >
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef}>
           {/* {user || true ? (
         <AppStack logout={handleLogout} />
         ) : (
@@ -409,6 +464,119 @@ const RootComponent = () => {
           )} */}
           <LandingNavigationStack initialPosition={stepPosition} />
         </NavigationContainer>
+        <Modal
+          animationType="fade"
+          transparent
+          visible={showPendingCheckIns && pendingCheckIns.length > 0}
+          onRequestClose={() => setShowPendingCheckIns(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(15, 23, 42, 0.65)",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 24,
+            }}
+          >
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                maxHeight: "82%",
+                backgroundColor: "#ffffff",
+                borderRadius: 14,
+                padding: 18,
+                borderWidth: 1,
+                borderColor: "#cbd5e1",
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 20,
+                  fontWeight: "700",
+                  color: "#0f172a",
+                }}
+              >
+                Check-in pendiente
+              </Text>
+              <Text style={{ marginTop: 6, color: "#475569", fontSize: 14 }}>
+                Estos empleados deben registrar entrada hoy.
+              </Text>
+
+              <ScrollView style={{ marginTop: 14 }}>
+                {pendingCheckIns.map((employee) => (
+                  <View
+                    key={employee.userId}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e2e8f0",
+                      borderRadius: 10,
+                      padding: 12,
+                      marginBottom: 10,
+                      backgroundColor: "#f8fafc",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#0f172a",
+                        fontWeight: "700",
+                        fontSize: 16,
+                      }}
+                    >
+                      {employee.name}
+                    </Text>
+                    <Text style={{ color: "#475569", marginTop: 3 }}>
+                      Turno: {employee.shiftStart || "--:--"} -{" "}
+                      {employee.shiftEnd || "--:--"}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                <Pressable
+                  onPress={() => setShowPendingCheckIns(false)}
+                  style={{
+                    flex: 1,
+                    minHeight: 46,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: "#cbd5e1",
+                    backgroundColor: "#ffffff",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ color: "#0f172a", fontWeight: "700" }}>
+                    Ocultar por ahora
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    setShowPendingCheckIns(false);
+                    if (navigationRef.isReady()) {
+                      navigationRef.navigate(Screens.CheckInOutScreen);
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    minHeight: 46,
+                    borderRadius: 8,
+                    backgroundColor: "#0f172a",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ color: "#ffffff", fontWeight: "700" }}>
+                    Hacer check in
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </>
   );

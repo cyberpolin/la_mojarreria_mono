@@ -48,6 +48,8 @@ import { ProductRecipeItem } from "./lists/ProductRecipeItem";
 import { FixedOperatingExpense } from "./lists/FixedOperatingExpense";
 import { DailyExpense } from "./lists/DailyExpense";
 import { EmployeeSchedule } from "./lists/EmployeeSchedule";
+import { EmployeeDeviceAssignment } from "./lists/EmployeeDeviceAssignment";
+import { AttendanceLog } from "./lists/AttendanceLog";
 import { Restaurant } from "./lists/Restaurant";
 // Lists
 
@@ -86,6 +88,8 @@ export const lists = {
   FixedOperatingExpense,
   DailyExpense,
   EmployeeSchedule,
+  EmployeeDeviceAssignment,
+  AttendanceLog,
   Restaurant,
   Auth: list({
     fields: {
@@ -156,6 +160,14 @@ export const lists = {
       schedule: relationship({
         ref: "EmployeeSchedule.user",
         many: false,
+      }),
+      deviceAssignment: relationship({
+        ref: "EmployeeDeviceAssignment.user",
+        many: false,
+      }),
+      attendanceLogs: relationship({
+        ref: "AttendanceLog.user",
+        many: true,
       }),
       dailyCloses: relationship({
         ref: "DailyClose.closedBy",

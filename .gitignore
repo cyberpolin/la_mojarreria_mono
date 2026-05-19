@@ -40,3 +40,4 @@ apps/api/auth_info
 # prisma
 *.db
 *.db-journal
+.vercel

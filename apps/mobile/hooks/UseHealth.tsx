@@ -1,6 +1,7 @@
 import { gql } from "@apollo/client";
 import { useCallback, useEffect, useState } from "react";
 import { client } from "../apollo/client";
+import { APP_CONFIG } from "@/constants/config";
 
 export type HealthResponse = {
   ok: boolean;

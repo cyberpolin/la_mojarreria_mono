@@ -964,6 +964,163 @@ input EmployeeScheduleCreateInput {
   updatedAt: DateTime
 }
 
+type EmployeeDeviceAssignment {
+  id: ID!
+  user: User
+  deviceId: String
+  active: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input EmployeeDeviceAssignmentWhereUniqueInput {
+  id: ID
+  user: UserWhereUniqueInput
+}
+
+input EmployeeDeviceAssignmentWhereInput {
+  AND: [EmployeeDeviceAssignmentWhereInput!]
+  OR: [EmployeeDeviceAssignmentWhereInput!]
+  NOT: [EmployeeDeviceAssignmentWhereInput!]
+  id: IDFilter
+  user: UserWhereInput
+  deviceId: StringFilter
+  active: BooleanFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input EmployeeDeviceAssignmentOrderByInput {
+  id: OrderDirection
+  deviceId: OrderDirection
+  active: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input EmployeeDeviceAssignmentUpdateInput {
+  user: UserRelateToOneForUpdateInput
+  deviceId: String
+  active: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input EmployeeDeviceAssignmentUpdateArgs {
+  where: EmployeeDeviceAssignmentWhereUniqueInput!
+  data: EmployeeDeviceAssignmentUpdateInput!
+}
+
+input EmployeeDeviceAssignmentCreateInput {
+  user: UserRelateToOneForCreateInput
+  deviceId: String
+  active: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+type AttendanceLog {
+  id: ID!
+  user: User
+  deviceId: String
+  date: String
+  clockInAt: DateTime
+  clockOutAt: DateTime
+  durationMinutes: Int
+  status: String
+  source: String
+  checkInMutationId: String
+  checkOutMutationId: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input AttendanceLogWhereUniqueInput {
+  id: ID
+  checkInMutationId: String
+  checkOutMutationId: String
+}
+
+input AttendanceLogWhereInput {
+  AND: [AttendanceLogWhereInput!]
+  OR: [AttendanceLogWhereInput!]
+  NOT: [AttendanceLogWhereInput!]
+  id: IDFilter
+  user: UserWhereInput
+  deviceId: StringFilter
+  date: StringFilter
+  clockInAt: DateTimeNullableFilter
+  clockOutAt: DateTimeNullableFilter
+  durationMinutes: IntNullableFilter
+  status: StringFilter
+  source: StringFilter
+  checkInMutationId: StringFilter
+  checkOutMutationId: StringNullableFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input IntNullableFilter {
+  equals: Int
+  in: [Int!]
+  notIn: [Int!]
+  lt: Int
+  lte: Int
+  gt: Int
+  gte: Int
+  not: IntNullableFilter
+}
+
+input AttendanceLogOrderByInput {
+  id: OrderDirection
+  deviceId: OrderDirection
+  date: OrderDirection
+  clockInAt: OrderDirection
+  clockOutAt: OrderDirection
+  durationMinutes: OrderDirection
+  status: OrderDirection
+  source: OrderDirection
+  checkInMutationId: OrderDirection
+  checkOutMutationId: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input AttendanceLogUpdateInput {
+  user: UserRelateToOneForUpdateInput
+  deviceId: String
+  date: String
+  clockInAt: DateTime
+  clockOutAt: DateTime
+  durationMinutes: Int
+  status: String
+  source: String
+  checkInMutationId: String
+  checkOutMutationId: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input AttendanceLogUpdateArgs {
+  where: AttendanceLogWhereUniqueInput!
+  data: AttendanceLogUpdateInput!
+}
+
+input AttendanceLogCreateInput {
+  user: UserRelateToOneForCreateInput
+  deviceId: String
+  date: String
+  clockInAt: DateTime
+  clockOutAt: DateTime
+  durationMinutes: Int
+  status: String
+  source: String
+  checkInMutationId: String
+  checkOutMutationId: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
 type Restaurant {
   id: ID!
   name: String
@@ -1168,6 +1325,15 @@ type User {
   auth: Auth
   role: String
   schedule: EmployeeSchedule
+  deviceAssignment: EmployeeDeviceAssignment
+  attendanceLogs(
+    where: AttendanceLogWhereInput! = {}
+    orderBy: [AttendanceLogOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: AttendanceLogWhereUniqueInput
+  ): [AttendanceLog!]
+  attendanceLogsCount(where: AttendanceLogWhereInput! = {}): Int
   dailyCloses(
     where: DailyCloseWhereInput! = {}
     orderBy: [DailyCloseOrderByInput!]! = []
@@ -1185,6 +1351,7 @@ input UserWhereUniqueInput {
   phone: String
   auth: AuthWhereUniqueInput
   schedule: EmployeeScheduleWhereUniqueInput
+  deviceAssignment: EmployeeDeviceAssignmentWhereUniqueInput
 }
 
 input UserWhereInput {
@@ -1205,6 +1372,8 @@ input UserWhereInput {
   auth: AuthWhereInput
   role: StringNullableFilter
   schedule: EmployeeScheduleWhereInput
+  deviceAssignment: EmployeeDeviceAssignmentWhereInput
+  attendanceLogs: AttendanceLogManyRelationFilter
   dailyCloses: DailyCloseManyRelationFilter
   active: BooleanFilter
 }
@@ -1236,6 +1405,12 @@ input ChatSessionManyRelationFilter {
   every: ChatSessionWhereInput
   some: ChatSessionWhereInput
   none: ChatSessionWhereInput
+}
+
+input AttendanceLogManyRelationFilter {
+  every: AttendanceLogWhereInput
+  some: AttendanceLogWhereInput
+  none: AttendanceLogWhereInput
 }
 
 input DailyCloseManyRelationFilter {
@@ -1271,6 +1446,8 @@ input UserUpdateInput {
   auth: AuthRelateToOneForUpdateInput
   role: String
   schedule: EmployeeScheduleRelateToOneForUpdateInput
+  deviceAssignment: EmployeeDeviceAssignmentRelateToOneForUpdateInput
+  attendanceLogs: AttendanceLogRelateToManyForUpdateInput
   dailyCloses: DailyCloseRelateToManyForUpdateInput
   active: Boolean
 }
@@ -1308,6 +1485,19 @@ input EmployeeScheduleRelateToOneForUpdateInput {
   disconnect: Boolean
 }
 
+input EmployeeDeviceAssignmentRelateToOneForUpdateInput {
+  create: EmployeeDeviceAssignmentCreateInput
+  connect: EmployeeDeviceAssignmentWhereUniqueInput
+  disconnect: Boolean
+}
+
+input AttendanceLogRelateToManyForUpdateInput {
+  disconnect: [AttendanceLogWhereUniqueInput!]
+  set: [AttendanceLogWhereUniqueInput!]
+  create: [AttendanceLogCreateInput!]
+  connect: [AttendanceLogWhereUniqueInput!]
+}
+
 input DailyCloseRelateToManyForUpdateInput {
   disconnect: [DailyCloseWhereUniqueInput!]
   set: [DailyCloseWhereUniqueInput!]
@@ -1334,6 +1524,8 @@ input UserCreateInput {
   auth: AuthRelateToOneForCreateInput
   role: String
   schedule: EmployeeScheduleRelateToOneForCreateInput
+  deviceAssignment: EmployeeDeviceAssignmentRelateToOneForCreateInput
+  attendanceLogs: AttendanceLogRelateToManyForCreateInput
   dailyCloses: DailyCloseRelateToManyForCreateInput
   active: Boolean
 }
@@ -1361,6 +1553,16 @@ input AuthRelateToOneForCreateInput {
 input EmployeeScheduleRelateToOneForCreateInput {
   create: EmployeeScheduleCreateInput
   connect: EmployeeScheduleWhereUniqueInput
+}
+
+input EmployeeDeviceAssignmentRelateToOneForCreateInput {
+  create: EmployeeDeviceAssignmentCreateInput
+  connect: EmployeeDeviceAssignmentWhereUniqueInput
+}
+
+input AttendanceLogRelateToManyForCreateInput {
+  create: [AttendanceLogCreateInput!]
+  connect: [AttendanceLogWhereUniqueInput!]
 }
 
 input DailyCloseRelateToManyForCreateInput {
@@ -2279,6 +2481,36 @@ type Mutation {
   deleteEmployeeSchedules(
     where: [EmployeeScheduleWhereUniqueInput!]!
   ): [EmployeeSchedule]
+  createEmployeeDeviceAssignment(
+    data: EmployeeDeviceAssignmentCreateInput!
+  ): EmployeeDeviceAssignment
+  createEmployeeDeviceAssignments(
+    data: [EmployeeDeviceAssignmentCreateInput!]!
+  ): [EmployeeDeviceAssignment]
+  updateEmployeeDeviceAssignment(
+    where: EmployeeDeviceAssignmentWhereUniqueInput!
+    data: EmployeeDeviceAssignmentUpdateInput!
+  ): EmployeeDeviceAssignment
+  updateEmployeeDeviceAssignments(
+    data: [EmployeeDeviceAssignmentUpdateArgs!]!
+  ): [EmployeeDeviceAssignment]
+  deleteEmployeeDeviceAssignment(
+    where: EmployeeDeviceAssignmentWhereUniqueInput!
+  ): EmployeeDeviceAssignment
+  deleteEmployeeDeviceAssignments(
+    where: [EmployeeDeviceAssignmentWhereUniqueInput!]!
+  ): [EmployeeDeviceAssignment]
+  createAttendanceLog(data: AttendanceLogCreateInput!): AttendanceLog
+  createAttendanceLogs(data: [AttendanceLogCreateInput!]!): [AttendanceLog]
+  updateAttendanceLog(
+    where: AttendanceLogWhereUniqueInput!
+    data: AttendanceLogUpdateInput!
+  ): AttendanceLog
+  updateAttendanceLogs(data: [AttendanceLogUpdateArgs!]!): [AttendanceLog]
+  deleteAttendanceLog(where: AttendanceLogWhereUniqueInput!): AttendanceLog
+  deleteAttendanceLogs(
+    where: [AttendanceLogWhereUniqueInput!]!
+  ): [AttendanceLog]
   createRestaurant(data: RestaurantCreateInput!): Restaurant
   createRestaurants(data: [RestaurantCreateInput!]!): [Restaurant]
   updateRestaurant(
@@ -2397,6 +2629,19 @@ type Mutation {
     date: String!
     payload: JSON!
   ): UpsertDailyCloseRawResponse
+  validateAttendanceEmployee(
+    deviceId: String!
+    phone: String!
+    pin: String!
+  ): AttendanceValidationResult!
+  recordAttendanceEvent(
+    deviceId: String!
+    userId: String!
+    action: String!
+    occurredAt: String!
+    date: String!
+    mutationId: String!
+  ): AttendanceMutationResult!
   validateDailyCloseOperator(
     phone: String!
     pin: String!
@@ -2513,6 +2758,28 @@ type Query {
     cursor: EmployeeScheduleWhereUniqueInput
   ): [EmployeeSchedule!]
   employeeSchedulesCount(where: EmployeeScheduleWhereInput! = {}): Int
+  employeeDeviceAssignment(
+    where: EmployeeDeviceAssignmentWhereUniqueInput!
+  ): EmployeeDeviceAssignment
+  employeeDeviceAssignments(
+    where: EmployeeDeviceAssignmentWhereInput! = {}
+    orderBy: [EmployeeDeviceAssignmentOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: EmployeeDeviceAssignmentWhereUniqueInput
+  ): [EmployeeDeviceAssignment!]
+  employeeDeviceAssignmentsCount(
+    where: EmployeeDeviceAssignmentWhereInput! = {}
+  ): Int
+  attendanceLog(where: AttendanceLogWhereUniqueInput!): AttendanceLog
+  attendanceLogs(
+    where: AttendanceLogWhereInput! = {}
+    orderBy: [AttendanceLogOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: AttendanceLogWhereUniqueInput
+  ): [AttendanceLog!]
+  attendanceLogsCount(where: AttendanceLogWhereInput! = {}): Int
   restaurant(where: RestaurantWhereUniqueInput!): Restaurant
   restaurants(
     where: RestaurantWhereInput! = {}
@@ -2653,6 +2920,11 @@ type Query {
   getSyncStatus(date: String!, deviceId: String): SyncStatusInfo!
   getProductOperationalReport(days: Int = 7): [ProductOperationalReportRow!]!
   dailyCloseOperators: [DailyCloseOperator!]!
+  attendanceEmployees(deviceId: String!): [AttendanceEmployee!]!
+  pendingAttendanceCheckIns(
+    deviceId: String!
+    date: String!
+  ): [PendingAttendanceCheckIn!]!
   updatePassword(recoveryId: String!, password: String!): Boolean
   getRecoveryEmail(email: String!): Boolean
   getGroupOrders: [[ExtendedOrder]]
@@ -2797,6 +3069,53 @@ type UpsertDailyCloseRawResponse {
   syncedAt: String
 }
 
+type AttendanceValidationResult {
+  success: Boolean!
+  message: String!
+  employee: AttendanceEmployee
+  openLog: AttendanceLogSummary
+}
+
+type AttendanceEmployee {
+  userId: String!
+  name: String!
+  phone: String!
+  role: String
+  pin: String!
+  deviceId: String!
+  active: Boolean!
+  schedule: AttendanceEmployeeSchedule
+}
+
+type AttendanceEmployeeSchedule {
+  days: JSON
+  shiftStart: String!
+  shiftEnd: String!
+  breakMinutes: Int!
+  active: Boolean!
+}
+
+type AttendanceLogSummary {
+  id: ID!
+  userId: String!
+  deviceId: String!
+  date: String!
+  clockInAt: String
+  clockOutAt: String
+  durationMinutes: Int!
+  status: String!
+  checkInMutationId: String!
+  checkOutMutationId: String
+}
+
+type AttendanceMutationResult {
+  success: Boolean!
+  message: String!
+  action: String
+  pendingPreviousCheckout: Boolean!
+  log: AttendanceLogSummary
+}
+
 type DailyCloseOperatorValidationResult {
   success: Boolean!
   message: String!
@@ -2894,6 +3213,17 @@ type DailyCloseOperator {
   pin: String!
   active: Boolean!
   raw: JSON!
+}
+
+type PendingAttendanceCheckIn {
+  userId: String!
+  name: String!
+  phone: String!
+  role: String
+  deviceId: String!
+  shiftStart: String!
+  shiftEnd: String!
+  breakMinutes: Int!
 }
 
 type ExtendedOrder {

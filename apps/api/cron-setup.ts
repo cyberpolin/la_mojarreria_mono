@@ -18,7 +18,7 @@ export function setupCronJobs(context: any) {
         },
       });
 
-      console.log(`🔍 Encontrados ${oldRecords.length} registros para limpiar`);
+      // console.log(`🔍 Encontrados ${oldRecords.length} registros para limpiar`);
 
       for (const record of oldRecords) {
         await context.db.QRStaff.deleteOne({

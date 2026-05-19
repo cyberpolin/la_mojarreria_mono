@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { Pressable, ScrollView, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { client } from "@/apollo/client";
 import { RootStackParamList } from "./NavigationStack";
 import { Screens } from "./Types";
 import { Hint, Label } from "@/components/Typography";
@@ -11,30 +12,24 @@ import {
   PrimaryButton,
   SecondaryButton,
 } from "@/components/ui/Buttons";
-import { getCachedOperators } from "./operatorCache";
+import { useInternetStatus } from "@/hooks/UseInternetStatus";
 import {
+  AttendanceAction,
+  AttendanceEmployee,
+  EmployeeClockRecord,
+  findCachedAttendanceEmployee,
   getAllClockRecords,
-  upsertClockRecordByUserId,
+  getAttendanceOutboxCount,
+  recordLocalAttendanceEvent,
+  syncAttendanceEmployees,
+  syncAttendanceOutbox,
+  validateAttendanceEmployee,
 } from "./checkInOutStorage";
 
 type Props = NativeStackScreenProps<
   RootStackParamList,
   Screens.CheckInOutScreen
 >;
-
-type Employee = {
-  userId: string;
-  name: string;
-  pin: string;
-  active: boolean;
-};
-
-type ClockRecord = {
-  status: "IN" | "OUT";
-  clockInTime: string | null;
-  lastClockOutTime: string | null;
-  lastShiftDurationMinutes: number | null;
-};
 
 type KeypadKey =
   | "0"
@@ -57,93 +52,90 @@ const formatDuration = (minutes: number) => {
   return `${hrs}h ${mins}m`;
 };
 
-const getProgressStep = (
-  step: number,
-  action: "CHECK_IN" | "CHECK_OUT" | null,
-) => {
-  if (step <= 3) return step;
-  if (step === 4 && action === "CHECK_IN") return 4;
-  if (step === 5 && action === "CHECK_OUT") return 5;
-  return 4;
-};
+const emptyRecord = (employee?: AttendanceEmployee): EmployeeClockRecord => ({
+  status: "OUT",
+  date: null,
+  clockInTime: null,
+  lastClockOutTime: null,
+  lastShiftDurationMinutes: null,
+  employeeName: employee?.name ?? "",
+  employeePhone: employee?.phone ?? "",
+});
 
 export default function CheckInOutScreen({ navigation }: Props) {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [clockRecords, setClockRecords] = useState<Record<string, ClockRecord>>(
+  const { isInternetReachable } = useInternetStatus();
+
+  const [records, setRecords] = useState<Record<string, EmployeeClockRecord>>(
     {},
   );
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
-    null,
-  );
-  const [step, setStep] = useState(1);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [activeField, setActiveField] = useState<"phone" | "pin">("phone");
+  const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState<string | null>(null);
-  const [nextAction, setNextAction] = useState<"CHECK_IN" | "CHECK_OUT" | null>(
-    null,
-  );
-  const [confirmationTime, setConfirmationTime] = useState<string>("");
-  const [shiftDuration, setShiftDuration] = useState<string>("");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+  const [employee, setEmployee] = useState<AttendanceEmployee | null>(null);
+  const [nextAction, setNextAction] = useState<AttendanceAction | null>(null);
+  const [confirmationTime, setConfirmationTime] = useState("");
+  const [shiftDuration, setShiftDuration] = useState("");
 
   useEffect(() => {
     const load = async () => {
-      const [cached, records] = await Promise.all([
-        getCachedOperators(),
+      const [storedRecords, outboxCount] = await Promise.all([
         getAllClockRecords(),
+        getAttendanceOutboxCount(),
       ]);
-      const activeEmployees = cached
-        .filter((item) => item.active)
-        .map((item) => ({
-          userId: item.userId,
-          name: item.name,
-          pin: item.pin,
-          active: item.active,
-        }));
-      setEmployees(activeEmployees);
-      setClockRecords(records as Record<string, ClockRecord>);
+      setRecords(storedRecords);
+      setPendingCount(outboxCount);
     };
 
     load();
   }, []);
 
-  const selectedEmployee = useMemo(
-    () =>
-      employees.find((employee) => employee.userId === selectedEmployeeId) ??
-      null,
-    [employees, selectedEmployeeId],
-  );
+  useEffect(() => {
+    if (!isInternetReachable) return;
 
-  const selectedRecord: ClockRecord = useMemo(() => {
-    if (!selectedEmployeeId) {
-      return {
-        status: "OUT",
-        clockInTime: null,
-        lastClockOutTime: null,
-        lastShiftDurationMinutes: null,
-      };
-    }
+    Promise.all([syncAttendanceEmployees(client), syncAttendanceOutbox(client)])
+      .then(async () => {
+        const [storedRecords, outboxCount] = await Promise.all([
+          getAllClockRecords(),
+          getAttendanceOutboxCount(),
+        ]);
+        setRecords(storedRecords);
+        setPendingCount(outboxCount);
+      })
+      .catch(() => undefined);
+  }, [isInternetReachable]);
 
-    return (
-      clockRecords[selectedEmployeeId] ?? {
-        status: "OUT",
-        clockInTime: null,
-        lastClockOutTime: null,
-        lastShiftDurationMinutes: null,
-      }
-    );
-  }, [clockRecords, selectedEmployeeId]);
+  const selectedRecord = useMemo(() => {
+    if (!employee) return emptyRecord();
+    return records[employee.userId] ?? emptyRecord(employee);
+  }, [employee, records]);
+
+  const pendingPreviousCheckout =
+    selectedRecord.status === "IN" &&
+    Boolean(selectedRecord.date) &&
+    selectedRecord.date !== dayjs().format("YYYY-MM-DD");
+
+  const canSubmitCredentials =
+    phone.trim().length >= 8 && pin.length === 4 && !isBusy;
 
   const handleClose = () => {
     navigation.navigate(Screens.LandingScreen);
   };
 
-  const handleSelectEmployee = (employeeId: string) => {
-    setSelectedEmployeeId(employeeId);
-    setPin("");
-    setPinError(null);
-    setStep(2);
-  };
+  const onKeypadPress = (key: KeypadKey) => {
+    if (isBusy) return;
 
-  const onPinKeyPress = (key: KeypadKey) => {
+    if (activeField === "phone") {
+      setPhone((prev) => {
+        if (key === "Del") return prev.slice(0, -1);
+        if (prev.length >= 15) return prev;
+        return prev + key;
+      });
+      return;
+    }
+
     setPin((prev) => {
       if (key === "Del") return prev.slice(0, -1);
       if (prev.length >= 4) return prev;
@@ -151,82 +143,126 @@ export default function CheckInOutScreen({ navigation }: Props) {
     });
   };
 
-  const verifyPin = () => {
-    if (!selectedEmployee) return;
-    if (pin.length !== 4) {
-      setPinError("PIN incompleto.");
-      return;
-    }
+  const refreshRecords = async () => {
+    const [storedRecords, outboxCount] = await Promise.all([
+      getAllClockRecords(),
+      getAttendanceOutboxCount(),
+    ]);
+    setRecords(storedRecords);
+    setPendingCount(outboxCount);
+  };
 
-    if (pin !== selectedEmployee.pin) {
-      setPinError("PIN incorrecto.");
-      return;
-    }
+  const validateCredentials = async () => {
+    if (!canSubmitCredentials) return;
 
-    setPinError(null);
-    setNextAction(selectedRecord.status === "IN" ? "CHECK_OUT" : "CHECK_IN");
-    setStep(3);
+    setIsBusy(true);
+    setStatusMessage(null);
+
+    try {
+      let resolvedEmployee: AttendanceEmployee | null = null;
+
+      if (isInternetReachable) {
+        const result = await validateAttendanceEmployee(
+          client,
+          phone.trim(),
+          pin.trim(),
+        );
+        if (result.success && result.employee) {
+          resolvedEmployee = result.employee;
+        } else {
+          setStatusMessage(result.message);
+          return;
+        }
+      }
+
+      if (!resolvedEmployee) {
+        resolvedEmployee = await findCachedAttendanceEmployee(
+          phone.trim(),
+          pin.trim(),
+        );
+      }
+
+      if (!resolvedEmployee) {
+        setStatusMessage(
+          "No se pudo validar. Revisa teléfono/PIN o conecta internet.",
+        );
+        return;
+      }
+
+      await refreshRecords();
+      const currentRecord =
+        (await getAllClockRecords())[resolvedEmployee.userId] ??
+        emptyRecord(resolvedEmployee);
+      if (
+        currentRecord.status === "OUT" &&
+        currentRecord.date === dayjs().format("YYYY-MM-DD") &&
+        currentRecord.lastClockOutTime
+      ) {
+        setStatusMessage("Ya registraste entrada y salida el día de hoy.");
+        return;
+      }
+      setEmployee(resolvedEmployee);
+      setNextAction(currentRecord.status === "IN" ? "CHECK_OUT" : "CHECK_IN");
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo validar el empleado.",
+      );
+    } finally {
+      setIsBusy(false);
+    }
   };
 
   const continueAction = async () => {
-    if (!selectedEmployee || !nextAction) return;
+    if (isBusy) return;
+    if (!employee || !nextAction) return;
 
-    const nowIso = new Date().toISOString();
-    const nowClock = dayjs(nowIso).format("HH:mm");
+    setIsBusy(true);
+    setStatusMessage(null);
 
-    if (nextAction === "CHECK_IN") {
-      const nextRecord: ClockRecord = {
-        status: "IN",
-        clockInTime: nowIso,
-        lastClockOutTime: selectedRecord.lastClockOutTime,
-        lastShiftDurationMinutes: selectedRecord.lastShiftDurationMinutes,
-      };
-      const nextRecords = await upsertClockRecordByUserId(
-        selectedEmployee.userId,
-        nextRecord,
+    try {
+      const result = await recordLocalAttendanceEvent(employee, nextAction);
+      await refreshRecords();
+
+      if (isInternetReachable) {
+        const syncResult = await syncAttendanceOutbox(client);
+        setPendingCount(syncResult.pending);
+      } else {
+        const outboxCount = await getAttendanceOutboxCount();
+        setPendingCount(outboxCount);
+      }
+
+      setConfirmationTime(dayjs(result.occurredAt).format("HH:mm"));
+      setShiftDuration(
+        result.durationMinutes === null
+          ? ""
+          : formatDuration(result.durationMinutes),
       );
-      setClockRecords(nextRecords as Record<string, ClockRecord>);
-      setConfirmationTime(nowClock);
-      setStep(4);
-      return;
+    } catch (error) {
+      setStatusMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo registrar la asistencia.",
+      );
+    } finally {
+      setIsBusy(false);
     }
-
-    const clockInTime = selectedRecord.clockInTime
-      ? dayjs(selectedRecord.clockInTime)
-      : null;
-    const durationMinutes =
-      clockInTime && clockInTime.isValid()
-        ? Math.max(0, dayjs(nowIso).diff(clockInTime, "minute"))
-        : 0;
-
-    const nextRecord: ClockRecord = {
-      status: "OUT",
-      clockInTime: null,
-      lastClockOutTime: nowIso,
-      lastShiftDurationMinutes: durationMinutes,
-    };
-    const nextRecords = await upsertClockRecordByUserId(
-      selectedEmployee.userId,
-      nextRecord,
-    );
-    setClockRecords(nextRecords as Record<string, ClockRecord>);
-    setConfirmationTime(nowClock);
-    setShiftDuration(formatDuration(durationMinutes));
-    setStep(5);
   };
 
-  const resetAndClose = () => {
-    setSelectedEmployeeId(null);
-    setPin("");
-    setPinError(null);
+  const resetForm = () => {
+    setEmployee(null);
     setNextAction(null);
+    setPhone("");
+    setPin("");
     setConfirmationTime("");
     setShiftDuration("");
-    setStep(1);
-    handleClose();
+    setStatusMessage(null);
+    setActiveField("phone");
   };
 
-  const progressStep = getProgressStep(step, nextAction);
+  const actionLabel = nextAction === "CHECK_OUT" ? "Salida" : "Entrada";
+  const isConfirmed = Boolean(confirmationTime);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#f8fafc" }}>
@@ -240,13 +276,16 @@ export default function CheckInOutScreen({ navigation }: Props) {
           alignItems: "center",
         }}
       >
-        <Hint>Step {progressStep} of 5</Hint>
+        <View>
+          <Hint>{isInternetReachable ? "Online" : "Offline"}</Hint>
+          {pendingCount > 0 ? <Hint>{pendingCount} pendiente(s)</Hint> : null}
+        </View>
         <SecondaryButton
           onPress={handleClose}
           style={{ margin: 0, height: 36 }}
           textStyle={{ fontSize: 12 }}
         >
-          Close
+          Cerrar
         </SecondaryButton>
       </View>
 
@@ -262,91 +301,53 @@ export default function CheckInOutScreen({ navigation }: Props) {
           style={{ flex: 0.58, marginRight: 12 }}
           contentContainerStyle={{ paddingBottom: 24 }}
         >
-          {step === 1 ? (
+          {!employee ? (
             <>
-              <Label>Check In / Check Out</Label>
-              <Hint>Select your name to continue.</Hint>
+              <Label>Entrada / Salida</Label>
+              <Hint>Ingresa tu teléfono y PIN para registrar asistencia.</Hint>
 
-              <View style={{ marginTop: 12 }}>
-                {employees.map((employee) => {
-                  const record =
-                    clockRecords[employee.userId] ??
-                    ({
-                      status: "OUT",
-                      clockInTime: null,
-                      lastClockOutTime: null,
-                      lastShiftDurationMinutes: null,
-                    } as ClockRecord);
-
-                  return (
-                    <Pressable
-                      key={employee.userId}
-                      onPress={() => handleSelectEmployee(employee.userId)}
-                      style={{
-                        backgroundColor: "#ffffff",
-                        borderWidth: 1,
-                        borderColor: "#cbd5e1",
-                        borderRadius: 12,
-                        paddingVertical: 12,
-                        paddingHorizontal: 12,
-                        marginBottom: 10,
-                      }}
-                    >
-                      <Label>{employee.name}</Label>
-                      <Hint>Status: {record.status}</Hint>
-                      {record.status === "IN" && record.clockInTime ? (
-                        <Hint>
-                          Working since{" "}
-                          {dayjs(record.clockInTime).format("HH:mm")}
-                        </Hint>
-                      ) : (
-                        <Hint>Not working</Hint>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </>
-          ) : null}
-
-          {step === 2 ? (
-            <>
-              <Label>Verify identity</Label>
-              <Hint>Enter your 4-digit PIN.</Hint>
-
-              <View
+              <Pressable
+                onPress={() => setActiveField("phone")}
                 style={{
                   marginTop: 14,
                   backgroundColor: "#ffffff",
                   borderWidth: 1,
-                  borderColor: "#cbd5e1",
+                  borderColor: activeField === "phone" ? "#64748b" : "#cbd5e1",
                   borderRadius: 10,
                   padding: 12,
                 }}
               >
-                <Hint>PIN (4 digits)</Hint>
-                <Hint style={{ marginTop: 2 }}>
-                  (info: This confirms it’s really you.)
-                </Hint>
-                <Label>
-                  {pin
-                    ? "•".repeat(pin.length)
-                    : "Selecciona y escribe con keypad"}
-                </Label>
-              </View>
+                <Hint>Teléfono</Hint>
+                <Label>{phone || "Selecciona y escribe con keypad"}</Label>
+              </Pressable>
 
-              {pinError ? (
-                <Hint style={{ marginTop: 8 }}>{pinError}</Hint>
+              <Pressable
+                onPress={() => setActiveField("pin")}
+                style={{
+                  marginTop: 10,
+                  backgroundColor: "#ffffff",
+                  borderWidth: 1,
+                  borderColor: activeField === "pin" ? "#64748b" : "#cbd5e1",
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+              >
+                <Hint>PIN</Hint>
+                <Label>{pin ? "•".repeat(pin.length) : "4 dígitos"}</Label>
+              </Pressable>
+
+              {statusMessage ? (
+                <Hint style={{ marginTop: 10 }}>{statusMessage}</Hint>
               ) : null}
             </>
           ) : null}
 
-          {step === 3 ? (
+          {employee && !isConfirmed ? (
             <>
-              <Label>Confirm action</Label>
+              <Label>{employee.name}</Label>
               <Hint>
-                The system will automatically check you in or check you out
-                based on your current status.
+                Acción detectada: {actionLabel}
+                {pendingPreviousCheckout ? " pendiente de un día anterior" : ""}
               </Hint>
 
               <View
@@ -359,28 +360,45 @@ export default function CheckInOutScreen({ navigation }: Props) {
                   padding: 12,
                 }}
               >
-                <Hint>
-                  Action:{" "}
-                  {selectedRecord.status === "IN" ? "Check Out" : "Check In"}
-                </Hint>
+                <Hint>Teléfono: {employee.phone}</Hint>
+                <Hint>Dispositivo: {employee.deviceId}</Hint>
+                {selectedRecord.status === "IN" &&
+                selectedRecord.clockInTime ? (
+                  <Hint>
+                    Entrada abierta:{" "}
+                    {dayjs(selectedRecord.clockInTime).format(
+                      "YYYY-MM-DD HH:mm",
+                    )}
+                  </Hint>
+                ) : (
+                  <Hint>Sin entrada abierta</Hint>
+                )}
               </View>
+
+              {pendingPreviousCheckout ? (
+                <Hint style={{ marginTop: 10 }}>
+                  Primero se registrará la salida pendiente. Después podrás
+                  volver a entrar.
+                </Hint>
+              ) : null}
+
+              {statusMessage ? (
+                <Hint style={{ marginTop: 10 }}>{statusMessage}</Hint>
+              ) : null}
             </>
           ) : null}
 
-          {step === 4 ? (
+          {employee && isConfirmed ? (
             <>
-              <Label>Check In confirmed</Label>
-              <Hint>You are now clocked in.</Hint>
-              <Hint>Time: {confirmationTime}</Hint>
-            </>
-          ) : null}
-
-          {step === 5 ? (
-            <>
-              <Label>Check Out confirmed</Label>
-              <Hint>You are now clocked out.</Hint>
-              <Hint>Time: {confirmationTime}</Hint>
-              <Hint>Shift duration: {shiftDuration}</Hint>
+              <Label>{actionLabel} confirmada</Label>
+              <Hint>Empleado: {employee.name}</Hint>
+              <Hint>Hora: {confirmationTime}</Hint>
+              {shiftDuration ? <Hint>Duración: {shiftDuration}</Hint> : null}
+              {pendingCount > 0 ? (
+                <Hint>Se sincronizará cuando haya internet.</Hint>
+              ) : (
+                <Hint>Sincronizado o guardado localmente.</Hint>
+              )}
             </>
           ) : null}
         </ScrollView>
@@ -397,33 +415,32 @@ export default function CheckInOutScreen({ navigation }: Props) {
             justifyContent: "center",
           }}
         >
-          {step === 1 ? (
-            <>
-              <Hint>Select an employee from the left list.</Hint>
-              <OptionalButton onPress={handleClose}>Cancel</OptionalButton>
-            </>
-          ) : null}
-
-          {step === 2 ? (
+          {!employee ? (
             <View style={{ alignItems: "center" }}>
               <NumericKeypad
-                activeId="pin"
-                onKeyPress={onPinKeyPress}
-                canSubmit={pin.length === 4}
-                onSubmit={verifyPin}
-                submitLabel="Confirm"
+                activeId={activeField}
+                onKeyPress={onKeypadPress}
+                canSubmit={canSubmitCredentials}
+                onSubmit={validateCredentials}
+                submitLabel={isBusy ? "Validando..." : "Validar"}
               />
+              <OptionalButton onPress={handleClose}>Cancelar</OptionalButton>
             </View>
           ) : null}
 
-          {step === 3 ? (
-            <PrimaryButton onPress={continueAction}>Continue</PrimaryButton>
+          {employee && !isConfirmed ? (
+            <>
+              <PrimaryButton onPress={continueAction}>
+                {isBusy ? "Guardando..." : `Registrar ${actionLabel}`}
+              </PrimaryButton>
+              <OptionalButton onPress={resetForm}>
+                Cambiar usuario
+              </OptionalButton>
+            </>
           ) : null}
-          {step === 4 ? (
-            <PrimaryButton onPress={resetAndClose}>Done</PrimaryButton>
-          ) : null}
-          {step === 5 ? (
-            <PrimaryButton onPress={resetAndClose}>Done</PrimaryButton>
+
+          {employee && isConfirmed ? (
+            <PrimaryButton onPress={resetForm}>Listo</PrimaryButton>
           ) : null}
         </View>
       </View>

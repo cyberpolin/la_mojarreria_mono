@@ -65,6 +65,11 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
     navigation.navigate(Screens.ActivePromosScreen);
   };
 
+  const openWeeklyReport = () => {
+    onClose();
+    navigation.navigate(Screens.WeeklyReportScreen);
+  };
+
   return (
     <View style={styles.overlay}>
       <Pressable style={styles.backdrop} onPress={onClose} />
@@ -95,8 +100,8 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
           <IconTile icon="cube-outline" label="Inventario" onPress={onClose} />
           <IconTile
             icon="bar-chart-outline"
-            label="Reportes"
-            onPress={onClose}
+            label="Weekly Report"
+            onPress={openWeeklyReport}
           />
           <IconTile icon="settings-outline" label="Ajustes" onPress={onClose} />
         </View>

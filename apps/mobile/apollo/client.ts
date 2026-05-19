@@ -16,9 +16,23 @@ const apolloTimeout = new ApolloLinkTimeout(TIMEOUT) as unknown as ApolloLink;
 const uri = `${APP_CONFIG.apiUrl}/api/graphql`;
 console.log("================================");
 console.log("Apollo Client URI:", uri);
+console.log("APP_CONFIG.apiUrl:", APP_CONFIG.apiUrl);
+console.log("================================");
 
 const apolloLink = new HttpLink({
   uri,
+});
+
+const csrfPreflightLink = new ApolloLink((operation, forward) => {
+  operation.setContext(({ headers = {} }) => ({
+    headers: {
+      ...headers,
+      "apollo-require-preflight": "true",
+      "x-apollo-operation-name": operation.operationName || "unknown",
+    },
+  }));
+
+  return forward(operation);
 });
 
 const errorLink = onError(
@@ -58,7 +72,12 @@ const errorLink = onError(
   },
 );
 
-const link = ApolloLink.from([errorLink, apolloTimeout, apolloLink]);
+const link = ApolloLink.from([
+  errorLink,
+  csrfPreflightLink,
+  apolloTimeout,
+  apolloLink,
+]);
 
 // Initialize Apollo Client
 export const client = new ApolloClient({

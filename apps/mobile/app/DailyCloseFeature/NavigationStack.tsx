@@ -12,6 +12,7 @@ import OutcomeReportScreen from "./OutcomeReport";
 import IncomeOutputResumeScreen from "./IncomeOutputResume";
 import AllReportsScreen from "./AllReports";
 import ActivePromosScreen from "./ActivePromosScreen";
+import WeeklyReportScreen from "./WeeklyReportScreen";
 import EmployeeAssistantStep1 from "./EmployeeAssistantStep1";
 import EmployeeAssistantStep2 from "./EmployeeAssistantStep2";
 import EmployeeAssistantStep3 from "./EmployeeAssistantStep3";
@@ -38,6 +39,7 @@ export type RootStackParamList = {
   [Screens.IncomeOutputResumeScreen]?: {};
   [Screens.AllReportsScreen]?: {};
   [Screens.ActivePromosScreen]?: {};
+  [Screens.WeeklyReportScreen]?: {};
   [Screens.EmployeeAssistantStep1Screen]?: {};
   [Screens.EmployeeAssistantStep2Screen]?: {};
   [Screens.EmployeeAssistantStep3Screen]?: {};
@@ -165,6 +167,13 @@ export default ({ initialPosition }: { initialPosition?: number | null }) => (
       {() => (
         <ScreenFrame>
           <ActivePromosScreen />
+        </ScreenFrame>
+      )}
+    </Screen>
+    <Screen name={Screens.WeeklyReportScreen}>
+      {() => (
+        <ScreenFrame>
+          <WeeklyReportScreen />
         </ScreenFrame>
       )}
     </Screen>
