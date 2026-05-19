@@ -13,9 +13,12 @@ import { Screens } from "./Types";
 import { useDailyCloseStore } from "./useDailyCloseStore";
 import { hasCachedOperators } from "./operatorCache";
 
-// TODO: Add time to access restriction
-
 type Props = NativeStackScreenProps<RootStackParamList, Screens.LandingScreen>;
+
+const canStartDailyClose = (date = new Date()) => {
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  return currentMinutes > 16 * 60 + 59;
+};
 
 export default function LandingScreen(props: Props) {
   const {
@@ -32,12 +35,6 @@ export default function LandingScreen(props: Props) {
     return () => clearInterval(id);
   }, []);
 
-  const isAfterFivePm = () => {
-    if (!time) return false;
-    const [hours, minutes] = time.split(":").map(Number);
-    return hours > 17 || (hours === 17 && minutes >= 0);
-  };
-
   const closesByDate = useDailyCloseStore((state) => state.closesByDate);
   const todayDateString = dayjs().format("YYYY-MM-DD");
   const isAlreadyClosed = Object.keys(closesByDate).includes(todayDateString);
@@ -45,6 +42,13 @@ export default function LandingScreen(props: Props) {
 
   const onStartClose = async () => {
     if (isCheckingOperators) return;
+    if (!canStartDailyClose()) {
+      Alert.alert(
+        "Cierre no disponible",
+        "El cierre solo puede iniciarse a partir de las 5:00pm.",
+      );
+      return;
+    }
     setIsCheckingOperators(true);
     try {
       const hasOperators = await hasCachedOperators();
@@ -67,13 +71,13 @@ export default function LandingScreen(props: Props) {
       <Clock>{time}</Clock>
       <View style={{ marginTop: 20, marginBottom: 20, alignItems: "center" }}>
         <Hint>
-          Recuerda que solo se puede hacer el cierre despues de las 5:00pm
+          Recuerda que solo se puede hacer el cierre a partir de las 5:00pm
         </Hint>
         {isAlreadyClosed && <Hint>El cierre de hoy ya se ha realizado.</Hint>}
       </View>
       {!isAlreadyClosed ? (
         <PrimaryButton onPress={onStartClose}>Iniciar el cierre</PrimaryButton>
-      ) : !isAfterFivePm() || isAlreadyClosed ? (
+      ) : isAlreadyClosed ? (
         <OptionalButton onPress={() => alert("Aun no esta implementado...")}>
           Ver el resumen de hoy!
         </OptionalButton>
