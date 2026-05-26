@@ -51,6 +51,7 @@ import { EmployeeSchedule } from "./lists/EmployeeSchedule";
 import { EmployeeDeviceAssignment } from "./lists/EmployeeDeviceAssignment";
 import { AttendanceLog } from "./lists/AttendanceLog";
 import { Restaurant } from "./lists/Restaurant";
+import { WaServiceStatus } from "./lists/WaServiceStatus";
 // Lists
 
 //This will prevent all graphql
@@ -91,6 +92,7 @@ export const lists = {
   EmployeeDeviceAssignment,
   AttendanceLog,
   Restaurant,
+  WaServiceStatus,
   Auth: list({
     fields: {
       email: text({ validation: { isRequired: true }, isIndexed: "unique" }),

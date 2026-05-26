@@ -15,12 +15,19 @@ export const Restaurant = list({
           "Logo image metadata (publicId, secureUrl, width, height, format, bytes).",
       },
     }),
+    businessHours: json({
+      defaultValue: [],
+      ui: {
+        description:
+          "Array of weekly business hours. Example: [{ day: 'thu', open: true, openTime: '11:00', closeTime: '17:00' }]",
+      },
+    }),
     createdAt: timestamp({ defaultValue: { kind: "now" } }),
     updatedAt: timestamp({ db: { updatedAt: true } }),
   },
   ui: {
     listView: {
-      initialColumns: ["name", "createdAt", "updatedAt"],
+      initialColumns: ["name", "businessHours", "createdAt", "updatedAt"],
     },
   },
 });

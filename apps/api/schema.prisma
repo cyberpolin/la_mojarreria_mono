@@ -198,12 +198,30 @@ model AttendanceLog {
 }
 
 model Restaurant {
-  id          String    @id @default(uuid()) @postgresql.Uuid
-  name        String    @default("")
-  description String    @default("")
-  logo        Json?
-  createdAt   DateTime? @default(now())
-  updatedAt   DateTime? @updatedAt
+  id            String    @id @default(uuid()) @postgresql.Uuid
+  name          String    @default("")
+  description   String    @default("")
+  logo          Json?
+  businessHours Json?     @default("[]")
+  createdAt     DateTime? @default(now())
+  updatedAt     DateTime? @updatedAt
+}
+
+model WaServiceStatus {
+  id            String    @id @default(uuid()) @postgresql.Uuid
+  service       String    @default("wa-service")
+  instanceId    String    @default("default")
+  state         String    @default("INACTIVE")
+  active        Boolean   @default(false)
+  connected     Boolean   @default(false)
+  reason        String    @default("")
+  lastChangedAt DateTime?
+  payload       Json?
+  createdAt     DateTime? @default(now())
+  updatedAt     DateTime? @updatedAt
+
+  @@index([service])
+  @@index([instanceId])
 }
 
 model Auth {

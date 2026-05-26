@@ -17,6 +17,45 @@ const RESTAURANT_SEED = {
     secureUrl:
       "https://res.cloudinary.com/demo/image/upload/v1/samples/food/fish-vegetables.jpg",
   },
+  businessHours: [
+    { day: "mon", label: "Monday", open: false, openTime: "", closeTime: "" },
+    { day: "tue", label: "Tuesday", open: false, openTime: "", closeTime: "" },
+    {
+      day: "wed",
+      label: "Wednesday",
+      open: false,
+      openTime: "",
+      closeTime: "",
+    },
+    {
+      day: "thu",
+      label: "Thursday",
+      open: true,
+      openTime: "11:00",
+      closeTime: "17:00",
+    },
+    {
+      day: "fri",
+      label: "Friday",
+      open: true,
+      openTime: "11:00",
+      closeTime: "17:00",
+    },
+    {
+      day: "sat",
+      label: "Saturday",
+      open: true,
+      openTime: "11:00",
+      closeTime: "17:00",
+    },
+    {
+      day: "sun",
+      label: "Sunday",
+      open: true,
+      openTime: "11:00",
+      closeTime: "17:00",
+    },
+  ],
 };
 
 const PRODUCT_SEEDS = [

@@ -31,6 +31,7 @@
     "seed": "bash ./scripts/run-seed.sh",
     "reset:local:prod-seed": "bash ./scripts/reset-local-prod-seed.sh",
     "seed:products": "bash ./scripts/run-seed-products.sh",
+    "seed:current-week-closes": "node ./scripts/seed-current-week-closes.js",
     "seed:sync-logs": "node ./scripts/seed-sync-logs.js",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'No lint configured yet for @mojarreria/api'",

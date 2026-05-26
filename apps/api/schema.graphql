@@ -1126,6 +1126,7 @@ type Restaurant {
   name: String
   description: String
   logo: JSON
+  businessHours: JSON
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -1157,6 +1158,7 @@ input RestaurantUpdateInput {
   name: String
   description: String
   logo: JSON
+  businessHours: JSON
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -1170,6 +1172,85 @@ input RestaurantCreateInput {
   name: String
   description: String
   logo: JSON
+  businessHours: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+type WaServiceStatus {
+  id: ID!
+  service: String
+  instanceId: String
+  state: String
+  active: Boolean
+  connected: Boolean
+  reason: String
+  lastChangedAt: DateTime
+  payload: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input WaServiceStatusWhereUniqueInput {
+  id: ID
+}
+
+input WaServiceStatusWhereInput {
+  AND: [WaServiceStatusWhereInput!]
+  OR: [WaServiceStatusWhereInput!]
+  NOT: [WaServiceStatusWhereInput!]
+  id: IDFilter
+  service: StringFilter
+  instanceId: StringFilter
+  state: StringFilter
+  active: BooleanFilter
+  connected: BooleanFilter
+  reason: StringFilter
+  lastChangedAt: DateTimeNullableFilter
+  createdAt: DateTimeNullableFilter
+  updatedAt: DateTimeNullableFilter
+}
+
+input WaServiceStatusOrderByInput {
+  id: OrderDirection
+  service: OrderDirection
+  instanceId: OrderDirection
+  state: OrderDirection
+  active: OrderDirection
+  connected: OrderDirection
+  reason: OrderDirection
+  lastChangedAt: OrderDirection
+  createdAt: OrderDirection
+  updatedAt: OrderDirection
+}
+
+input WaServiceStatusUpdateInput {
+  service: String
+  instanceId: String
+  state: String
+  active: Boolean
+  connected: Boolean
+  reason: String
+  lastChangedAt: DateTime
+  payload: JSON
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+input WaServiceStatusUpdateArgs {
+  where: WaServiceStatusWhereUniqueInput!
+  data: WaServiceStatusUpdateInput!
+}
+
+input WaServiceStatusCreateInput {
+  service: String
+  instanceId: String
+  state: String
+  active: Boolean
+  connected: Boolean
+  reason: String
+  lastChangedAt: DateTime
+  payload: JSON
   createdAt: DateTime
   updatedAt: DateTime
 }
@@ -2520,6 +2601,23 @@ type Mutation {
   updateRestaurants(data: [RestaurantUpdateArgs!]!): [Restaurant]
   deleteRestaurant(where: RestaurantWhereUniqueInput!): Restaurant
   deleteRestaurants(where: [RestaurantWhereUniqueInput!]!): [Restaurant]
+  createWaServiceStatus(data: WaServiceStatusCreateInput!): WaServiceStatus
+  createWaServiceStatuses(
+    data: [WaServiceStatusCreateInput!]!
+  ): [WaServiceStatus]
+  updateWaServiceStatus(
+    where: WaServiceStatusWhereUniqueInput!
+    data: WaServiceStatusUpdateInput!
+  ): WaServiceStatus
+  updateWaServiceStatuses(
+    data: [WaServiceStatusUpdateArgs!]!
+  ): [WaServiceStatus]
+  deleteWaServiceStatus(
+    where: WaServiceStatusWhereUniqueInput!
+  ): WaServiceStatus
+  deleteWaServiceStatuses(
+    where: [WaServiceStatusWhereUniqueInput!]!
+  ): [WaServiceStatus]
   createAuth(data: AuthCreateInput!): Auth
   createAuths(data: [AuthCreateInput!]!): [Auth]
   updateAuth(where: AuthWhereUniqueInput!, data: AuthUpdateInput!): Auth
@@ -2789,6 +2887,15 @@ type Query {
     cursor: RestaurantWhereUniqueInput
   ): [Restaurant!]
   restaurantsCount(where: RestaurantWhereInput! = {}): Int
+  waServiceStatus(where: WaServiceStatusWhereUniqueInput!): WaServiceStatus
+  waServiceStatuses(
+    where: WaServiceStatusWhereInput! = {}
+    orderBy: [WaServiceStatusOrderByInput!]! = []
+    take: Int
+    skip: Int! = 0
+    cursor: WaServiceStatusWhereUniqueInput
+  ): [WaServiceStatus!]
+  waServiceStatusesCount(where: WaServiceStatusWhereInput! = {}): Int
   auth(where: AuthWhereUniqueInput!): Auth
   auths(
     where: AuthWhereInput! = {}
