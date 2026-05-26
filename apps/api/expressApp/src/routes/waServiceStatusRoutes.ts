@@ -33,7 +33,11 @@ function getWebhookSecret(): string | null {
 }
 
 function getControlApiKey(): string | null {
-  return process.env.WA_SERVICE_CONTROL_API_KEY?.trim() || null;
+  return (
+    process.env.API_MAINTENANCE_API_KEY?.trim() ||
+    process.env.WA_SERVICE_CONTROL_API_KEY?.trim() ||
+    null
+  );
 }
 
 function getWaServiceConfig(): {
@@ -219,7 +223,7 @@ function ensureControlAccess(req: {
     return {
       ok: false as const,
       status: 503,
-      error: "WA_SERVICE_CONTROL_API_KEY is required in production.",
+      error: "API_MAINTENANCE_API_KEY is required in production.",
     };
   }
 

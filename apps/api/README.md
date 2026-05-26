@@ -28,10 +28,10 @@ The API is the control plane for `wa-service`. Web/mobile clients should call th
 
 Set these API environment variables when enabling WhatsApp service control:
 
+- `API_MAINTENANCE_API_KEY`: shared API key for protected maintenance endpoints, including daily close reprocess and WhatsApp service activate/deactivate. Web should use the same server-side env name; mobile config maps it from `EXPO_PUBLIC_API_MAINTENANCE_API_KEY` only for trusted builds.
 - `WA_SERVICE_BASE_URL`: internal/base URL for `wa-service`
 - `WA_SERVICE_API_KEY`: API key used by API to call `wa-service`
 - `WA_SERVICE_CLIENT_DOMAIN`: request domain sent to `wa-service` (defaults to `lamojarreria.com`)
-- `WA_SERVICE_CONTROL_API_KEY`: API key required to call `/rest/wa-service/activate` and `/rest/wa-service/deactivate`
 - `WA_SERVICE_WEBHOOK_SECRET`: secret used by `wa-service` when posting status changes to `/rest/wa-service/status`
 
 The public control endpoints are:

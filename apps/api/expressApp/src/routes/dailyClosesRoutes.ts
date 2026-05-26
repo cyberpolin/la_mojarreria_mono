@@ -28,6 +28,11 @@ const getPayloadRecord = (payload: unknown) => {
   return payload as Record<string, unknown>;
 };
 
+const getMaintenanceApiKey = () =>
+  process.env.API_MAINTENANCE_API_KEY?.trim() ||
+  process.env.DAILY_CLOSE_REPROCESS_API_KEY?.trim() ||
+  null;
+
 export default (app: Express, commonContext: Context) => {
   const router = routeFactory(app, commonContext);
 
@@ -40,13 +45,13 @@ export default (app: Express, commonContext: Context) => {
   });
 
   router.post("/daily-close/reprocess-unprocessed", async (req, res, ctx) => {
-    const configuredKey = process.env.DAILY_CLOSE_REPROCESS_API_KEY?.trim();
+    const configuredKey = getMaintenanceApiKey();
     const isProduction = process.env.NODE_ENV === "production";
 
     if (isProduction && !configuredKey) {
       return res.status(503).json({
         ok: false,
-        error: "DAILY_CLOSE_REPROCESS_API_KEY is required in production.",
+        error: "API_MAINTENANCE_API_KEY is required in production.",
       });
     }
 
