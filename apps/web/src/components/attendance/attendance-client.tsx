@@ -173,6 +173,83 @@ function LogTable({ logs }: { logs: AttendanceLogRecord[] }) {
   );
 }
 
+function EmployeeSummary({ logs }: { logs: AttendanceLogRecord[] }) {
+  const rows = useMemo(() => {
+    const byEmployee = new Map<
+      string,
+      {
+        name: string;
+        phone: string | null;
+        closedCount: number;
+        totalMinutes: number;
+      }
+    >();
+
+    for (const log of logs) {
+      const key = log.user?.id ?? `unknown-${log.user?.phone ?? "employee"}`;
+      const current = byEmployee.get(key) ?? {
+        name: log.user?.name ?? "Unknown",
+        phone: log.user?.phone ?? null,
+        closedCount: 0,
+        totalMinutes: 0,
+      };
+
+      if (log.status === "CLOSED") {
+        current.closedCount += 1;
+        current.totalMinutes += log.durationMinutes;
+      }
+
+      byEmployee.set(key, current);
+    }
+
+    return [...byEmployee.values()].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [logs]);
+
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+        No employee hours for this period.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="text-xs uppercase tracking-wide text-slate-400">
+          <tr>
+            <th className="px-2 py-2 text-left">Employee</th>
+            <th className="px-2 py-2 text-right">Closed</th>
+            <th className="px-2 py-2 text-right">Hours</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800">
+          {rows.map((row) => (
+            <tr key={`${row.name}-${row.phone ?? "unknown"}`}>
+              <td className="px-2 py-3 text-slate-100">
+                <p className="font-medium">{row.name}</p>
+                {row.phone ? (
+                  <p className="text-xs text-slate-500">
+                    {maskPhone(row.phone)}
+                  </p>
+                ) : null}
+              </td>
+              <td className="whitespace-nowrap px-2 py-3 text-right text-slate-300">
+                {row.closedCount}
+              </td>
+              <td className="whitespace-nowrap px-2 py-3 text-right font-medium text-slate-100">
+                {formatDuration(row.totalMinutes)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function AttendanceClient() {
   const [month, setMonth] = useState(currentMonth);
   const [period, setPeriod] = useState<AttendancePeriod>("first");
@@ -335,6 +412,18 @@ export function AttendanceClient() {
           </div>
           <div className="mt-4">
             <PendingList pending={pending} />
+          </div>
+        </AppCard>
+
+        <AppCard>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-slate-100">
+              Employee Hours
+            </h2>
+            <span className="text-xs text-slate-500">Closed attendance</span>
+          </div>
+          <div className="mt-4">
+            <EmployeeSummary logs={logs} />
           </div>
         </AppCard>
 
