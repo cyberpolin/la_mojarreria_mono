@@ -8,9 +8,18 @@ const parseDate = (value: string | null) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO();
 };
 
+const getDateInRange = (date: string, startDate: string, endDate: string) =>
+  date >= startDate && date <= endDate ? date : startDate;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const date = parseDate(searchParams.get("date"));
+  const startDate = parseDate(searchParams.get("startDate"));
+  const endDate = parseDate(searchParams.get("endDate") ?? startDate);
+  const date = getDateInRange(
+    parseDate(searchParams.get("date")),
+    startDate,
+    endDate,
+  );
   const deviceId = String(searchParams.get("deviceId") ?? "Kiosk001").trim();
 
   if (!deviceId) {
@@ -21,7 +30,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const payload = await getAttendanceOverview({ date, deviceId });
+    const payload = await getAttendanceOverview({
+      date,
+      startDate,
+      endDate,
+      deviceId,
+    });
     return NextResponse.json(payload, { status: 200 });
   } catch (error) {
     return NextResponse.json(

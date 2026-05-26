@@ -7,7 +7,12 @@ type GraphQLResponse<T> = {
 };
 
 const ATTENDANCE_QUERY = `
-  query AttendanceOverview($deviceId: String!, $date: String!) {
+  query AttendanceOverview(
+    $deviceId: String!
+    $date: String!
+    $startDate: String!
+    $endDate: String!
+  ) {
     pendingAttendanceCheckIns(deviceId: $deviceId, date: $date) {
       userId
       name
@@ -21,9 +26,9 @@ const ATTENDANCE_QUERY = `
     attendanceLogs(
       where: {
         deviceId: { equals: $deviceId }
-        date: { equals: $date }
+        date: { gte: $startDate, lte: $endDate }
       }
-      orderBy: [{ clockInAt: asc }]
+      orderBy: [{ date: asc }, { clockInAt: asc }]
     ) {
       id
       date
@@ -48,9 +53,13 @@ const getEndpoint = () =>
 
 export const getAttendanceOverview = async ({
   date,
+  startDate = date,
+  endDate = date,
   deviceId,
 }: {
   date: string;
+  startDate?: string;
+  endDate?: string;
   deviceId: string;
 }): Promise<AttendancePayload> => {
   const response = await fetch(getEndpoint(), {
@@ -58,7 +67,7 @@ export const getAttendanceOverview = async ({
     headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
     body: JSON.stringify({
       query: ATTENDANCE_QUERY,
-      variables: { date, deviceId },
+      variables: { date, startDate, endDate, deviceId },
     }),
     cache: "no-store",
   });
@@ -80,6 +89,8 @@ export const getAttendanceOverview = async ({
 
   return {
     date,
+    startDate,
+    endDate,
     deviceId,
     pending: payload.data?.pendingAttendanceCheckIns ?? [],
     logs: payload.data?.attendanceLogs ?? [],

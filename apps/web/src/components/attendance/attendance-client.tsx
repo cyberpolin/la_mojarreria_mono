@@ -11,6 +11,34 @@ import {
 const CACHE_KEY = "MOJARRERIA_ATTENDANCE_OVERVIEW_CACHE_V1";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const currentMonth = () => todayISO().slice(0, 7);
+
+type AttendancePeriod = "first" | "second";
+
+const toDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getMonthLastDate = (month: string) => {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return toDateInput(new Date(year, monthNumber, 0, 12));
+};
+
+const getPeriodRange = (month: string, period: AttendancePeriod) => {
+  if (period === "first") {
+    return { startDate: `${month}-01`, endDate: `${month}-15` };
+  }
+
+  return { startDate: `${month}-15`, endDate: getMonthLastDate(month) };
+};
+
+const getPendingDate = (startDate: string, endDate: string) => {
+  const today = todayISO();
+  return today >= startDate && today <= endDate ? today : startDate;
+};
 
 const formatTime = (value: string | null) => {
   if (!value) return "-";
@@ -95,6 +123,7 @@ function LogTable({ logs }: { logs: AttendanceLogRecord[] }) {
       <table className="min-w-full text-sm">
         <thead className="text-xs uppercase tracking-wide text-slate-400">
           <tr>
+            <th className="px-2 py-2 text-left">Date</th>
             <th className="px-2 py-2 text-left">Employee</th>
             <th className="px-2 py-2 text-left">Status</th>
             <th className="px-2 py-2 text-right">In</th>
@@ -105,6 +134,9 @@ function LogTable({ logs }: { logs: AttendanceLogRecord[] }) {
         <tbody className="divide-y divide-slate-800">
           {logs.map((log) => (
             <tr key={log.id}>
+              <td className="whitespace-nowrap px-2 py-3 text-slate-400">
+                {log.date}
+              </td>
               <td className="px-2 py-3 text-slate-100">
                 <p className="font-medium">{log.user?.name ?? "Unknown"}</p>
                 {log.user?.phone ? (
@@ -142,16 +174,23 @@ function LogTable({ logs }: { logs: AttendanceLogRecord[] }) {
 }
 
 export function AttendanceClient() {
-  const [date, setDate] = useState(todayISO);
+  const [month, setMonth] = useState(currentMonth);
+  const [period, setPeriod] = useState<AttendancePeriod>("first");
   const [deviceId, setDeviceId] = useState("Kiosk001");
   const [payload, setPayload] = useState<AttendancePayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
 
-  const loadAttendance = async (nextDate = date, nextDeviceId = deviceId) => {
+  const loadAttendance = async (
+    nextMonth = month,
+    nextPeriod = period,
+    nextDeviceId = deviceId,
+  ) => {
     setLoading(true);
     setError(null);
+    const { startDate, endDate } = getPeriodRange(nextMonth, nextPeriod);
+    const date = getPendingDate(startDate, endDate);
 
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
@@ -162,7 +201,9 @@ export function AttendanceClient() {
 
     try {
       const params = new URLSearchParams({
-        date: nextDate,
+        date,
+        startDate,
+        endDate,
         deviceId: nextDeviceId,
       });
       const response = await fetch(`/api/attendance?${params.toString()}`, {
@@ -185,9 +226,9 @@ export function AttendanceClient() {
   };
 
   useEffect(() => {
-    loadAttendance();
+    loadAttendance(month, period, deviceId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [month, period, deviceId]);
 
   const logs = useMemo(() => payload?.logs ?? [], [payload?.logs]);
   const pending = useMemo(() => payload?.pending ?? [], [payload?.pending]);
@@ -206,8 +247,10 @@ export function AttendanceClient() {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    loadAttendance(date, deviceId);
+    loadAttendance(month, period, deviceId);
   };
+
+  const selectedRange = getPeriodRange(month, period);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6">
@@ -218,18 +261,31 @@ export function AttendanceClient() {
           </p>
           <h1 className="text-2xl font-semibold text-slate-50">Attendance</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Check-ins and open shifts by date and device.
+            Check-ins and shifts by semi-month period and device.
           </p>
         </div>
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1 text-xs text-slate-400">
-            Date
+            Month
             <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
+              type="month"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
               className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
             />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Period
+            <select
+              value={period}
+              onChange={(event) =>
+                setPeriod(event.target.value as AttendancePeriod)
+              }
+              className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
+            >
+              <option value="first">01 to 15</option>
+              <option value="second">15 to last day</option>
+            </select>
           </label>
           <label className="flex flex-col gap-1 text-xs text-slate-400">
             Device
@@ -273,7 +329,8 @@ export function AttendanceClient() {
               Pending Check-ins
             </h2>
             <span className="text-xs text-slate-500">
-              {payload?.date ?? date}
+              {payload?.date ??
+                getPendingDate(selectedRange.startDate, selectedRange.endDate)}
             </span>
           </div>
           <div className="mt-4">
@@ -287,7 +344,8 @@ export function AttendanceClient() {
               Attendance Log
             </h2>
             <span className="text-xs text-slate-500">
-              {payload?.deviceId ?? deviceId}
+              {payload?.startDate ?? selectedRange.startDate} to{" "}
+              {payload?.endDate ?? selectedRange.endDate}
             </span>
           </div>
           <div className="mt-4">

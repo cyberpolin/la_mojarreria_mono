@@ -26,6 +26,8 @@ export type AttendanceLogRecord = {
 
 export type AttendancePayload = {
   date: string;
+  startDate: string;
+  endDate: string;
   deviceId: string;
   pending: PendingAttendanceCheckIn[];
   logs: AttendanceLogRecord[];
