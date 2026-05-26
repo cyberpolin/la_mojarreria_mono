@@ -27,11 +27,45 @@ const getWeekDays = (weekStart: string) =>
     toDateInput(addDays(fromDateInput(weekStart), index)),
   );
 
+const humanDayLabel = (date: string) =>
+  fromDateInput(date).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
 const csvCell = (value: string | number) => {
   const text = String(value);
   if (!/[",\n]/.test(text)) return text;
   return `"${text.replaceAll('"', '""')}"`;
 };
+
+const normalizeProductName = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const getProductAmounts = (
+  closes: Array<{ items: Array<{ name: string; qty: number }> }>,
+) =>
+  closes.reduce(
+    (sum, close) => {
+      for (const item of close.items) {
+        const name = normalizeProductName(item.name);
+        if (name.includes("mojarra")) {
+          sum.mojarras += item.qty;
+        } else if (name.includes("camaron")) {
+          sum.camaron += item.qty;
+        } else if (name.includes("minilla")) {
+          sum.minilla += item.qty;
+        }
+      }
+
+      return sum;
+    },
+    { mojarras: 0, camaron: 0, minilla: 0 },
+  );
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -59,6 +93,9 @@ export async function GET(request: NextRequest) {
     const rows = [
       [
         "date",
+        "🐟",
+        "🍤",
+        "🥟",
         "salesTotal",
         "grossProfit",
         "operatingProfit",
@@ -97,15 +134,20 @@ export async function GET(request: NextRequest) {
             sum + close.deliveryCashPaid + close.otherCashExpenses,
           0,
         );
+        const totalExpenses = closeMoneyOut + expenseTotal;
+        const productAmounts = getProductAmounts(dayCloses);
 
         return [
-          date,
+          humanDayLabel(date),
+          productAmounts.mojarras,
+          productAmounts.camaron,
+          productAmounts.minilla,
           sales,
           grossProfit,
           operatingProfit,
-          expenseTotal,
-          sales - expenseTotal,
-          moneyIn - closeMoneyOut - expenseTotal,
+          totalExpenses,
+          sales - totalExpenses,
+          moneyIn - totalExpenses,
           dayCloses.length,
           dayExpenses.length,
         ];

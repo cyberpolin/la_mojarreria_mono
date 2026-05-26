@@ -10,6 +10,7 @@ const links = [
   { href: "/close-reports", label: "Close Reports" },
   { href: "/expenses", label: "Expenses" },
   { href: "/attendance", label: "Attendance" },
+  { href: "/restaurant-business-hour", label: "Business Hours" },
   { href: "/cost-control", label: "Cost Control" },
   { href: "/team-control", label: "Team Control" },
   { href: "/products", label: "Products" },
@@ -25,6 +26,7 @@ const productionLinks = new Set([
   "/close-reports",
   "/expenses",
   "/attendance",
+  "/restaurant-business-hour",
   "/weekly",
 ]);
 

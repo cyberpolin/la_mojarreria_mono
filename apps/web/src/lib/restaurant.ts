@@ -14,6 +14,15 @@ export type RestaurantRecord = {
   name: string;
   description?: string | null;
   logo?: RestaurantLogo | null;
+  businessHours?: BusinessHour[] | null;
+};
+
+export type BusinessHour = {
+  day: string;
+  label: string;
+  open: boolean;
+  openTime: string;
+  closeTime: string;
 };
 
 type GraphQLResponse<T> = {
@@ -33,6 +42,7 @@ const RESTAURANT_QUERY = `
       name
       description
       logo
+      businessHours
     }
   }
 `;
@@ -44,6 +54,7 @@ const CREATE_RESTAURANT_MUTATION = `
       name
       description
       logo
+      businessHours
     }
   }
 `;
@@ -55,6 +66,7 @@ const UPDATE_RESTAURANT_MUTATION = `
       name
       description
       logo
+      businessHours
     }
   }
 `;
@@ -88,11 +100,13 @@ export const upsertRestaurant = async ({
   name,
   description,
   logo,
+  businessHours,
 }: {
   id?: string | null;
   name: string;
   description?: string;
   logo?: RestaurantLogo | null;
+  businessHours?: BusinessHour[] | null;
 }) => {
   if (id) {
     const data = await execute<{ updateRestaurant: RestaurantRecord }>(
@@ -103,6 +117,7 @@ export const upsertRestaurant = async ({
           name: name.trim(),
           description: description?.trim() ?? "",
           logo: logo ?? null,
+          businessHours: businessHours ?? [],
         },
       },
     );
@@ -116,6 +131,7 @@ export const upsertRestaurant = async ({
         name: name.trim(),
         description: description?.trim() ?? "",
         logo: logo ?? null,
+        businessHours: businessHours ?? [],
       },
     },
   );

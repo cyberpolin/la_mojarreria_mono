@@ -6,7 +6,10 @@ import { AppCard, MetricCard } from "@/components/ui/card";
 const toMoney = (value: number) => `$${(value / 100).toFixed(2)}`;
 
 const moneyTone = (value: number) =>
-  value < 0 ? "text-red-300" : "text-slate-100";
+  value > 0 ? "text-green-300" : "text-red-300";
+
+const expenseTone = "text-red-500";
+const salesTone = "text-green-500";
 
 const toDateInput = (date: Date) => {
   const year = date.getFullYear();
@@ -33,8 +36,41 @@ const getWeekDays = (weekStart: string) =>
     toDateInput(addDays(fromDateInput(weekStart), index)),
   );
 
-const dayName = (date: string) =>
-  fromDateInput(date).toLocaleDateString("en-US", { weekday: "short" });
+const dateParts = (date: string) => {
+  const parsed = fromDateInput(date);
+  return {
+    weekday: parsed.toLocaleDateString("en-US", { weekday: "long" }),
+    day: parsed.toLocaleDateString("en-US", { day: "numeric" }),
+    month: parsed.toLocaleDateString("en-US", { month: "short" }),
+  };
+};
+
+const normalizeProductName = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const getProductAmounts = (
+  closes: Array<{ items: Array<{ name: string; qty: number }> }>,
+) =>
+  closes.reduce(
+    (sum, close) => {
+      for (const item of close.items) {
+        const name = normalizeProductName(item.name);
+        if (name.includes("mojarra")) {
+          sum.mojarras += item.qty;
+        } else if (name.includes("camaron")) {
+          sum.camaron += item.qty;
+        } else if (name.includes("minilla")) {
+          sum.minilla += item.qty;
+        }
+      }
+
+      return sum;
+    },
+    { mojarras: 0, camaron: 0, minilla: 0 },
+  );
 
 export default async function WeeklyPage({
   searchParams,
@@ -50,6 +86,7 @@ export default async function WeeklyPage({
   const weekEnd = toDateInput(addDays(fromDateInput(weekStart), 6));
   const previousWeek = toDateInput(addDays(fromDateInput(weekStart), -7));
   const nextWeek = toDateInput(addDays(fromDateInput(weekStart), 7));
+  const isCurrentWeek = weekStart === currentWeekStart;
   const weekDays = getWeekDays(weekStart);
 
   const [closePayload, expensePayload] = await Promise.all([
@@ -87,23 +124,38 @@ export default async function WeeklyPage({
       (sum, close) => sum + close.cashReceived + close.bankTransfersReceived,
       0,
     );
+    const cashReceived = dayCloses.reduce(
+      (sum, close) => sum + close.cashReceived,
+      0,
+    );
+    const bankTransfersReceived = dayCloses.reduce(
+      (sum, close) => sum + close.bankTransfersReceived,
+      0,
+    );
     const closeMoneyOut = dayCloses.reduce(
       (sum, close) => sum + close.deliveryCashPaid + close.otherCashExpenses,
       0,
     );
+    const totalExpenses = closeMoneyOut + expenseTotal;
+    const productAmounts = getProductAmounts(dayCloses);
 
     return {
       date,
       closes: dayCloses.length,
       expenses: dayExpenses.length,
+      ...productAmounts,
       sales,
       grossProfit,
       operatingProfit,
-      expenseTotal,
-      roughEarnings: sales - expenseTotal,
+      expenseTotal: totalExpenses,
+      manualExpenseTotal: expenseTotal,
+      closeExpenseTotal: closeMoneyOut,
+      roughEarnings: sales - totalExpenses,
       moneyIn,
-      moneyOut: closeMoneyOut + expenseTotal,
-      cashBalance: moneyIn - closeMoneyOut - expenseTotal,
+      cashReceived,
+      bankTransfersReceived,
+      moneyOut: totalExpenses,
+      cashBalance: moneyIn - totalExpenses,
     };
   });
 
@@ -111,21 +163,32 @@ export default async function WeeklyPage({
     (sum, row) => ({
       closes: sum.closes + row.closes,
       expenses: sum.expenses + row.expenses,
+      mojarras: sum.mojarras + row.mojarras,
+      camaron: sum.camaron + row.camaron,
+      minilla: sum.minilla + row.minilla,
       sales: sum.sales + row.sales,
       grossProfit: sum.grossProfit + row.grossProfit,
       operatingProfit: sum.operatingProfit + row.operatingProfit,
       expenseTotal: sum.expenseTotal + row.expenseTotal,
       roughEarnings: sum.roughEarnings + row.roughEarnings,
+      cashReceived: sum.cashReceived + row.cashReceived,
+      bankTransfersReceived:
+        sum.bankTransfersReceived + row.bankTransfersReceived,
       cashBalance: sum.cashBalance + row.cashBalance,
     }),
     {
       closes: 0,
       expenses: 0,
+      mojarras: 0,
+      camaron: 0,
+      minilla: 0,
       sales: 0,
       grossProfit: 0,
       operatingProfit: 0,
       expenseTotal: 0,
       roughEarnings: 0,
+      cashReceived: 0,
+      bankTransfersReceived: 0,
       cashBalance: 0,
     },
   );
@@ -155,18 +218,36 @@ export default async function WeeklyPage({
           >
             Previous
           </Link>
-          <Link
-            href={`/weekly?week=${currentWeekStart}`}
-            className="h-10 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 hover:bg-slate-800 inline-flex items-center"
-          >
-            Current
-          </Link>
-          <Link
-            href={`/weekly?week=${nextWeek}`}
-            className="h-10 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 hover:bg-slate-800 inline-flex items-center"
-          >
-            Next
-          </Link>
+          {isCurrentWeek ? (
+            <span
+              aria-disabled="true"
+              className="inline-flex h-10 cursor-not-allowed items-center rounded-lg border border-slate-800 bg-slate-950 px-3 text-sm text-slate-500"
+            >
+              Current
+            </span>
+          ) : (
+            <Link
+              href={`/weekly?week=${currentWeekStart}`}
+              className="inline-flex h-10 items-center rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 hover:bg-slate-800"
+            >
+              Current
+            </Link>
+          )}
+          {isCurrentWeek ? (
+            <span
+              aria-disabled="true"
+              className="inline-flex h-10 cursor-not-allowed items-center rounded-lg border border-slate-800 bg-slate-950 px-3 text-sm text-slate-500"
+            >
+              Next
+            </span>
+          ) : (
+            <Link
+              href={`/weekly?week=${nextWeek}`}
+              className="inline-flex h-10 items-center rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 hover:bg-slate-800"
+            >
+              Next
+            </Link>
+          )}
           <Link
             href="/dashboard"
             className="h-10 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-slate-100 hover:bg-slate-800 inline-flex items-center"
@@ -189,14 +270,15 @@ export default async function WeeklyPage({
       ) : (
         <>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <MetricCard title="Sales" value={toMoney(totals.sales)} />
             <MetricCard
-              title="Gross Profit"
-              value={toMoney(totals.grossProfit)}
+              title="Sales"
+              value={toMoney(totals.sales)}
+              valueClassName={salesTone}
             />
             <MetricCard
               title="Daily Expenses"
               value={toMoney(totals.expenseTotal)}
+              valueClassName={expenseTone}
             />
             <MetricCard
               title="Rough Earnings"
@@ -206,6 +288,11 @@ export default async function WeeklyPage({
             <MetricCard
               title="Cash Balance"
               value={toMoney(totals.cashBalance)}
+            />
+            <MetricCard
+              title="Gross Profit"
+              value={toMoney(totals.grossProfit)}
+              className="opacity-20"
             />
           </section>
 
@@ -219,10 +306,15 @@ export default async function WeeklyPage({
                   <thead className="text-xs uppercase tracking-wide text-slate-400">
                     <tr>
                       <th className="px-2 py-2 text-left">Day</th>
+                      <th className="px-2 py-2 text-right">🐟</th>
+                      <th className="px-2 py-2 text-right">🍤</th>
+                      <th className="px-2 py-2 text-right">🥟</th>
                       <th className="px-2 py-2 text-right">Sales</th>
                       <th className="px-2 py-2 text-right">Expenses</th>
                       <th className="px-2 py-2 text-right">Rough</th>
-                      <th className="px-2 py-2 text-right">Closes</th>
+                      <th className="px-2 py-2 text-right" title="Money in">
+                        💰
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -231,15 +323,38 @@ export default async function WeeklyPage({
                         <td className="whitespace-nowrap px-2 py-2 text-slate-100">
                           <Link
                             href={`/daily-close/${row.date}`}
-                            className="underline-offset-4 hover:underline"
+                            className="block max-w-14 rounded-lg px-2 py-1 underline-offset-4 hover:bg-slate-800/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
                           >
-                            {dayName(row.date)} {row.date}
+                            <span className="block text-xs font-medium text-slate-300">
+                              {dateParts(row.date).weekday}
+                            </span>
+                            <span className="mt-1 flex items-end gap-1">
+                              <span className="text-md font-semibold leading-none text-slate-300">
+                                {dateParts(row.date).day}
+                              </span>
+                              <span className="text-xs uppercase leading-none text-slate-400">
+                                - {dateParts(row.date).month}
+                              </span>
+                            </span>
                           </Link>
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right text-slate-100">
-                          {toMoney(row.sales)}
+                        <td className="whitespace-nowrap px-2 py-2 text-right text-slate-300">
+                          {row.mojarras}
                         </td>
                         <td className="whitespace-nowrap px-2 py-2 text-right text-slate-300">
+                          {row.camaron}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2 text-right text-slate-300">
+                          {row.minilla}
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-2 py-2 text-right ${salesTone}`}
+                        >
+                          {toMoney(row.sales)}
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-2 py-2 text-right ${expenseTone}`}
+                        >
                           {toMoney(row.expenseTotal)}
                         </td>
                         <td
@@ -247,20 +362,70 @@ export default async function WeeklyPage({
                         >
                           {toMoney(row.roughEarnings)}
                         </td>
-                        <td className="px-2 py-2 text-right text-slate-300">
-                          {row.closes}
+                        <td className="px-2 py-2 text-right">
+                          <span
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-sm text-slate-200"
+                            title={`Cash: ${toMoney(row.cashReceived)}\nBank: ${toMoney(row.bankTransfersReceived)}`}
+                          >
+                            💰
+                          </span>
                         </td>
                       </tr>
                     ))}
+                    <tr className="bg-slate-950/60 font-medium">
+                      <td className="whitespace-nowrap px-2 py-2 text-slate-100">
+                        Total
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right text-slate-100">
+                        {totals.mojarras}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right text-slate-100">
+                        {totals.camaron}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right text-slate-100">
+                        {totals.minilla}
+                      </td>
+                      <td
+                        className={`whitespace-nowrap px-2 py-2 text-right ${salesTone}`}
+                      >
+                        {toMoney(totals.sales)}
+                      </td>
+                      <td
+                        className={`whitespace-nowrap px-2 py-2 text-right ${expenseTone}`}
+                      >
+                        {toMoney(totals.expenseTotal)}
+                      </td>
+                      <td
+                        className={`whitespace-nowrap px-2 py-2 text-right ${moneyTone(totals.roughEarnings)}`}
+                      >
+                        {toMoney(totals.roughEarnings)}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        <span
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-sm text-slate-100"
+                          title={`Cash: ${toMoney(totals.cashReceived)}\nBank: ${toMoney(totals.bankTransfersReceived)}`}
+                        >
+                          💰
+                        </span>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
             </AppCard>
 
             <AppCard>
-              <h2 className="text-base font-semibold text-slate-100">
-                Top Expenses
-              </h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-slate-100">
+                  Top Expenses
+                </h2>
+                <Link
+                  href="/expenses"
+                  className="inline-flex h-9 items-center rounded-lg border border-slate-700 bg-slate-800 px-3 text-sm font-medium text-slate-100 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
+                >
+                  Add Expense
+                </Link>
+              </div>
               <div className="mt-3 overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="text-xs uppercase tracking-wide text-slate-400">
@@ -279,7 +444,7 @@ export default async function WeeklyPage({
                         <td className="px-2 py-2 text-slate-200">
                           {expense.concept}
                         </td>
-                        <td className="px-2 py-2 text-right text-slate-100">
+                        <td className={`px-2 py-2 text-right ${expenseTone}`}>
                           {toMoney(expense.amountCents)}
                         </td>
                       </tr>

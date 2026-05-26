@@ -30,6 +30,13 @@ export async function POST(request: NextRequest) {
         format?: string;
         bytes?: number;
       } | null;
+      businessHours?: Array<{
+        day: string;
+        label: string;
+        open: boolean;
+        openTime: string;
+        closeTime: string;
+      }> | null;
     };
 
     if (!body.name || typeof body.name !== "string") {
@@ -41,6 +48,7 @@ export async function POST(request: NextRequest) {
       name: body.name,
       description: body.description ?? "",
       logo: body.logo ?? null,
+      businessHours: body.businessHours ?? [],
     });
 
     return NextResponse.json({ restaurant }, { status: 200 });
