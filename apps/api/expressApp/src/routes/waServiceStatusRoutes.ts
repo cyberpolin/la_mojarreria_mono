@@ -219,6 +219,9 @@ function ensureControlAccess(req: {
   const configuredKey = getControlApiKey();
   const isProduction = process.env.NODE_ENV === "production";
 
+  console.log("Ensuring control access. Configured key exists:", configuredKey);
+  console.log("Is production environment:", isProduction);
+
   if (isProduction && !configuredKey) {
     return {
       ok: false as const,
