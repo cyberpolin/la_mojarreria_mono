@@ -58,7 +58,7 @@ export default (app: Express, commonContext: Context) => {
     if (configuredKey && req.header("x-api-key") !== configuredKey) {
       return res.status(401).json({
         ok: false,
-        error: "Invalid API key.",
+        error: "Invalid API key.1",
       });
     }
 

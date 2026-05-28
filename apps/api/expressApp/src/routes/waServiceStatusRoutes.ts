@@ -228,7 +228,7 @@ function ensureControlAccess(req: {
   }
 
   if (configuredKey && req.header("x-api-key") !== configuredKey) {
-    return { ok: false as const, status: 401, error: "Invalid API key." };
+    return { ok: false as const, status: 401, error: "Invalid API key.2" };
   }
 
   return { ok: true as const };
