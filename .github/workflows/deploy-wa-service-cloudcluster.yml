@@ -102,6 +102,29 @@ jobs:
 
             : "${DEPLOY_PATH:?CLOUDCLUSTER_DEPLOY_PATH is required}"
 
+            export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+            [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
+
+            if ! command -v node >/dev/null 2>&1; then
+              if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+                if command -v curl >/dev/null 2>&1; then
+                  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+                elif command -v wget >/dev/null 2>&1; then
+                  wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+                else
+                  echo "curl or wget is required to install nvm on the deploy server" >&2
+                  exit 3
+                fi
+              fi
+
+              . "$NVM_DIR/nvm.sh"
+              nvm install 20.19.4
+              nvm use 20.19.4
+            fi
+
+            node --version
+            npm --version
+
             mkdir -p "$DEPLOY_PATH"
             tar -xzf /tmp/mojarreria-wa-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
             cd "$DEPLOY_PATH"
@@ -112,8 +135,15 @@ jobs:
               SERVICE_DIR=.
             fi
 
-            corepack enable
-            corepack prepare pnpm@9.15.5 --activate
+            if command -v corepack >/dev/null 2>&1; then
+              corepack enable
+              corepack prepare pnpm@9.15.5 --activate
+            fi
+            if ! command -v pnpm >/dev/null 2>&1; then
+              npm install -g pnpm@9.15.5
+            fi
+            pnpm --version
+
             if [ -f pnpm-lock.yaml ]; then
               pnpm install --prod=false --frozen-lockfile
             else
@@ -122,5 +152,5 @@ jobs:
             pnpm --dir "$SERVICE_DIR" build
 
             mkdir -p "$SERVICE_DIR/auth"
-            pm2 startOrReload "$SERVICE_DIR/ecosystem.config.cjs" --env production
-            pm2 save
+            pnpm --dir "$SERVICE_DIR" exec pm2 startOrReload ecosystem.config.cjs --env production
+            pnpm --dir "$SERVICE_DIR" exec pm2 save
