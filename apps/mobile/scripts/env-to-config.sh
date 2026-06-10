@@ -45,6 +45,7 @@ DIM_SCREEN_VALUE="$(to_bool "${EXPO_PUBLIC_DIM_SCREEN:-false}")"
 DIM_TIMEOUT_VALUE="${EXPO_PUBLIC_DIM_TIMEOUT:-1}"
 DIM_TO_VALUE="${EXPO_PUBLIC_DIM_TO:-0.2}"
 API_URL_VALUE="${EXPO_PUBLIC_API_URL:-}"
+API_MAINTENANCE_API_KEY_VALUE="${EXPO_PUBLIC_API_MAINTENANCE_API_KEY:-}"
 WA_API_BASE_URL_VALUE="${EXPO_PUBLIC_MOJARRERIA_WA_API_BASE_URL:-https://api.wa.lamojarreria.com}"
 WA_API_KEY_VALUE="${EXPO_PUBLIC_MOJARRERIA_WA_API_KEY:-}"
 WA_CLIENT_DOMAIN_VALUE="${EXPO_PUBLIC_MOJARRERIA_WA_CLIENT_DOMAIN:-lamojarreria.com}"
@@ -91,6 +92,7 @@ type AppConfig = {
     to: number;
   };
   apiUrl: string;
+  apiMaintenanceApiKey: string;
   waApiBaseUrl: string;
   waApiKey: string;
   waClientDomain: string;
@@ -126,6 +128,7 @@ export const APP_CONFIG: AppConfig = {
     to: $DIM_TO_VALUE,
   },
   apiUrl: $(quote_ts "$API_URL_VALUE"),
+  apiMaintenanceApiKey: $(quote_ts "$API_MAINTENANCE_API_KEY_VALUE"),
   waApiBaseUrl: $(quote_ts "$WA_API_BASE_URL_VALUE"),
   waApiKey: $(quote_ts "$WA_API_KEY_VALUE"),
   waClientDomain: $(quote_ts "$WA_CLIENT_DOMAIN_VALUE"),

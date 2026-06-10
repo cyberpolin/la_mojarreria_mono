@@ -52,6 +52,14 @@ Required public env keys:
 - `EXPO_PUBLIC_SENTRY_ENABLED` (`true`/`false`)
 - `EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE` (example: `0.2`)
 
+## Maintenance API key
+
+Use the shared maintenance key name when mobile needs to call protected API maintenance endpoints:
+
+- `EXPO_PUBLIC_API_MAINTENANCE_API_KEY`
+
+This value maps to the API `API_MAINTENANCE_API_KEY`. Because Expo public env values are bundled into the app, only set it for trusted device builds that are allowed to run maintenance actions.
+
 Build-time keys for source map upload:
 
 - `SENTRY_AUTH_TOKEN`

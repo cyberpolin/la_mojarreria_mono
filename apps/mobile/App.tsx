@@ -50,6 +50,7 @@ import {
   fetchPendingAttendanceCheckIns,
   PendingAttendanceCheckIn,
 } from "./app/DailyCloseFeature/checkInOutStorage";
+import { syncWaServiceWithBusinessHours } from "./utils/waServiceBusinessHours";
 
 // TODO: Error boundary testing with .env variable missing
 SplashScreen.preventAutoHideAsync();
@@ -396,6 +397,31 @@ const RootComponent = () => {
     });
 
     return () => removeTask("pendingAttendanceCheckIns");
+  }, [addTask, health?.ok, isInternetReachable, removeTask]);
+
+  useEffect(() => {
+    if (!health?.ok || !isInternetReachable) {
+      removeTask("syncWaServiceWithBusinessHours");
+      return;
+    }
+
+    syncWaServiceWithBusinessHours().catch((error) => {
+      reportError(error, {
+        tags: { scope: "sync_wa_service_business_hours" },
+      });
+    });
+
+    addTask("syncWaServiceWithBusinessHours", async () => {
+      try {
+        await syncWaServiceWithBusinessHours();
+      } catch (error) {
+        reportError(error, {
+          tags: { scope: "sync_wa_service_business_hours" },
+        });
+      }
+    });
+
+    return () => removeTask("syncWaServiceWithBusinessHours");
   }, [addTask, health?.ok, isInternetReachable, removeTask]);
 
   useEffect(() => {

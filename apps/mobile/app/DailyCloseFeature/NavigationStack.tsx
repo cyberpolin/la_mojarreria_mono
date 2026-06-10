@@ -12,6 +12,7 @@ import OutcomeReportScreen from "./OutcomeReport";
 import IncomeOutputResumeScreen from "./IncomeOutputResume";
 import AllReportsScreen from "./AllReports";
 import ActivePromosScreen from "./ActivePromosScreen";
+import WhatsAppInboxScreen from "./WhatsAppInboxScreen";
 import WeeklyReportScreen from "./WeeklyReportScreen";
 import EmployeeAssistantStep1 from "./EmployeeAssistantStep1";
 import EmployeeAssistantStep2 from "./EmployeeAssistantStep2";
@@ -39,6 +40,7 @@ export type RootStackParamList = {
   [Screens.IncomeOutputResumeScreen]?: {};
   [Screens.AllReportsScreen]?: {};
   [Screens.ActivePromosScreen]?: {};
+  [Screens.WhatsAppInboxScreen]?: {};
   [Screens.WeeklyReportScreen]?: {};
   [Screens.EmployeeAssistantStep1Screen]?: {};
   [Screens.EmployeeAssistantStep2Screen]?: {};
@@ -167,6 +169,13 @@ export default ({ initialPosition }: { initialPosition?: number | null }) => (
       {() => (
         <ScreenFrame>
           <ActivePromosScreen />
+        </ScreenFrame>
+      )}
+    </Screen>
+    <Screen name={Screens.WhatsAppInboxScreen}>
+      {() => (
+        <ScreenFrame>
+          <WhatsAppInboxScreen />
         </ScreenFrame>
       )}
     </Screen>

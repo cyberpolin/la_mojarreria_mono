@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { fetchCloseReports } from "@/lib/close-reports";
 import { getExpenses } from "@/lib/expenses";
+import { BusinessHour, getLatestRestaurant } from "@/lib/restaurant";
 import { AppCard, MetricCard } from "@/components/ui/card";
 
 const toMoney = (value: number) => `$${(value / 100).toFixed(2)}`;
@@ -35,6 +36,18 @@ const getWeekDays = (weekStart: string) =>
   Array.from({ length: 7 }, (_, index) =>
     toDateInput(addDays(fromDateInput(weekStart), index)),
   );
+
+const dayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+const getDayKey = (date: string) => dayKeys[fromDateInput(date).getDay()];
+
+const isBusinessDayOpen = (
+  businessHours: BusinessHour[] | null | undefined,
+  date: string,
+) => {
+  const hour = businessHours?.find((item) => item.day === getDayKey(date));
+  return Boolean(hour?.open && hour.openTime && hour.closeTime);
+};
 
 const dateParts = (date: string) => {
   const parsed = fromDateInput(date);
@@ -89,9 +102,10 @@ export default async function WeeklyPage({
   const isCurrentWeek = weekStart === currentWeekStart;
   const weekDays = getWeekDays(weekStart);
 
-  const [closePayload, expensePayload] = await Promise.all([
+  const [closePayload, expensePayload, restaurant] = await Promise.all([
     fetchCloseReports({ take: 365 }).catch(() => null),
     getExpenses({ take: 365 }).catch(() => null),
+    getLatestRestaurant().catch(() => null),
   ]);
 
   const closes = (closePayload?.reports ?? []).filter(
@@ -141,6 +155,7 @@ export default async function WeeklyPage({
 
     return {
       date,
+      isOpen: isBusinessDayOpen(restaurant?.businessHours, date),
       closes: dayCloses.length,
       expenses: dayExpenses.length,
       ...productAmounts,
@@ -319,7 +334,10 @@ export default async function WeeklyPage({
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {rows.map((row) => (
-                      <tr key={row.date}>
+                      <tr
+                        key={row.date}
+                        className={row.isOpen ? undefined : "opacity-80"}
+                      >
                         <td className="whitespace-nowrap px-2 py-2 text-slate-100">
                           <Link
                             href={`/daily-close/${row.date}`}

@@ -1,12 +1,23 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PanResponder, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useDailyCloseStore } from "./useDailyCloseStore";
+import { subscribeToWaServiceStatus } from "@/utils/waServiceStatusStore";
 
 const SWIPE_OPEN_THRESHOLD = 20;
 
 const SyncStatusBar = ({ onSwipeDown }: { onSwipeDown?: () => void }) => {
   const shouldSync = useDailyCloseStore((s) => s.shouldSync());
+  const [isWaServiceResponding, setIsWaServiceResponding] = useState(false);
+
+  useEffect(
+    () =>
+      subscribeToWaServiceStatus((status) => {
+        setIsWaServiceResponding(Boolean(status?.active && status.connected));
+      }),
+    [],
+  );
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
@@ -24,12 +35,22 @@ const SyncStatusBar = ({ onSwipeDown }: { onSwipeDown?: () => void }) => {
 
   return (
     <View style={[styles.container]} {...panResponder.panHandlers}>
-      <Ionicons
-        name={shouldSync ? "cloud-upload-outline" : "cloud-done-outline"}
-        size={16}
-        color={shouldSync ? "#BA372A" : "#2DC66E"}
-        style={styles.iconShadow}
-      />
+      <View style={styles.iconRow}>
+        {isWaServiceResponding ? (
+          <Ionicons
+            name="logo-whatsapp"
+            size={16}
+            color="#2DC66E"
+            style={styles.iconShadow}
+          />
+        ) : null}
+        <Ionicons
+          name={shouldSync ? "cloud-upload-outline" : "cloud-done-outline"}
+          size={16}
+          color={shouldSync ? "#BA372A" : "#2DC66E"}
+          style={styles.iconShadow}
+        />
+      </View>
     </View>
   );
 };
@@ -52,6 +73,11 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     elevation: 2,
+  },
+  iconRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
 });
 

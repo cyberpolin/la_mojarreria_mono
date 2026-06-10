@@ -65,6 +65,11 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
     navigation.navigate(Screens.ActivePromosScreen);
   };
 
+  const openWhatsAppInbox = () => {
+    onClose();
+    navigation.navigate(Screens.WhatsAppInboxScreen);
+  };
+
   const openWeeklyReport = () => {
     onClose();
     navigation.navigate(Screens.WeeklyReportScreen);
@@ -96,6 +101,11 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
             icon="pricetag-outline"
             label="Active Promos"
             onPress={openActivePromos}
+          />
+          <IconTile
+            icon="logo-whatsapp"
+            label="WhatsApp"
+            onPress={openWhatsAppInbox}
           />
           <IconTile icon="cube-outline" label="Inventario" onPress={onClose} />
           <IconTile
