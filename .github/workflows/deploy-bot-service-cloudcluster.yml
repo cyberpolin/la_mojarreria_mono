@@ -35,18 +35,15 @@ jobs:
           node-version: 20.19.4
 
       - name: Install dependencies
-        working-directory: apps/bot-service
         run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck
-        working-directory: apps/bot-service
-        run: pnpm typecheck
+        run: pnpm --filter @mojarreria/bot-service typecheck
 
       - name: Build
-        working-directory: apps/bot-service
         run: |
-          pnpm build
-          find dist -maxdepth 2 -type f -print
+          pnpm --filter @mojarreria/bot-service build
+          find apps/bot-service/dist -maxdepth 2 -type f -print
 
       - name: Write service env file
         env:
