@@ -34,9 +34,11 @@ jobs:
         with:
           node-version: 20.19.4
 
-      - name: Validate deploy secrets
+      - name: Resolve CloudCluster deploy env
+        id: cloudcluster
         env:
           BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
+          BOT_PUSH_ENV_FILE: ${{ secrets.BOT_PUSH_ENV_FILE }}
           CLOUDCLUSTER_HOST: ${{ secrets.CLOUDCLUSTER_HOST }}
           CLOUDCLUSTER_USER: ${{ secrets.CLOUDCLUSTER_USER }}
           CLOUDCLUSTER_SSH_KEY: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
@@ -44,9 +46,33 @@ jobs:
         run: |
           set -eu
 
+          PUSH_ENV_FILE="$RUNNER_TEMP/bot-push-env"
+          printf '%s\n' "${BOT_PUSH_ENV_FILE:-}" > "$PUSH_ENV_FILE"
+
+          read_push_value() {
+            awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$PUSH_ENV_FILE"
+          }
+
+          read_push_ssh_key() {
+            awk '
+              /^CLOUDCLUSTER_SSH_KEY=-----BEGIN OPENSSH PRIVATE KEY-----/ {
+                sub(/^CLOUDCLUSTER_SSH_KEY=/, "")
+                capture = 1
+              }
+              capture { print }
+              /^-----END OPENSSH PRIVATE KEY-----/ { exit }
+            ' "$PUSH_ENV_FILE"
+          }
+
+          HOST="${CLOUDCLUSTER_HOST:-$(read_push_value CLOUDCLUSTER_HOST)}"
+          USER="${CLOUDCLUSTER_USER:-$(read_push_value CLOUDCLUSTER_USER)}"
+          PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
+          SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
+          PORT="${PORT:-22}"
+
           missing=0
-          for name in BOT_SERVICE_ENV_FILE CLOUDCLUSTER_HOST CLOUDCLUSTER_USER CLOUDCLUSTER_SSH_KEY; do
-            value="$(printenv "$name" || true)"
+          for name in BOT_SERVICE_ENV_FILE HOST USER SSH_KEY; do
+            value="$(eval "printf '%s' \"\${$name:-}\"")"
             if [ -z "$value" ]; then
               echo "::error::$name is missing"
               missing=1
@@ -55,15 +81,27 @@ jobs:
             fi
           done
 
-          if [ -n "${CLOUDCLUSTER_SSH_PORT:-}" ]; then
-            echo "CLOUDCLUSTER_SSH_PORT is configured"
-          else
-            echo "CLOUDCLUSTER_SSH_PORT is not configured; defaulting to 22"
-          fi
+          echo "PORT is configured: $PORT"
 
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
+
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
+          echo "::add-mask::$SSH_KEY"
+          printf '%s\n' "$SSH_KEY" | while IFS= read -r line; do
+            [ -z "$line" ] || echo "::add-mask::$line"
+          done
+
+          {
+            echo "host=$HOST"
+            echo "user=$USER"
+            echo "port=$PORT"
+            echo "ssh_key<<EOF"
+            printf '%s\n' "$SSH_KEY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
@@ -119,10 +157,10 @@ jobs:
       - name: Upload release bundle
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.CLOUDCLUSTER_HOST }}
-          username: ${{ secrets.CLOUDCLUSTER_USER }}
-          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
-          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
           source: mojarreria-bot-service.tar.gz
           target: /tmp
           debug: true
@@ -130,10 +168,10 @@ jobs:
       - name: SSH smoke test
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.CLOUDCLUSTER_HOST }}
-          username: ${{ secrets.CLOUDCLUSTER_USER }}
-          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
-          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
           timeout: 60s
           command_timeout: 2m
           request_pty: true
@@ -152,10 +190,10 @@ jobs:
         env:
           DEPLOY_PATH: /var/www/bot-service
         with:
-          host: ${{ secrets.CLOUDCLUSTER_HOST }}
-          username: ${{ secrets.CLOUDCLUSTER_USER }}
-          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
-          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
           envs: DEPLOY_PATH
           timeout: 60s
           command_timeout: 15m
@@ -240,10 +278,10 @@ jobs:
         if: always()
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.CLOUDCLUSTER_HOST }}
-          username: ${{ secrets.CLOUDCLUSTER_USER }}
-          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
-          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
           timeout: 60s
           command_timeout: 2m
           request_pty: true
