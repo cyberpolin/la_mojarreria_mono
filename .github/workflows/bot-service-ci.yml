@@ -1,0 +1,46 @@
+name: Bot Service CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/bot-service/**"
+      - ".github/workflows/bot-service-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/bot-service/**"
+      - ".github/workflows/bot-service-ci.yml"
+
+jobs:
+  typecheck-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Install dependencies
+        working-directory: apps/bot-service
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        working-directory: apps/bot-service
+        run: pnpm typecheck
+
+      - name: Build
+        working-directory: apps/bot-service
+        run: |
+          pnpm build
+          find dist -maxdepth 2 -type f -print

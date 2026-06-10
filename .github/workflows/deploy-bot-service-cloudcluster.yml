@@ -1,0 +1,118 @@
+name: Deploy Bot Service to CloudCluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to deploy"
+        required: true
+        default: "main"
+
+concurrency:
+  group: bot-service-cloudcluster
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: cloudcluster
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Install dependencies
+        working-directory: apps/bot-service
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        working-directory: apps/bot-service
+        run: pnpm typecheck
+
+      - name: Build
+        working-directory: apps/bot-service
+        run: |
+          pnpm build
+          find dist -maxdepth 2 -type f -print
+
+      - name: Write service env file
+        env:
+          BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
+        run: |
+          if [ -n "${BOT_SERVICE_ENV_FILE:-}" ]; then
+            printf '%s\n' "$BOT_SERVICE_ENV_FILE" > apps/bot-service/.env
+            chmod 600 apps/bot-service/.env
+          fi
+
+      - name: Prepare release bundle
+        run: |
+          set -eux
+          mkdir -p /tmp/mojarreria-bot-service
+          rsync -a \
+            --exclude ".env.example" \
+            --exclude "data" \
+            --exclude "dist" \
+            --exclude "node_modules" \
+            apps/bot-service/ /tmp/mojarreria-bot-service/
+          tar -czf mojarreria-bot-service.tar.gz -C /tmp mojarreria-bot-service
+          ls -lh mojarreria-bot-service.tar.gz
+
+      - name: Upload release bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.CLOUDCLUSTER_HOST }}
+          username: ${{ secrets.CLOUDCLUSTER_USER }}
+          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          source: mojarreria-bot-service.tar.gz
+          target: /tmp
+
+      - name: Deploy on CloudCluster
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.CLOUDCLUSTER_HOST }}
+          username: ${{ secrets.CLOUDCLUSTER_USER }}
+          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -eu
+
+            DEPLOY_PATH="/var/www/bot-service"
+
+            export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+            [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
+
+            mkdir -p "$DEPLOY_PATH"
+            tar -xzf /tmp/mojarreria-bot-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
+            cd "$DEPLOY_PATH"
+
+            if command -v nvm >/dev/null 2>&1; then
+              nvm install 20.19.4
+              nvm use 20.19.4
+            fi
+
+            node --version
+            corepack enable
+            corepack prepare pnpm@9.15.5 --activate
+            pnpm --version
+
+            pnpm install --prod=false --no-frozen-lockfile
+            pnpm build
+            mkdir -p data
+            pnpm exec pm2 startOrReload ecosystem.config.cjs --env production
+            pnpm exec pm2 save
+            pnpm exec pm2 status
