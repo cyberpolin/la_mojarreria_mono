@@ -234,12 +234,12 @@ jobs:
                   echo "Remote $name present (length: ${#value})"
                 else
                   echo "Remote $name missing"
-                  exit 1
+                  return 1
                 fi
               done
             else
               echo "Remote .env missing"
-              exit 1
+              return 1
             fi
 
             if command -v nvm >/dev/null 2>&1; then
