@@ -34,6 +34,37 @@ jobs:
         with:
           node-version: 20.19.4
 
+      - name: Validate deploy secrets
+        env:
+          BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
+          CLOUDCLUSTER_HOST: ${{ secrets.CLOUDCLUSTER_HOST }}
+          CLOUDCLUSTER_USER: ${{ secrets.CLOUDCLUSTER_USER }}
+          CLOUDCLUSTER_SSH_KEY: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          CLOUDCLUSTER_SSH_PORT: ${{ secrets.CLOUDCLUSTER_SSH_PORT }}
+        run: |
+          set -eu
+
+          missing=0
+          for name in BOT_SERVICE_ENV_FILE CLOUDCLUSTER_HOST CLOUDCLUSTER_USER CLOUDCLUSTER_SSH_KEY; do
+            value="$(printenv "$name" || true)"
+            if [ -z "$value" ]; then
+              echo "::error::$name is missing"
+              missing=1
+            else
+              echo "$name is configured (length: ${#value})"
+            fi
+          done
+
+          if [ -n "${CLOUDCLUSTER_SSH_PORT:-}" ]; then
+            echo "CLOUDCLUSTER_SSH_PORT is configured"
+          else
+            echo "CLOUDCLUSTER_SSH_PORT is not configured; defaulting to 22"
+          fi
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
@@ -49,10 +80,28 @@ jobs:
         env:
           BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
         run: |
+          set -eu
           if [ -n "${BOT_SERVICE_ENV_FILE:-}" ]; then
             printf '%s\n' "$BOT_SERVICE_ENV_FILE" > apps/bot-service/.env
             chmod 600 apps/bot-service/.env
+          else
+            echo "::error::BOT_SERVICE_ENV_FILE is missing"
+            exit 1
           fi
+
+          echo "Generated apps/bot-service/.env"
+          wc -c apps/bot-service/.env
+          for name in BOT_SERVICE_API_KEY DEEPSEEK_API_KEY DEEPSEEK_BASE_URL DEEPSEEK_MODEL; do
+            if grep -q "^$name=" apps/bot-service/.env; then
+              value="$(grep "^$name=" apps/bot-service/.env | tail -1 | cut -d= -f2-)"
+              echo "$name present (length: ${#value})"
+            else
+              echo "::error::$name is missing from BOT_SERVICE_ENV_FILE"
+              exit 1
+            fi
+          done
+
+          node -e "import('./apps/bot-service/dist/config.js').then(({config}) => console.log(JSON.stringify({host: config.host, port: config.port, deepseekBaseUrl: config.deepseekBaseUrl, deepseekModel: config.deepseekModel, apiKeyLength: config.apiKey.length, deepseekApiKeyLength: config.deepseekApiKey.length})))"
 
       - name: Prepare release bundle
         run: |
@@ -138,6 +187,22 @@ jobs:
             ls -la
             cat package.json
             cat tsconfig.json
+            if [ -f .env ]; then
+              echo "Remote .env exists"
+              wc -c .env
+              for name in BOT_SERVICE_API_KEY DEEPSEEK_API_KEY DEEPSEEK_BASE_URL DEEPSEEK_MODEL; do
+                if grep -q "^$name=" .env; then
+                  value="$(grep "^$name=" .env | tail -1 | cut -d= -f2-)"
+                  echo "Remote $name present (length: ${#value})"
+                else
+                  echo "Remote $name missing"
+                  exit 1
+                fi
+              done
+            else
+              echo "Remote .env missing"
+              exit 1
+            fi
 
             if command -v nvm >/dev/null 2>&1; then
               nvm install 20.19.4
