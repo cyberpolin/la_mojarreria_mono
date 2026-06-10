@@ -218,7 +218,30 @@ jobs:
             free -h || true
             ls -lh /tmp/mojarreria-bot-service.tar.gz
 
-            mkdir -p "$DEPLOY_PATH"
+            if [ ! -d "$DEPLOY_PATH" ]; then
+              echo "Deploy directory does not exist; creating it"
+              if mkdir -p "$DEPLOY_PATH" 2>/dev/null; then
+                echo "Deploy directory created without sudo"
+              elif command -v sudo >/dev/null 2>&1; then
+                sudo mkdir -p "$DEPLOY_PATH"
+                sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+                echo "Deploy directory created with sudo and ownership assigned"
+              else
+                echo "Cannot create $DEPLOY_PATH and sudo is unavailable"
+                return 1
+              fi
+            fi
+
+            if [ ! -w "$DEPLOY_PATH" ]; then
+              echo "Deploy directory is not writable; attempting ownership fix"
+              if command -v sudo >/dev/null 2>&1; then
+                sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+              else
+                echo "Cannot write to $DEPLOY_PATH and sudo is unavailable"
+                return 1
+              fi
+            fi
+
             tar -xzf /tmp/mojarreria-bot-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
             cd "$DEPLOY_PATH"
             echo "Extracted directory: $(pwd)"
@@ -266,7 +289,7 @@ jobs:
             }
 
             set +e
-            run_deploy > "$LOG_FILE" 2>&1
+            ( set -eu; run_deploy ) > "$LOG_FILE" 2>&1
             DEPLOY_STATUS="$?"
             set -e
 
