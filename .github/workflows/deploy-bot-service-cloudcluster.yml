@@ -218,14 +218,6 @@ jobs:
 
             export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
             echo "NVM_DIR: $NVM_DIR"
-            if [ -s "$NVM_DIR/nvm.sh" ]; then
-              echo "Loading nvm"
-              set +u
-              . "$NVM_DIR/nvm.sh"
-              set -u
-            else
-              echo "nvm.sh not found; using system node"
-            fi
 
             if [ ! -d "$DEPLOY_PATH" ]; then
               echo "Deploy directory does not exist; creating it"
@@ -275,8 +267,25 @@ jobs:
             fi
 
             if command -v nvm >/dev/null 2>&1; then
+              echo "Using nvm command from shell"
               nvm install 20.19.4
               nvm use 20.19.4
+            elif [ -s "$NVM_DIR/nvm.sh" ]; then
+              echo "Loading nvm for Node setup"
+              set +e
+              set +u
+              . "$NVM_DIR/nvm.sh"
+              NVM_LOAD_STATUS="$?"
+              set -u
+              set -e
+              if [ "$NVM_LOAD_STATUS" -eq 0 ] && command -v nvm >/dev/null 2>&1; then
+                nvm install 20.19.4
+                nvm use 20.19.4
+              else
+                echo "nvm load failed; using existing system node"
+              fi
+            else
+              echo "nvm.sh not found; using system node"
             fi
 
             node --version
