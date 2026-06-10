@@ -76,26 +76,68 @@ jobs:
           port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
           source: mojarreria-bot-service.tar.gz
           target: /tmp
+          debug: true
 
-      - name: Deploy on CloudCluster
+      - name: SSH smoke test
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.CLOUDCLUSTER_HOST }}
           username: ${{ secrets.CLOUDCLUSTER_USER }}
           key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
           port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
-          script_stop: true
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
           script: |
             set -eu
+            echo "SSH smoke test started"
+            whoami
+            hostname
+            pwd
+            echo "SSH smoke test finished"
 
-            DEPLOY_PATH="/var/www/bot-service"
+      - name: Deploy on CloudCluster
+        id: deploy_ssh
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_PATH: /var/www/bot-service
+        with:
+          host: ${{ secrets.CLOUDCLUSTER_HOST }}
+          username: ${{ secrets.CLOUDCLUSTER_USER }}
+          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          envs: DEPLOY_PATH
+          timeout: 60s
+          command_timeout: 15m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            LOG_FILE="/tmp/mojarreria-bot-service-deploy.log"
+            : > "$LOG_FILE"
+
+            run_deploy() {
+            : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
 
             export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
             [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
 
+            echo "Remote user: $(whoami)"
+            echo "Remote host: $(hostname)"
+            echo "Deploy path: configured"
+            echo "Initial directory: $(pwd)"
+            df -h .
+            free -h || true
+            ls -lh /tmp/mojarreria-bot-service.tar.gz
+
             mkdir -p "$DEPLOY_PATH"
             tar -xzf /tmp/mojarreria-bot-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
             cd "$DEPLOY_PATH"
+            echo "Extracted directory: $(pwd)"
+            ls -la
+            cat package.json
+            cat tsconfig.json
 
             if command -v nvm >/dev/null 2>&1; then
               nvm install 20.19.4
@@ -106,10 +148,46 @@ jobs:
             corepack enable
             corepack prepare pnpm@9.15.5 --activate
             pnpm --version
+            pnpm config get store-dir
 
             pnpm install --prod=false --no-frozen-lockfile
+            pnpm exec tsc --version
+            pnpm list --depth 0 || true
+            du -sh node_modules 2>/dev/null || true
             pnpm build
+            find dist -maxdepth 2 -type f -print
             mkdir -p data
             pnpm exec pm2 startOrReload ecosystem.config.cjs --env production
             pnpm exec pm2 save
             pnpm exec pm2 status
+            }
+
+            set +e
+            run_deploy > "$LOG_FILE" 2>&1
+            DEPLOY_STATUS="$?"
+            set -e
+
+            echo "Remote deploy log:"
+            cat "$LOG_FILE"
+            exit "$DEPLOY_STATUS"
+
+      - name: Fetch remote deploy log
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.CLOUDCLUSTER_HOST }}
+          username: ${{ secrets.CLOUDCLUSTER_USER }}
+          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            echo "Remote deploy log:"
+            if [ -f /tmp/mojarreria-bot-service-deploy.log ]; then
+              cat /tmp/mojarreria-bot-service-deploy.log
+            else
+              echo "No remote deploy log file found"
+            fi
