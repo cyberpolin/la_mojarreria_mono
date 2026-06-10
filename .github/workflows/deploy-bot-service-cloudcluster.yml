@@ -289,21 +289,30 @@ jobs:
             fi
 
             node --version
-            corepack enable
-            corepack prepare pnpm@9.15.5 --activate
-            pnpm --version
-            pnpm config get store-dir
+            PNPM_CMD="pnpm"
+            if command -v pnpm >/dev/null 2>&1; then
+              echo "Using existing pnpm"
+            elif command -v corepack >/dev/null 2>&1; then
+              echo "Preparing pnpm with corepack without global enable"
+              corepack prepare pnpm@9.15.5 --activate || PNPM_CMD="npx pnpm@9.15.5"
+            else
+              echo "corepack not found; using npx pnpm"
+              PNPM_CMD="npx pnpm@9.15.5"
+            fi
 
-            pnpm install --prod=false --no-frozen-lockfile
-            pnpm exec tsc --version
-            pnpm list --depth 0 || true
+            $PNPM_CMD --version
+            $PNPM_CMD config get store-dir
+
+            $PNPM_CMD install --prod=false --no-frozen-lockfile
+            $PNPM_CMD exec tsc --version
+            $PNPM_CMD list --depth 0 || true
             du -sh node_modules 2>/dev/null || true
-            pnpm build
+            $PNPM_CMD build
             find dist -maxdepth 2 -type f -print
             mkdir -p data
-            pnpm exec pm2 startOrReload ecosystem.config.cjs --env production
-            pnpm exec pm2 save
-            pnpm exec pm2 status
+            $PNPM_CMD exec pm2 startOrReload ecosystem.config.cjs --env production
+            $PNPM_CMD exec pm2 save
+            $PNPM_CMD exec pm2 status
             }
 
             set +e
