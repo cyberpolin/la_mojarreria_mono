@@ -28,6 +28,11 @@ Stack:
 
 If structure differs, follow the existing repo layout, but keep these boundaries.
 
+## Production service URLs
+
+- `apps/api` production base URL: `https://api.lamojarreria.com`
+- `apps/wa-service` production base URL: `https://api.wa.lamojarreria.com/`
+
 ---
 
 ## Global coding rules

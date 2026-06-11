@@ -34,39 +34,159 @@ jobs:
         with:
           node-version: 20.19.4
 
+      - name: Resolve CloudCluster deploy env
+        id: cloudcluster
+        env:
+          BOT_PUSH_ENV_FILE: ${{ secrets.BOT_PUSH_ENV_FILE }}
+          CLOUDCLUSTER_HOST: ${{ secrets.CLOUDCLUSTER_HOST }}
+          CLOUDCLUSTER_USER: ${{ secrets.CLOUDCLUSTER_USER }}
+          CLOUDCLUSTER_SSH_KEY: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          CLOUDCLUSTER_SSH_PORT: ${{ secrets.CLOUDCLUSTER_SSH_PORT }}
+          CLOUDCLUSTER_DEPLOY_PATH: ${{ secrets.CLOUDCLUSTER_DEPLOY_PATH }}
+        run: |
+          set -eu
+
+          PUSH_ENV_FILE="$RUNNER_TEMP/wa-push-env"
+          printf '%s\n' "${BOT_PUSH_ENV_FILE:-}" > "$PUSH_ENV_FILE"
+
+          read_push_value() {
+            awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$PUSH_ENV_FILE"
+          }
+
+          read_push_ssh_key() {
+            awk '
+              /^CLOUDCLUSTER_SSH_KEY=-----BEGIN OPENSSH PRIVATE KEY-----/ {
+                sub(/^CLOUDCLUSTER_SSH_KEY=/, "")
+                capture = 1
+              }
+              capture { print }
+              /^-----END OPENSSH PRIVATE KEY-----/ { exit }
+            ' "$PUSH_ENV_FILE"
+          }
+
+          HOST="${CLOUDCLUSTER_HOST:-$(read_push_value CLOUDCLUSTER_HOST)}"
+          USER="${CLOUDCLUSTER_USER:-$(read_push_value CLOUDCLUSTER_USER)}"
+          PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
+          SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
+          DEPLOY_PATH="${CLOUDCLUSTER_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_DEPLOY_PATH)}"
+          PORT="${PORT:-22}"
+
+          missing=0
+          for name in HOST USER SSH_KEY DEPLOY_PATH; do
+            value="$(eval "printf '%s' \"\${$name:-}\"")"
+            if [ -z "$value" ]; then
+              echo "::error::$name is missing"
+              missing=1
+            else
+              echo "$name is configured (length: ${#value})"
+            fi
+          done
+
+          echo "PORT is configured: $PORT"
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
+          echo "::add-mask::$SSH_KEY"
+          echo "::add-mask::$DEPLOY_PATH"
+          printf '%s\n' "$SSH_KEY" | while IFS= read -r line; do
+            [ -z "$line" ] || echo "::add-mask::$line"
+          done
+
+          {
+            echo "host=$HOST"
+            echo "user=$USER"
+            echo "port=$PORT"
+            echo "deploy_path=$DEPLOY_PATH"
+            echo "ssh_key<<EOF"
+            printf '%s\n' "$SSH_KEY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Detect service directory
         run: |
+          set -eux
           if [ -f apps/wa-service/package.json ]; then
             echo "SERVICE_DIR=apps/wa-service" >> "$GITHUB_ENV"
           else
             echo "SERVICE_DIR=." >> "$GITHUB_ENV"
           fi
 
+      - name: Print runner build diagnostics
+        run: |
+          set -eux
+          echo "GitHub workspace: $GITHUB_WORKSPACE"
+          echo "Service directory: $SERVICE_DIR"
+          pwd
+          node --version
+          pnpm --version
+          pnpm config get store-dir
+          ls -la
+          ls -la "$SERVICE_DIR"
+          test -f pnpm-workspace.yaml && cat pnpm-workspace.yaml || true
+          cat "$SERVICE_DIR/package.json"
+          cat "$SERVICE_DIR/tsconfig.json"
+
       - name: Install dependencies
         run: |
+          set -eux
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
           else
             pnpm install --no-frozen-lockfile
           fi
 
+      - name: Print runner dependency diagnostics
+        run: |
+          set -eux
+          pnpm --dir "$SERVICE_DIR" exec tsc --version
+          pnpm --dir "$SERVICE_DIR" list --depth 0 || true
+          du -sh node_modules "$SERVICE_DIR/node_modules" 2>/dev/null || true
+
       - name: Typecheck
-        run: pnpm --dir "$SERVICE_DIR" typecheck
+        run: |
+          set -eux
+          pnpm --dir "$SERVICE_DIR" typecheck
 
       - name: Build
-        run: pnpm --dir "$SERVICE_DIR" build
+        run: |
+          set -eux
+          pnpm --dir "$SERVICE_DIR" build
+          find "$SERVICE_DIR/dist" -maxdepth 2 -type f -print
 
       - name: Write service env file
         env:
           WA_SERVICE_ENV_FILE: ${{ secrets.WA_SERVICE_ENV_FILE }}
         run: |
-          if [ -n "${WA_SERVICE_ENV_FILE:-}" ]; then
-            printf '%s\n' "$WA_SERVICE_ENV_FILE" > "$SERVICE_DIR/.env"
-            chmod 600 "$SERVICE_DIR/.env"
+          set -eu
+          if [ -z "${WA_SERVICE_ENV_FILE:-}" ]; then
+            echo "::error::WA_SERVICE_ENV_FILE is missing"
+            exit 1
           fi
+
+          printf '%s\n' "$WA_SERVICE_ENV_FILE" > "$SERVICE_DIR/.env"
+          chmod 600 "$SERVICE_DIR/.env"
+
+          echo "Generated $SERVICE_DIR/.env"
+          wc -c "$SERVICE_DIR/.env"
+          for name in PORT SERVICE_API_KEY MAIN_BACKEND_URL MAIN_BACKEND_WEBHOOK_SECRET WHATSAPP_AUTH_DIR SERVICE_ALLOWED_DOMAINS; do
+            if grep -q "^$name=" "$SERVICE_DIR/.env"; then
+              value="$(grep "^$name=" "$SERVICE_DIR/.env" | tail -1 | cut -d= -f2-)"
+              echo "$name present (length: ${#value})"
+            else
+              echo "::error::$name is missing from WA_SERVICE_ENV_FILE"
+              exit 1
+            fi
+          done
+
+          node -e "import('./apps/wa-service/dist/config.js').then(({config}) => console.log(JSON.stringify({port: config.port, allowedDomains: config.serviceAllowedDomains, mainBackendUrl: config.mainBackendUrl, whatsappAuthDir: config.whatsappAuthDir, serviceApiKeyLength: config.serviceApiKey.length, mainBackendWebhookSecretLength: config.mainBackendWebhookSecret.length})))"
 
       - name: Prepare release bundle
         run: |
+          set -eux
           mkdir -p /tmp/mojarreria-wa-service
           rsync -a \
             --exclude ".git" \
@@ -74,83 +194,151 @@ jobs:
             --exclude "apps/wa-service/auth" \
             --exclude "auth" \
             ./ /tmp/mojarreria-wa-service/
+          find /tmp/mojarreria-wa-service -maxdepth 3 -type f \
+            | sed 's#^/tmp/mojarreria-wa-service/##' \
+            | sort \
+            | head -200
           tar -czf mojarreria-wa-service.tar.gz -C /tmp mojarreria-wa-service
+          ls -lh mojarreria-wa-service.tar.gz
 
       - name: Upload release bundle
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.CLOUDCLUSTER_HOST }}
-          username: ${{ secrets.CLOUDCLUSTER_USER }}
-          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
-          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
           source: mojarreria-wa-service.tar.gz
           target: /tmp
+          debug: true
 
-      - name: Deploy on CloudCluster
+      - name: SSH smoke test
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          DEPLOY_PATH: ${{ secrets.CLOUDCLUSTER_DEPLOY_PATH }}
         with:
-          host: ${{ secrets.CLOUDCLUSTER_HOST }}
-          username: ${{ secrets.CLOUDCLUSTER_USER }}
-          key: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
-          port: ${{ secrets.CLOUDCLUSTER_SSH_PORT || 22 }}
-          envs: DEPLOY_PATH
-          script_stop: true
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
           script: |
             set -eu
+            echo "SSH smoke test started"
+            whoami
+            hostname
+            pwd
+            echo "SSH smoke test finished"
+
+      - name: Deploy on CloudCluster
+        id: deploy_ssh
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          envs: DEPLOY_PATH
+          timeout: 60s
+          command_timeout: 15m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            LOG_FILE="/tmp/mojarreria-wa-service-deploy.log"
+            : > "$LOG_FILE"
+
+            run_deploy() {
 
             : "${DEPLOY_PATH:?CLOUDCLUSTER_DEPLOY_PATH is required}"
 
             export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
             [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
 
-            if ! command -v node >/dev/null 2>&1; then
-              if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-                if command -v curl >/dev/null 2>&1; then
-                  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-                elif command -v wget >/dev/null 2>&1; then
-                  wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-                else
-                  echo "curl or wget is required to install nvm on the deploy server" >&2
-                  exit 3
-                fi
-              fi
-
-              . "$NVM_DIR/nvm.sh"
-              nvm install 20.19.4
-              nvm use 20.19.4
-            fi
-
-            node --version
-            npm --version
+            echo "Remote user: $(whoami)"
+            echo "Remote host: $(hostname)"
+            echo "Deploy path: configured"
+            echo "Initial directory: $(pwd)"
+            df -h .
+            free -h || true
+            ls -lh /tmp/mojarreria-wa-service.tar.gz
 
             mkdir -p "$DEPLOY_PATH"
             tar -xzf /tmp/mojarreria-wa-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
             cd "$DEPLOY_PATH"
+            echo "Extracted directory: $(pwd)"
+            ls -la
 
-            if [ -f apps/wa-service/package.json ]; then
-              SERVICE_DIR=apps/wa-service
-            else
-              SERVICE_DIR=.
+            SERVICE_DIR=.
+            [ ! -f apps/wa-service/package.json ] || SERVICE_DIR=apps/wa-service
+            echo "Resolved service directory: $SERVICE_DIR"
+            ls -la "$SERVICE_DIR"
+            test -f pnpm-workspace.yaml && cat pnpm-workspace.yaml || true
+            cat "$SERVICE_DIR/package.json"
+            cat "$SERVICE_DIR/tsconfig.json"
+
+            if command -v nvm >/dev/null 2>&1; then
+              NODE_VERSION="$(find "$SERVICE_DIR" -maxdepth 1 -name .nvmrc -type f -exec cat {} \; -quit)"
+              NODE_VERSION="${NODE_VERSION:-"--lts"}"
+              echo "Using Node version from nvm: $NODE_VERSION"
+              nvm install "$NODE_VERSION"
+              nvm use "$NODE_VERSION"
             fi
 
-            if command -v corepack >/dev/null 2>&1; then
-              corepack enable
-              corepack prepare pnpm@9.15.5 --activate
-            fi
-            if ! command -v pnpm >/dev/null 2>&1; then
-              npm install -g pnpm@9.15.5
-            fi
+            node --version
+
+            corepack enable
+            corepack prepare pnpm@9.15.5 --activate
             pnpm --version
+            pnpm config get store-dir
 
             if [ -f pnpm-lock.yaml ]; then
               pnpm install --prod=false --frozen-lockfile
             else
               pnpm install --prod=false --no-frozen-lockfile
             fi
+
+            pnpm --dir "$SERVICE_DIR" exec tsc --version
+            pnpm --dir "$SERVICE_DIR" list --depth 0 || true
+            du -sh node_modules "$SERVICE_DIR/node_modules" 2>/dev/null || true
             pnpm --dir "$SERVICE_DIR" build
+            find "$SERVICE_DIR/dist" -maxdepth 2 -type f -print
 
             mkdir -p "$SERVICE_DIR/auth"
             pnpm --dir "$SERVICE_DIR" exec pm2 startOrReload ecosystem.config.cjs --env production
             pnpm --dir "$SERVICE_DIR" exec pm2 save
+            pnpm --dir "$SERVICE_DIR" exec pm2 status
+            }
+
+            set +e
+            run_deploy > "$LOG_FILE" 2>&1
+            DEPLOY_STATUS="$?"
+            set -e
+
+            echo "Remote deploy log:"
+            cat "$LOG_FILE"
+            exit "$DEPLOY_STATUS"
+
+      - name: Fetch remote deploy log
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            echo "Remote deploy log:"
+            if [ -f /tmp/mojarreria-wa-service-deploy.log ]; then
+              cat /tmp/mojarreria-wa-service-deploy.log
+            else
+              echo "No remote deploy log file found"
+            fi

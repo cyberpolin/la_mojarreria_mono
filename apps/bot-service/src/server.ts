@@ -12,6 +12,12 @@ import {
   hasProcessedMessage,
   recordProcessedMessage,
 } from "./processedMessagesStore.js";
+import {
+  listDebugLogs,
+  recordDebugLog,
+  sendDebugLogsPage,
+  subscribeDebugLogs,
+} from "./debugLogStore.js";
 
 type AppConfig = typeof appConfig;
 
@@ -168,7 +174,24 @@ export function createBotServer(config: AppConfig, logger: Logger) {
     let response: JsonResponse;
 
     try {
-      if (method === "GET" && path === "/health") {
+      if (method === "GET" && path === "/debug/logs") {
+        sendDebugLogsPage(res, "bot-service logs");
+        return;
+      } else if (method === "GET" && path === "/debug/logs/recent") {
+        response = { status: 200, body: { ok: true, logs: listDebugLogs() } };
+      } else if (method === "GET" && path === "/debug/logs/events") {
+        res.writeHead(200, {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        });
+        res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+        const unsubscribe = subscribeDebugLogs((entry) => {
+          res.write(`data: ${JSON.stringify(entry)}\n\n`);
+        });
+        req.on("close", unsubscribe);
+        return;
+      } else if (method === "GET" && path === "/health") {
         response = { status: 200, body: { ok: true } };
       } else if (method === "POST" && path === "/test/deepseek") {
         if (!isAuthorized(req, config)) {
@@ -259,6 +282,10 @@ export function createBotServer(config: AppConfig, logger: Logger) {
         }
       } else if (method === "POST" && path === "/respond") {
         if (!isAuthorized(req, config)) {
+          recordDebugLog({
+            level: "warn",
+            event: "respond_unauthorized",
+          });
           response = {
             status: 401,
             body: { ok: false, error: "Unauthorized" },
@@ -266,6 +293,10 @@ export function createBotServer(config: AppConfig, logger: Logger) {
         } else {
           const instructions = await getInstructions(config.instructionsFile);
           if (!instructions) {
+            recordDebugLog({
+              level: "warn",
+              event: "respond_missing_instructions",
+            });
             response = {
               status: 409,
               body: { ok: false, error: "No instructions configured" },
@@ -273,6 +304,10 @@ export function createBotServer(config: AppConfig, logger: Logger) {
           } else {
             const payload = parseRespondBody(await readRequestJson(req));
             if (!payload) {
+              recordDebugLog({
+                level: "warn",
+                event: "respond_invalid_payload",
+              });
               response = {
                 status: 400,
                 body: { ok: false, error: "Invalid respond payload" },
@@ -283,12 +318,24 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                 messageId: payload.message.id,
               })
             ) {
+              recordDebugLog({
+                event: "respond_duplicate",
+                data: { messageId: payload.message.id },
+              });
               response = {
                 status: 200,
                 body: { ok: true, duplicate: true, reply: null },
               };
             } else {
               try {
+                recordDebugLog({
+                  event: "deepseek_request",
+                  data: {
+                    messageId: payload.message.id,
+                    historySize: payload.history.length,
+                    model: config.deepseekModel,
+                  },
+                });
                 const replyText = await createDeepSeekReply({
                   config,
                   messages: buildChatMessages({
@@ -308,6 +355,14 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   },
                   "bot response generated",
                 );
+                recordDebugLog({
+                  event: "respond_reply_generated",
+                  data: {
+                    messageId: payload.message.id,
+                    historySize: payload.history.length,
+                    replyLength: replyText.length,
+                  },
+                });
                 response = {
                   status: 200,
                   body: {
@@ -333,6 +388,15 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   },
                   "bot provider unavailable",
                 );
+                recordDebugLog({
+                  level: "error",
+                  event: "deepseek_provider_unavailable",
+                  data: {
+                    messageId: payload.message.id,
+                    providerStatus: error.status,
+                    providerBody: error.responseBody,
+                  },
+                });
                 response = buildBotProviderUnavailableResponse();
               }
             }
@@ -343,6 +407,15 @@ export function createBotServer(config: AppConfig, logger: Logger) {
       }
     } catch (error) {
       logger.error({ err: error, method, path }, "request failed");
+      recordDebugLog({
+        level: "error",
+        event: "request_failed",
+        data: {
+          method,
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
       response = { status: 500, body: { ok: false, error: "Internal error" } };
     }
 

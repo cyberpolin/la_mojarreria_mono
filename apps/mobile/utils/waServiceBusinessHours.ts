@@ -122,7 +122,7 @@ export async function syncWaServiceWithBusinessHours(): Promise<void> {
   }
 
   const statusPayload = await fetchJson<WaServiceStatusResponse>(
-    `${APP_CONFIG.apiUrl}/wa-service/status`,
+    `${APP_CONFIG.apiUrl}/rest/wa-service/status`,
   );
   const isWaServiceActive = Boolean(statusPayload.status?.active);
   setWaServiceStatus({
@@ -137,7 +137,7 @@ export async function syncWaServiceWithBusinessHours(): Promise<void> {
 
   const action = shouldActivateWaService ? "activate" : "deactivate";
   const actionPayload = await fetchJson<WaServiceStatusResponse>(
-    `${APP_CONFIG.apiUrl}/wa-service/${action}`,
+    `${APP_CONFIG.apiUrl}/rest/wa-service/${action}`,
     {
       method: "POST",
       headers: {

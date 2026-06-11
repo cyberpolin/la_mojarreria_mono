@@ -1,5 +1,7 @@
 import { APP_CONFIG } from "@/constants/config";
 
+const PROD_WA_CHAT_API_BASE_URL = "https://api.wa.lamojarreria.com";
+
 export type WhatsAppConversationMessage = {
   id: string;
   phone: string;
@@ -15,11 +17,11 @@ export type WhatsAppConversation = {
   updatedAt: string;
 };
 
-const baseUrl = (APP_CONFIG.waApiBaseUrl || "").replace(/\/+$/, "");
+const baseUrl = PROD_WA_CHAT_API_BASE_URL.replace(/\/+$/, "");
 
 const headers = {
   "content-type": "application/json",
-  "x-api-key": APP_CONFIG.waApiKey,
+  "x-api-key": APP_CONFIG.waChatApiKey || APP_CONFIG.waApiKey,
   "x-client-domain": APP_CONFIG.waClientDomain,
 };
 
