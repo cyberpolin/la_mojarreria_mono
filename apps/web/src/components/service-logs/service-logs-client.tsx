@@ -42,7 +42,12 @@ function levelClass(level: ServiceDebugLogEntry["level"]) {
 export function ServiceLogsClient() {
   const [selectedService, setSelectedService] =
     useState<ServiceDebugLogName>("wa-service");
-  const [waLiveRefresh, setWaLiveRefresh] = useState(true);
+  const [liveRefresh, setLiveRefresh] = useState<
+    Record<ServiceDebugLogName, boolean>
+  >({
+    "wa-service": true,
+    "bot-service": true,
+  });
   const [logs, setLogs] = useState<ServiceDebugLogEntry[]>([]);
   const [streamState, setStreamState] = useState<
     Record<ServiceDebugLogName, StreamState>
@@ -122,91 +127,101 @@ export function ServiceLogsClient() {
   }, [loadRecent]);
 
   useEffect(() => {
-    if (!waLiveRefresh) return;
+    const liveServices = SERVICES.filter((service) => liveRefresh[service.id]);
+    if (liveServices.length === 0) return;
 
-    const refreshWaLogs = () => {
-      loadRecent("wa-service")
-        .then((recentLogs) => {
-          replaceServiceLogs("wa-service", recentLogs);
-          setServiceErrors((current) => {
-            const next = { ...current };
-            delete next["wa-service"];
-            return next;
+    const refreshLogs = () => {
+      for (const service of liveServices) {
+        loadRecent(service.id)
+          .then((recentLogs) => {
+            replaceServiceLogs(service.id, recentLogs);
+            setServiceErrors((current) => {
+              const next = { ...current };
+              delete next[service.id];
+              return next;
+            });
+          })
+          .catch((error) => {
+            setServiceErrors((current) => ({
+              ...current,
+              [service.id]:
+                error instanceof Error
+                  ? error.message
+                  : `Failed to refresh ${service.label} logs`,
+            }));
           });
-        })
-        .catch((error) => {
-          setServiceErrors((current) => ({
-            ...current,
-            "wa-service":
-              error instanceof Error
-                ? error.message
-                : "Failed to refresh WA logs",
-          }));
-        });
+      }
     };
 
-    const intervalId = window.setInterval(refreshWaLogs, 5_000);
+    const intervalId = window.setInterval(refreshLogs, 5_000);
     return () => window.clearInterval(intervalId);
-  }, [loadRecent, replaceServiceLogs, waLiveRefresh]);
+  }, [liveRefresh, loadRecent, replaceServiceLogs]);
 
   useEffect(() => {
     setStreamState((current) => ({
       ...current,
-      "wa-service": waLiveRefresh ? current["wa-service"] : "disconnected",
+      "wa-service": liveRefresh["wa-service"]
+        ? current["wa-service"]
+        : "disconnected",
+      "bot-service": liveRefresh["bot-service"]
+        ? current["bot-service"]
+        : "disconnected",
     }));
 
-    const sources = SERVICES.filter(
-      (service) => service.id !== "wa-service" || waLiveRefresh,
-    ).map((service) => {
-      const source = new EventSource(`/api/service-logs/${service.id}/events`);
-
-      source.onopen = () => {
-        setStreamState((current) => ({
-          ...current,
-          [service.id]: "connected",
-        }));
-        setServiceErrors((current) => {
-          const next = { ...current };
-          delete next[service.id];
-          return next;
-        });
-      };
-
-      source.onerror = () => {
-        setStreamState((current) => ({
-          ...current,
-          [service.id]: "disconnected",
-        }));
-        setServiceErrors((current) => ({
-          ...current,
-          [service.id]: `${service.label} live stream disconnected`,
-        }));
-      };
-
-      source.onmessage = (event) => {
-        const entry = JSON.parse(event.data) as ServiceDebugLogEntry;
-        setLogs((current) =>
-          sortLogs([
-            entry,
-            ...current.filter(
-              (item) =>
-                item.service !== entry.service ||
-                item.id !== entry.id ||
-                item.timestamp !== entry.timestamp,
-            ),
-          ]).slice(0, 300),
+    const sources = SERVICES.filter((service) => liveRefresh[service.id]).map(
+      (service) => {
+        const source = new EventSource(
+          `/api/service-logs/${service.id}/events`,
         );
-      };
 
-      return source;
-    });
+        source.onopen = () => {
+          setStreamState((current) => ({
+            ...current,
+            [service.id]: "connected",
+          }));
+          setServiceErrors((current) => {
+            const next = { ...current };
+            delete next[service.id];
+            return next;
+          });
+        };
+
+        source.onerror = () => {
+          setStreamState((current) => ({
+            ...current,
+            [service.id]: "disconnected",
+          }));
+          setServiceErrors((current) => ({
+            ...current,
+            [service.id]: `${service.label} live stream disconnected`,
+          }));
+        };
+
+        source.onmessage = (event) => {
+          const entry = JSON.parse(event.data) as ServiceDebugLogEntry;
+          setLogs((current) =>
+            sortLogs([
+              entry,
+              ...current.filter(
+                (item) =>
+                  item.service !== entry.service ||
+                  item.id !== entry.id ||
+                  item.timestamp !== entry.timestamp,
+              ),
+            ]).slice(0, 300),
+          );
+        };
+
+        return source;
+      },
+    );
 
     return () => {
       for (const source of sources) {
         source.close();
       }
     };
-  }, [waLiveRefresh]);
+  }, [liveRefresh]);
 
   const visibleLogs = useMemo(
     () => logs.filter((log) => log.service === selectedService),
@@ -242,15 +257,25 @@ export function ServiceLogsClient() {
               {service.label}: {streamState[service.id]}
             </span>
           ))}
-          <label className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-slate-300">
-            <input
-              type="checkbox"
-              checked={waLiveRefresh}
-              onChange={(event) => setWaLiveRefresh(event.target.checked)}
-              className="h-3.5 w-3.5 accent-emerald-500"
-            />
-            WA live
-          </label>
+          {SERVICES.map((service) => (
+            <label
+              key={`${service.id}-live`}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-slate-300"
+            >
+              <input
+                type="checkbox"
+                checked={liveRefresh[service.id]}
+                onChange={(event) =>
+                  setLiveRefresh((current) => ({
+                    ...current,
+                    [service.id]: event.target.checked,
+                  }))
+                }
+                className="h-3.5 w-3.5 accent-emerald-500"
+              />
+              {service.label} live
+            </label>
+          ))}
         </div>
       </div>
 
