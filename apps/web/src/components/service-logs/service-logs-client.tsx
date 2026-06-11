@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ServiceDebugLogEntry,
   ServiceDebugLogName,
@@ -42,6 +42,7 @@ function levelClass(level: ServiceDebugLogEntry["level"]) {
 export function ServiceLogsClient() {
   const [selectedService, setSelectedService] =
     useState<ServiceDebugLogName>("wa-service");
+  const [waLiveRefresh, setWaLiveRefresh] = useState(true);
   const [logs, setLogs] = useState<ServiceDebugLogEntry[]>([]);
   const [streamState, setStreamState] = useState<
     Record<ServiceDebugLogName, StreamState>
@@ -53,31 +54,43 @@ export function ServiceLogsClient() {
     Partial<Record<ServiceDebugLogName, string>>
   >({});
 
+  const loadRecent = useCallback(async (service: ServiceDebugLogName) => {
+    const response = await fetch(`/api/service-logs/${service}/recent`, {
+      cache: "no-store",
+    });
+    const payload = (await response
+      .json()
+      .catch(() => null)) as RecentLogsResponse | null;
+
+    if (!response.ok || !payload?.ok) {
+      throw new Error(
+        [
+          payload?.error ??
+            `${service} recent logs failed (${response.status})`,
+          payload?.upstream ? `upstream: ${payload.upstream}` : null,
+        ]
+          .filter(Boolean)
+          .join(" - "),
+      );
+    }
+
+    return payload.logs ?? [];
+  }, []);
+
+  const replaceServiceLogs = useCallback(
+    (service: ServiceDebugLogName, serviceLogs: ServiceDebugLogEntry[]) => {
+      setLogs((current) =>
+        sortLogs([
+          ...current.filter((log) => log.service !== service),
+          ...serviceLogs,
+        ]).slice(0, 300),
+      );
+    },
+    [],
+  );
+
   useEffect(() => {
     let cancelled = false;
-
-    async function loadRecent(service: ServiceDebugLogName) {
-      const response = await fetch(`/api/service-logs/${service}/recent`, {
-        cache: "no-store",
-      });
-      const payload = (await response
-        .json()
-        .catch(() => null)) as RecentLogsResponse | null;
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(
-          [
-            payload?.error ??
-              `${service} recent logs failed (${response.status})`,
-            payload?.upstream ? `upstream: ${payload.upstream}` : null,
-          ]
-            .filter(Boolean)
-            .join(" - "),
-        );
-      }
-
-      return payload.logs ?? [];
-    }
 
     Promise.allSettled(SERVICES.map((service) => loadRecent(service.id))).then(
       (results) => {
@@ -106,10 +119,45 @@ export function ServiceLogsClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadRecent]);
 
   useEffect(() => {
-    const sources = SERVICES.map((service) => {
+    if (!waLiveRefresh) return;
+
+    const refreshWaLogs = () => {
+      loadRecent("wa-service")
+        .then((recentLogs) => {
+          replaceServiceLogs("wa-service", recentLogs);
+          setServiceErrors((current) => {
+            const next = { ...current };
+            delete next["wa-service"];
+            return next;
+          });
+        })
+        .catch((error) => {
+          setServiceErrors((current) => ({
+            ...current,
+            "wa-service":
+              error instanceof Error
+                ? error.message
+                : "Failed to refresh WA logs",
+          }));
+        });
+    };
+
+    const intervalId = window.setInterval(refreshWaLogs, 5_000);
+    return () => window.clearInterval(intervalId);
+  }, [loadRecent, replaceServiceLogs, waLiveRefresh]);
+
+  useEffect(() => {
+    setStreamState((current) => ({
+      ...current,
+      "wa-service": waLiveRefresh ? current["wa-service"] : "disconnected",
+    }));
+
+    const sources = SERVICES.filter(
+      (service) => service.id !== "wa-service" || waLiveRefresh,
+    ).map((service) => {
       const source = new EventSource(`/api/service-logs/${service.id}/events`);
 
       source.onopen = () => {
@@ -158,7 +206,7 @@ export function ServiceLogsClient() {
         source.close();
       }
     };
-  }, []);
+  }, [waLiveRefresh]);
 
   const visibleLogs = useMemo(
     () => logs.filter((log) => log.service === selectedService),
@@ -194,6 +242,15 @@ export function ServiceLogsClient() {
               {service.label}: {streamState[service.id]}
             </span>
           ))}
+          <label className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-slate-300">
+            <input
+              type="checkbox"
+              checked={waLiveRefresh}
+              onChange={(event) => setWaLiveRefresh(event.target.checked)}
+              className="h-3.5 w-3.5 accent-emerald-500"
+            />
+            WA live
+          </label>
         </div>
       </div>
 
