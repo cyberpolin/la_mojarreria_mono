@@ -17,6 +17,7 @@ type RecentLogsResponse = {
   ok?: boolean;
   logs?: ServiceDebugLogEntry[];
   error?: string;
+  upstream?: string;
 };
 
 function sortLogs(logs: ServiceDebugLogEntry[]) {
@@ -48,7 +49,9 @@ export function ServiceLogsClient() {
     "wa-service": "connecting",
     "bot-service": "connecting",
   });
-  const [error, setError] = useState<string | null>(null);
+  const [serviceErrors, setServiceErrors] = useState<
+    Partial<Record<ServiceDebugLogName, string>>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -63,27 +66,42 @@ export function ServiceLogsClient() {
 
       if (!response.ok || !payload?.ok) {
         throw new Error(
-          payload?.error ??
-            `${service} recent logs failed (${response.status})`,
+          [
+            payload?.error ??
+              `${service} recent logs failed (${response.status})`,
+            payload?.upstream ? `upstream: ${payload.upstream}` : null,
+          ]
+            .filter(Boolean)
+            .join(" - "),
         );
       }
 
       return payload.logs ?? [];
     }
 
-    Promise.all(SERVICES.map((service) => loadRecent(service.id)))
-      .then((results) => {
+    Promise.allSettled(SERVICES.map((service) => loadRecent(service.id))).then(
+      (results) => {
         if (cancelled) return;
-        setLogs(sortLogs(results.flat()));
-      })
-      .catch((loadError) => {
-        if (cancelled) return;
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load service logs",
-        );
-      });
+        const loadedLogs: ServiceDebugLogEntry[] = [];
+        const errors: Partial<Record<ServiceDebugLogName, string>> = {};
+
+        results.forEach((result, index) => {
+          const service = SERVICES[index];
+          if (result.status === "fulfilled") {
+            loadedLogs.push(...result.value);
+            return;
+          }
+
+          errors[service.id] =
+            result.reason instanceof Error
+              ? result.reason.message
+              : "Failed to load service logs";
+        });
+
+        setLogs(sortLogs(loadedLogs));
+        setServiceErrors(errors);
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -99,12 +117,21 @@ export function ServiceLogsClient() {
           ...current,
           [service.id]: "connected",
         }));
+        setServiceErrors((current) => {
+          const next = { ...current };
+          delete next[service.id];
+          return next;
+        });
       };
 
       source.onerror = () => {
         setStreamState((current) => ({
           ...current,
           [service.id]: "disconnected",
+        }));
+        setServiceErrors((current) => ({
+          ...current,
+          [service.id]: `${service.label} live stream disconnected`,
         }));
       };
 
@@ -170,9 +197,9 @@ export function ServiceLogsClient() {
         </div>
       </div>
 
-      {error ? (
+      {serviceErrors[selectedService] ? (
         <div className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">
-          {error}
+          {serviceErrors[selectedService]}
         </div>
       ) : null}
 

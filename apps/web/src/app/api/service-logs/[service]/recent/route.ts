@@ -16,14 +16,20 @@ export async function GET(
   }
 
   try {
-    const response = await fetch(`${baseUrl}/debug/logs/recent`, {
+    const url = `${baseUrl}/debug/logs/recent`;
+    const response = await fetch(url, {
       cache: "no-store",
     });
     const payload = (await response.json().catch(() => null)) as unknown;
 
     if (!response.ok || !payload) {
       return NextResponse.json(
-        { ok: false, error: `Log request failed (${response.status})` },
+        {
+          ok: false,
+          error: `Log request failed (${response.status})`,
+          service: params.service,
+          upstream: url,
+        },
         { status: response.status || 502 },
       );
     }
@@ -34,6 +40,8 @@ export async function GET(
       {
         ok: false,
         error: error instanceof Error ? error.message : "Failed to load logs",
+        service: params.service,
+        upstream: `${baseUrl}/debug/logs/recent`,
       },
       { status: 502 },
     );

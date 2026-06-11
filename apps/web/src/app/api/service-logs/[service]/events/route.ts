@@ -17,7 +17,8 @@ export async function GET(
   }
 
   try {
-    const response = await fetch(`${baseUrl}/debug/logs/events`, {
+    const url = `${baseUrl}/debug/logs/events`;
+    const response = await fetch(url, {
       cache: "no-store",
       headers: {
         accept: "text/event-stream",
@@ -26,7 +27,12 @@ export async function GET(
 
     if (!response.ok || !response.body) {
       return NextResponse.json(
-        { ok: false, error: `Log stream failed (${response.status})` },
+        {
+          ok: false,
+          error: `Log stream failed (${response.status})`,
+          service: params.service,
+          upstream: url,
+        },
         { status: response.status || 502 },
       );
     }
@@ -44,6 +50,8 @@ export async function GET(
       {
         ok: false,
         error: error instanceof Error ? error.message : "Failed to stream logs",
+        service: params.service,
+        upstream: `${baseUrl}/debug/logs/events`,
       },
       { status: 502 },
     );
