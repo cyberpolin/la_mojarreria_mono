@@ -309,9 +309,14 @@ jobs:
             find "$SERVICE_DIR/dist" -maxdepth 2 -type f -print
 
             mkdir -p "$SERVICE_DIR/auth"
-            pnpm --dir "$SERVICE_DIR" exec pm2 startOrReload ecosystem.config.cjs --env production
-            pnpm --dir "$SERVICE_DIR" exec pm2 save
-            pnpm --dir "$SERVICE_DIR" exec pm2 status
+            (
+              cd "$SERVICE_DIR"
+              pnpm exec pm2 delete mojarreria-wa-service || true
+              pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
+              pnpm exec pm2 save
+              pnpm exec pm2 describe mojarreria-wa-service
+              pnpm exec pm2 status
+            )
             }
 
             set +e
