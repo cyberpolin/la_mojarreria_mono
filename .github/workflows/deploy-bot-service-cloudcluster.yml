@@ -68,10 +68,12 @@ jobs:
           USER="${CLOUDCLUSTER_USER:-$(read_push_value CLOUDCLUSTER_USER)}"
           PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
           SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
+          DEPLOY_PATH="$(read_push_value CLOUDCLUSTER_BOT_SERVICE_DEPLOY_PATH)"
+          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/bot-service}"
           PORT="${PORT:-22}"
 
           missing=0
-          for name in BOT_SERVICE_ENV_FILE HOST USER SSH_KEY; do
+          for name in BOT_SERVICE_ENV_FILE HOST USER SSH_KEY DEPLOY_PATH; do
             value="$(eval "printf '%s' \"\${$name:-}\"")"
             if [ -z "$value" ]; then
               echo "::error::$name is missing"
@@ -90,6 +92,7 @@ jobs:
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
           echo "::add-mask::$SSH_KEY"
+          echo "::add-mask::$DEPLOY_PATH"
           printf '%s\n' "$SSH_KEY" | while IFS= read -r line; do
             [ -z "$line" ] || echo "::add-mask::$line"
           done
@@ -98,6 +101,7 @@ jobs:
             echo "host=$HOST"
             echo "user=$USER"
             echo "port=$PORT"
+            echo "deploy_path=$DEPLOY_PATH"
             echo "ssh_key<<EOF"
             printf '%s\n' "$SSH_KEY"
             echo "EOF"
@@ -188,7 +192,7 @@ jobs:
         id: deploy_ssh
         uses: appleboy/ssh-action@v1.2.0
         env:
-          DEPLOY_PATH: /var/www/bot-service
+          DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}

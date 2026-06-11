@@ -68,7 +68,8 @@ jobs:
           USER="${CLOUDCLUSTER_USER:-$(read_push_value CLOUDCLUSTER_USER)}"
           PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
           SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
-          DEPLOY_PATH="${CLOUDCLUSTER_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_DEPLOY_PATH)}"
+          DEPLOY_PATH="${CLOUDCLUSTER_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_WA_SERVICE_DEPLOY_PATH)}"
+          DEPLOY_PATH="${DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_DEPLOY_PATH)}"
           PORT="${PORT:-22}"
 
           missing=0
