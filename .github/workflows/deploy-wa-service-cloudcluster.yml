@@ -322,6 +322,52 @@ jobs:
             cat "$LOG_FILE"
             exit "$DEPLOY_STATUS"
 
+      - name: Notify deploy success by WhatsApp
+        if: success()
+        env:
+          WA_SERVICE_ENV_FILE: ${{ secrets.WA_SERVICE_ENV_FILE }}
+          DEPLOY_NOTIFY_PHONE: ${{ secrets.DEPLOY_NOTIFY_PHONE }}
+          WA_SERVICE_NOTIFY_URL: ${{ secrets.WA_SERVICE_NOTIFY_URL || 'https://api.wa.lamojarreria.com' }}
+        run: |
+          set -eu
+
+          if [ -z "${WA_SERVICE_ENV_FILE:-}" ]; then
+            echo "::warning::WA_SERVICE_ENV_FILE is missing; skipping WhatsApp deploy notification"
+            exit 0
+          fi
+
+          if [ -z "${DEPLOY_NOTIFY_PHONE:-}" ]; then
+            echo "::warning::DEPLOY_NOTIFY_PHONE is missing; skipping WhatsApp deploy notification"
+            exit 0
+          fi
+
+          WA_SERVICE_NOTIFY_API_KEY="$(printf '%s\n' "$WA_SERVICE_ENV_FILE" | awk -F= '$1 == "SERVICE_API_KEY" { sub(/^[^=]*=/, ""); value=$0 } END { print value }')"
+          if [ -z "$WA_SERVICE_NOTIFY_API_KEY" ]; then
+            echo "::warning::SERVICE_API_KEY is missing from WA_SERVICE_ENV_FILE; skipping WhatsApp deploy notification"
+            exit 0
+          fi
+
+          BASE_URL="${WA_SERVICE_NOTIFY_URL%/}"
+          echo "Waiting for wa-service health before notification"
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS "$BASE_URL/health" >/dev/null; then
+              break
+            fi
+            echo "Health check attempt $attempt failed; retrying"
+            sleep 5
+          done
+
+          MESSAGE="$(printf "✅ *Server's up*\nDeploy completed: wa-service workflow=%s ref=%s" "$GITHUB_WORKFLOW" "$GITHUB_SHA")"
+          payload="$(node -e 'const [to,text]=process.argv.slice(1); process.stdout.write(JSON.stringify({to,text}))' "$DEPLOY_NOTIFY_PHONE" "$MESSAGE")"
+
+          if ! curl -fsS -X POST "$BASE_URL/messages/send" \
+            -H "content-type: application/json" \
+            -H "x-api-key: $WA_SERVICE_NOTIFY_API_KEY" \
+            -H "x-client-domain: lamojarreria.com" \
+            -d "$payload"; then
+            echo "::warning::WhatsApp deploy notification failed"
+          fi
+
       - name: Fetch remote deploy log
         if: always()
         uses: appleboy/ssh-action@v1.2.0
