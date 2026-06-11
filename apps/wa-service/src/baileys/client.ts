@@ -14,6 +14,7 @@ import qrcode from "qrcode-terminal";
 import type { AppConfig } from "../config.js";
 import { getCampaignForPhone } from "../services/campaignStore.js";
 import { notifySubscriptionReply } from "../services/backendWebhook.js";
+import { isAutoresponseTestPhone } from "../services/autoresponseTestPhoneStore.js";
 import { createBotReply } from "../services/botServiceClient.js";
 import {
   listConversationMessages,
@@ -511,7 +512,12 @@ export class WhatsAppClient {
       return;
     }
 
-    if (!this.desiredActive) {
+    const testPhone = await isAutoresponseTestPhone({
+      filePath: this.config.autoresponseTestPhonesFile,
+      phone,
+    });
+
+    if (!this.desiredActive && !testPhone) {
       this.logger.info(
         { remoteJid, messageId },
         "recorded inbound WhatsApp message without autoresponse because service is inactive",
@@ -521,6 +527,13 @@ export class WhatsAppClient {
         data: { messageId, phone },
       });
       return;
+    }
+
+    if (!this.desiredActive && testPhone) {
+      recordDebugLog({
+        event: "autoresponse_test_phone_bypass",
+        data: { messageId, phone },
+      });
     }
 
     await recordInboundContact({

@@ -3,10 +3,18 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import type { WhatsAppClient } from "../baileys/client.js";
 import type { AppConfig } from "../config.js";
+import {
+  listAutoresponseTestPhones,
+  replaceAutoresponseTestPhones,
+} from "../services/autoresponseTestPhoneStore.js";
+import { normalizePhone } from "../utils/phone.js";
 import { validateServiceRequest } from "../utils/requestAuth.js";
 
 const statusSchema = z.object({
   active: z.boolean(),
+});
+const testPhonesSchema = z.object({
+  phones: z.array(z.string().trim().min(8).max(20)).max(50),
 });
 
 function ensureAuthorized(
@@ -36,6 +44,47 @@ export function createServiceRouter(params: {
     }
 
     res.json({ ok: true, ...params.whatsAppClient.getStatus() });
+  });
+
+  router.get("/autoresponse/test-phones", async (req, res) => {
+    if (!ensureAuthorized(req, res, params.config)) {
+      return;
+    }
+
+    const phones = await listAutoresponseTestPhones(
+      params.config.autoresponseTestPhonesFile,
+    );
+    res.json({ ok: true, phones });
+  });
+
+  router.put("/autoresponse/test-phones", async (req, res) => {
+    if (!ensureAuthorized(req, res, params.config)) {
+      return;
+    }
+
+    const parsed = testPhonesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid test phones payload",
+        details: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    try {
+      const phones = parsed.data.phones.map((phone) => normalizePhone(phone));
+      const savedPhones = await replaceAutoresponseTestPhones({
+        filePath: params.config.autoresponseTestPhonesFile,
+        phones,
+      });
+      res.json({ ok: true, phones: savedPhones });
+    } catch (error) {
+      res.status(400).json({
+        ok: false,
+        error: error instanceof Error ? error.message : "Invalid phone",
+      });
+    }
   });
 
   router.post("/activate", async (req: Request, res: Response) => {

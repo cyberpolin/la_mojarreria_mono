@@ -32,6 +32,10 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default("./data/webhook-subscriptions.json"),
+  AUTORESPONSE_TEST_PHONES_FILE: z
+    .string()
+    .min(1)
+    .default("./data/autoresponse-test-phones.json"),
   DUMMY_REGISTRY_API_URL: z.string().url().optional().or(z.literal("")),
   BOT_SERVICE_BASE_URL: z.string().url().default("http://127.0.0.1:3002"),
   BOT_SERVICE_API_KEY: z.string().optional().or(z.literal("")),
@@ -54,6 +58,7 @@ export const config = {
   inboundContactsStoreFile: env.INBOUND_CONTACTS_STORE_FILE,
   conversationStoreFile: env.CONVERSATION_STORE_FILE,
   webhookSubscriptionsFile: env.WEBHOOK_SUBSCRIPTIONS_FILE,
+  autoresponseTestPhonesFile: env.AUTORESPONSE_TEST_PHONES_FILE,
   dummyRegistryApiUrl: env.DUMMY_REGISTRY_API_URL
     ? env.DUMMY_REGISTRY_API_URL.replace(/\/+$/, "")
     : null,

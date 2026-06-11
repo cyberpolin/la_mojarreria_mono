@@ -62,6 +62,18 @@ export default function HomePage() {
           </a>
           <a
             className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            href="/autoresponse"
+          >
+            Open Auto-response
+          </a>
+          <a
+            className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
+            href="/service-logs"
+          >
+            Open Service Logs
+          </a>
+          <a
+            className="text-sm text-slate-200 underline underline-offset-4 hover:text-slate-50"
             href="/cost-control"
           >
             Open Cost Control
