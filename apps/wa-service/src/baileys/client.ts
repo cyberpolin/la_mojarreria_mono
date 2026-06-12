@@ -184,6 +184,16 @@ export class WhatsAppClient {
 
     socket.ev.on("creds.update", saveCreds);
     socket.ev.on("connection.update", (update) => {
+      recordDebugLog({
+        event: "baileys_connection_update",
+        data: {
+          connection: update.connection,
+          hasQr: Boolean(update.qr),
+          receivedPendingNotifications: update.receivedPendingNotifications,
+          isNewLogin: update.isNewLogin,
+        },
+      });
+
       if (update.qr) {
         this.latestQr = update.qr;
         this.logger.info(
@@ -418,7 +428,29 @@ export class WhatsAppClient {
   }
 
   private async handleMessagesUpsert(event: MessagesUpsert): Promise<void> {
+    recordDebugLog({
+      event: "baileys_messages_upsert",
+      data: {
+        type: event.type,
+        messageCount: event.messages.length,
+        messageIds: event.messages
+          .map((message) => message.key.id)
+          .filter(Boolean),
+        remoteJids: event.messages
+          .map((message) => message.key.remoteJid)
+          .filter(Boolean),
+      },
+    });
+
     if (event.type !== "notify") {
+      recordDebugLog({
+        event: "baileys_messages_upsert_skipped",
+        data: {
+          reason: "not_notify",
+          type: event.type,
+          messageCount: event.messages.length,
+        },
+      });
       return;
     }
 
@@ -464,6 +496,15 @@ export class WhatsAppClient {
   ): Promise<void> {
     const remoteJid = message.key.remoteJid;
     if (!remoteJid || remoteJid.endsWith("@g.us")) {
+      recordDebugLog({
+        event: "whatsapp_message_skipped_jid",
+        data: {
+          messageId: message.key.id,
+          remoteJid,
+          fromMe: message.key.fromMe,
+          reason: !remoteJid ? "missing_remote_jid" : "group_message",
+        },
+      });
       return;
     }
 
