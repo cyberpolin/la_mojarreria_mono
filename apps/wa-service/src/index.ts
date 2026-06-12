@@ -4,6 +4,7 @@ import { logger } from "./logger.js";
 import { WhatsAppClient } from "./baileys/client.js";
 import { notifyWaServiceStatusChanged } from "./services/backendWebhook.js";
 import { recordDebugLog } from "./services/debugLogStore.js";
+import { getAuthHealth, isAuthSessionMissing } from "./services/authHealth.js";
 
 const whatsAppClient = new WhatsAppClient(config, logger);
 logger.info(
@@ -58,7 +59,36 @@ const heartbeatInterval = setInterval(() => {
       state: status.state,
     },
   });
-}, 5_000);
+
+  void getAuthHealth(config.whatsappAuthDir)
+    .then((auth) => {
+      if (!isAuthSessionMissing(auth)) {
+        return;
+      }
+
+      logger.warn({ auth, status }, "WhatsApp auth session appears missing");
+      recordDebugLog({
+        level: "warn",
+        event: "WhatsApp auth session appears missing",
+        data: { auth, status },
+      });
+    })
+    .catch((error: unknown) => {
+      logger.warn(
+        { err: error, authDir: config.whatsappAuthDir, status },
+        "failed to inspect WhatsApp auth session",
+      );
+      recordDebugLog({
+        level: "warn",
+        event: "failed to inspect WhatsApp auth session",
+        data: {
+          authDir: config.whatsappAuthDir,
+          status,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+      });
+    });
+}, 60_000);
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   logger.info({ signal }, "shutting down WhatsApp adapter service");

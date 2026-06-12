@@ -11,6 +11,7 @@ import {
   renderDebugLogsPage,
   subscribeDebugLogs,
 } from "./services/debugLogStore.js";
+import { getAuthHealth } from "./services/authHealth.js";
 import {
   getDomainFromRequestOrigin,
   isAllowedRequestDomain,
@@ -65,8 +66,12 @@ export function createServer(params: {
   });
   app.use(express.json({ limit: "64kb" }));
 
-  app.get("/health", (_req, res) => {
-    res.json({ ok: true });
+  app.get("/health", async (_req, res) => {
+    res.json({
+      ok: true,
+      status: params.whatsAppClient.getStatus(),
+      auth: await getAuthHealth(params.config.whatsappAuthDir),
+    });
   });
 
   app.get("/debug/logs", (req, res) => {

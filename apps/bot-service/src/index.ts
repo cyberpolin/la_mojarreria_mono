@@ -29,7 +29,7 @@ const heartbeatInterval = setInterval(() => {
     event: "bot-service heartbeat test",
     data: { host: config.host, port: config.port },
   });
-}, 5_000);
+}, 60_000);
 
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   logger.info({ signal }, "shutting down bot service");
