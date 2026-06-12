@@ -20,6 +20,7 @@ type BotRespondPayload = {
     timestamp?: string;
   };
   history: BotHistoryMessage[];
+  phone?: string;
 };
 
 type BotRespondResponse = {
@@ -48,6 +49,8 @@ export async function createBotReply(params: {
     data: {
       url: `${params.config.botServiceBaseUrl}/respond`,
       messageId: params.payload.message.id,
+      phone: params.payload.phone,
+      textLength: params.payload.message.text.length,
       historySize: params.payload.history.length,
     },
   });
@@ -63,6 +66,21 @@ export async function createBotReply(params: {
   const body = (await response
     .json()
     .catch(() => null)) as BotRespondResponse | null;
+
+  recordDebugLog({
+    event: "bot_service_raw_response",
+    data: {
+      status: response.status,
+      ok: body?.ok,
+      duplicate: body?.duplicate,
+      error: body?.error,
+      hasReply: Boolean(body?.reply),
+      shouldSend: body?.reply?.shouldSend,
+      replyLength: body?.reply?.text?.trim().length ?? 0,
+      messageId: params.payload.message.id,
+      phone: params.payload.phone,
+    },
+  });
 
   if (!response.ok || !body?.ok) {
     params.logger.error(
@@ -99,7 +117,11 @@ export async function createBotReply(params: {
   if (!body.reply?.shouldSend || !body.reply.text.trim()) {
     recordDebugLog({
       event: "bot_service_no_sendable_reply",
-      data: { messageId: params.payload.message.id },
+      data: {
+        messageId: params.payload.message.id,
+        phone: params.payload.phone,
+        reply: body.reply ?? null,
+      },
     });
     return null;
   }

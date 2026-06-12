@@ -661,6 +661,7 @@ export class WhatsAppClient {
         config: this.config,
         logger: this.logger,
         payload: {
+          phone,
           message: {
             id: messageId,
             text,

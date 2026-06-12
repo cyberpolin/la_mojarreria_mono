@@ -33,6 +33,12 @@ type BotHistoryMessage = {
   timestamp?: string;
 };
 
+type RespondPayload = {
+  phone?: string;
+  message: BotMessage;
+  history: BotHistoryMessage[];
+};
+
 function isAuthorized(req: IncomingMessage, config: AppConfig): boolean {
   return req.headers["x-api-key"] === config.apiKey;
 }
@@ -48,9 +54,7 @@ function parseInstructionsBody(body: unknown): string | null {
     : null;
 }
 
-function parseRespondBody(
-  body: unknown,
-): { message: BotMessage; history: BotHistoryMessage[] } | null {
+function parseRespondBody(body: unknown): RespondPayload | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return null;
   }
@@ -101,6 +105,7 @@ function parseRespondBody(
     : [];
 
   return {
+    phone: typeof record.phone === "string" ? record.phone.trim() : undefined,
     message: {
       id: messageRecord.id.trim(),
       text: messageRecord.text.trim(),
@@ -312,92 +317,107 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                 status: 400,
                 body: { ok: false, error: "Invalid respond payload" },
               };
-            } else if (
-              await hasProcessedMessage({
-                filePath: config.processedMessagesFile,
-                messageId: payload.message.id,
-              })
-            ) {
-              recordDebugLog({
-                event: "respond_duplicate",
-                data: { messageId: payload.message.id },
-              });
-              response = {
-                status: 200,
-                body: { ok: true, duplicate: true, reply: null },
-              };
             } else {
-              try {
-                recordDebugLog({
-                  event: "deepseek_request",
-                  data: {
-                    messageId: payload.message.id,
-                    historySize: payload.history.length,
-                    model: config.deepseekModel,
-                  },
-                });
-                const replyText = await createDeepSeekReply({
-                  config,
-                  messages: buildChatMessages({
-                    instructions: instructions.instructions,
-                    message: payload.message,
-                    history: payload.history,
-                  }),
-                });
-                await recordProcessedMessage({
+              recordDebugLog({
+                event: "respond_request_received",
+                data: {
+                  messageId: payload.message.id,
+                  phone: payload.phone,
+                  textLength: payload.message.text.length,
+                  historySize: payload.history.length,
+                },
+              });
+
+              if (
+                await hasProcessedMessage({
                   filePath: config.processedMessagesFile,
                   messageId: payload.message.id,
-                });
-                logger.info(
-                  {
-                    messageId: payload.message.id,
-                    historySize: payload.history.length,
-                  },
-                  "bot response generated",
-                );
+                })
+              ) {
                 recordDebugLog({
-                  event: "respond_reply_generated",
-                  data: {
-                    messageId: payload.message.id,
-                    historySize: payload.history.length,
-                    replyLength: replyText.length,
-                  },
+                  event: "respond_duplicate",
+                  data: { messageId: payload.message.id, phone: payload.phone },
                 });
                 response = {
                   status: 200,
-                  body: {
-                    ok: true,
-                    duplicate: false,
-                    reply: {
-                      text: replyText,
-                      shouldSend: true,
-                    },
-                  },
+                  body: { ok: true, duplicate: true, reply: null },
                 };
-              } catch (error) {
-                if (!isBotProviderError(error)) {
-                  throw error;
-                }
+              } else {
+                try {
+                  recordDebugLog({
+                    event: "deepseek_request",
+                    data: {
+                      messageId: payload.message.id,
+                      phone: payload.phone,
+                      historySize: payload.history.length,
+                      model: config.deepseekModel,
+                    },
+                  });
+                  const replyText = await createDeepSeekReply({
+                    config,
+                    messages: buildChatMessages({
+                      instructions: instructions.instructions,
+                      message: payload.message,
+                      history: payload.history,
+                    }),
+                  });
+                  await recordProcessedMessage({
+                    filePath: config.processedMessagesFile,
+                    messageId: payload.message.id,
+                  });
+                  logger.info(
+                    {
+                      messageId: payload.message.id,
+                      historySize: payload.history.length,
+                    },
+                    "bot response generated",
+                  );
+                  recordDebugLog({
+                    event: "respond_reply_generated",
+                    data: {
+                      messageId: payload.message.id,
+                      phone: payload.phone,
+                      historySize: payload.history.length,
+                      replyLength: replyText.length,
+                    },
+                  });
+                  response = {
+                    status: 200,
+                    body: {
+                      ok: true,
+                      duplicate: false,
+                      reply: {
+                        text: replyText,
+                        shouldSend: true,
+                      },
+                    },
+                  };
+                } catch (error) {
+                  if (!isBotProviderError(error)) {
+                    throw error;
+                  }
 
-                logger.error(
-                  {
-                    err: error,
-                    messageId: payload.message.id,
-                    providerStatus: error.status,
-                    providerBody: error.responseBody,
-                  },
-                  "bot provider unavailable",
-                );
-                recordDebugLog({
-                  level: "error",
-                  event: "deepseek_provider_unavailable",
-                  data: {
-                    messageId: payload.message.id,
-                    providerStatus: error.status,
-                    providerBody: error.responseBody,
-                  },
-                });
-                response = buildBotProviderUnavailableResponse();
+                  logger.error(
+                    {
+                      err: error,
+                      messageId: payload.message.id,
+                      providerStatus: error.status,
+                      providerBody: error.responseBody,
+                    },
+                    "bot provider unavailable",
+                  );
+                  recordDebugLog({
+                    level: "error",
+                    event: "deepseek_provider_unavailable",
+                    data: {
+                      messageId: payload.message.id,
+                      phone: payload.phone,
+                      providerStatus: error.status,
+                      providerBody: error.responseBody,
+                    },
+                  });
+                  response = buildBotProviderUnavailableResponse();
+                }
               }
             }
           }
