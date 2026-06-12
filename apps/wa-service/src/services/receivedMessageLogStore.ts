@@ -2,6 +2,7 @@ export type ReceivedMessageLogEntry = {
   id: number;
   timestamp: string;
   line: string;
+  level: "baileys_raw" | "app_message";
   phone: string | null;
   source: "baileys_raw" | "app_message";
   data?: Record<string, unknown>;
@@ -47,7 +48,8 @@ export function recordReceivedMessageLog(params: {
   const entry: ReceivedMessageLogEntry = {
     id: nextId++,
     timestamp: new Date().toISOString(),
-    line: `[SPECIAL]: RECEIVED MESSAGE FROM ${phone ?? "UNKNOWN"}`,
+    line: `[SPECIAL]: RECEIVED MESSAGE FROM ${phone ?? "UNKNOWN"} LEVEL ${params.source}`,
+    level: params.source,
     phone,
     source: params.source,
     data: params.data,
@@ -109,7 +111,7 @@ export function renderReceivedMessageLogsPage(): string {
       node.className = "entry";
       node.innerHTML =
         '<div class="line">' + entry.line + '</div>' +
-        '<div class="meta">' + entry.timestamp + ' · ' + entry.source + '</div>' +
+        '<div class="meta">' + entry.timestamp + ' · level: ' + entry.level + ' · source: ' + entry.source + '</div>' +
         '<pre>' + JSON.stringify(entry.data || {}, null, 2) + '</pre>';
       logsEl.prepend(node);
     };

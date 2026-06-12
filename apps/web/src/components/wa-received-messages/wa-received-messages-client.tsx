@@ -6,6 +6,7 @@ type ReceivedMessageLogEntry = {
   id: number;
   timestamp: string;
   line: string;
+  level: "baileys_raw" | "app_message";
   phone: string | null;
   source: "baileys_raw" | "app_message";
   data?: Record<string, unknown>;
@@ -118,6 +119,7 @@ export function WaReceivedMessagesClient() {
                   </div>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
                     <span>{formatTime(log.timestamp)}</span>
+                    <span>level: {log.level ?? log.source}</span>
                     <span>{log.source}</span>
                     <span>{log.phone ?? "UNKNOWN"}</span>
                   </div>
