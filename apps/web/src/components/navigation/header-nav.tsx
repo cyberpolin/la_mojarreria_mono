@@ -15,6 +15,7 @@ const links = [
   { href: "/team-control", label: "Team Control" },
   { href: "/products", label: "Products" },
   { href: "/active-promos", label: "Active Promos" },
+  { href: "/wa-chat", label: "WA Chat" },
   { href: "/autoresponse", label: "Auto-response" },
   { href: "/service-logs", label: "Service Logs" },
   { href: "/sync-logs", label: "Sync Logs" },
@@ -28,6 +29,7 @@ const productionLinks = new Set([
   "/close-reports",
   "/expenses",
   "/attendance",
+  "/wa-chat",
   "/restaurant-business-hour",
   "/weekly",
 ]);
