@@ -30,7 +30,9 @@ const productionLinks = new Set([
   "/expenses",
   "/attendance",
   "/wa-chat",
+  "/autoresponse",
   "/restaurant-business-hour",
+  "/service-logs",
   "/weekly",
 ]);
 
