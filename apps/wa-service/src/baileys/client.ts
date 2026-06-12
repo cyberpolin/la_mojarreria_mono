@@ -233,6 +233,18 @@ export class WhatsAppClient {
     });
 
     socket.ev.on("messages.upsert", (event) => {
+      console.log("----------------------------------");
+      console.log("messages.upsert event received:", {
+        type: event.type,
+        messageCount: event.messages.length,
+        messageIds: event.messages
+          .map((message) => message.key.id)
+          .filter(Boolean),
+        remoteJids: event.messages
+          .map((message) => message.key.remoteJid)
+          .filter(Boolean),
+      });
+      console.log("----------------------------------");
       void this.handleMessagesUpsert(event);
     });
     socket.ev.on("messages.update", (updates) => {
