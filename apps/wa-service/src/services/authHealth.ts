@@ -1,18 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-function maskJid(value: string): string {
-  const [local, domain] = value.split("@");
-  if (!local) return value;
-
-  const maskedLocal =
-    local.length <= 6
-      ? `${local.slice(0, 1)}***`
-      : `${local.slice(0, 2)}***${local.slice(-4)}`;
-
-  return domain ? `${maskedLocal}@${domain}` : maskedLocal;
-}
-
 function getCredsMeId(value: unknown): string | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -49,7 +37,7 @@ export async function getAuthHealth(authDir: string) {
       credsFileExists: credsFileStat?.isFile() ?? false,
       credsFileBytes: credsFileStat?.size ?? 0,
       hasPairedAccount: pairedJid !== null,
-      pairedAccount: pairedJid ? maskJid(pairedJid) : null,
+      pairedAccount: pairedJid,
     };
   } catch (error) {
     return {
