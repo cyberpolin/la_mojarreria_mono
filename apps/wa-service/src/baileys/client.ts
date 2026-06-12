@@ -23,6 +23,7 @@ import {
 import { activateDummyRegistry } from "../services/dummyRegistryApi.js";
 import { recordInboundContact } from "../services/inboundContactStore.js";
 import { recordDebugLog } from "../services/debugLogStore.js";
+import { recordReceivedMessageLog } from "../services/receivedMessageLogStore.js";
 import {
   activateRegistry,
   getRegistryRecord,
@@ -549,6 +550,16 @@ export class WhatsAppClient {
         hasText: Boolean(text),
         active: this.desiredActive,
         connection: this.connectionStatus,
+      },
+    });
+    recordReceivedMessageLog({
+      phone,
+      source: "app_message",
+      data: {
+        messageId,
+        direction,
+        hasText: Boolean(text),
+        remoteJid,
       },
     });
     if (!phone || !text || !messageId) {

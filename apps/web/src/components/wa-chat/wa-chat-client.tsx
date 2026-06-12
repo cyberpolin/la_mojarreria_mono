@@ -19,11 +19,21 @@ type Conversation = {
 
 type WaStatus = {
   ok?: boolean;
-  active?: boolean;
-  connected?: boolean;
-  connection?: "connecting" | "open" | "close";
-  hasQr?: boolean;
-  state?: string;
+  status?: {
+    active?: boolean;
+    connected?: boolean;
+    connection?: "connecting" | "open" | "close";
+    hasQr?: boolean;
+    state?: string;
+  };
+  sessionIssue?: {
+    detected: boolean;
+    reason: string | null;
+    count: number;
+    firstSeenAt: string | null;
+    lastSeenAt: string | null;
+    lastMessage: string | null;
+  };
   error?: string;
 };
 
@@ -264,10 +274,12 @@ export function WaChatClient() {
             WA:{" "}
             <span
               className={
-                status?.connected ? "text-emerald-300" : "text-amber-300"
+                status?.status?.connected
+                  ? "text-emerald-300"
+                  : "text-amber-300"
               }
             >
-              {status?.state ?? "unknown"}
+              {status?.status?.state ?? "unknown"}
             </span>
           </div>
           <label className="inline-flex items-center gap-2 text-xs text-slate-300">
@@ -284,6 +296,17 @@ export function WaChatClient() {
         {error ? (
           <div className="border-b border-red-500/30 bg-red-950/30 px-4 py-3 text-xs text-red-100">
             {error}
+          </div>
+        ) : null}
+
+        {status?.sessionIssue?.detected ? (
+          <div className="border-b border-red-500/30 bg-red-950/30 px-4 py-3 text-xs text-red-100">
+            WhatsApp session issue detected: {status.sessionIssue.reason}.{" "}
+            {status.sessionIssue.count} events since{" "}
+            {status.sessionIssue.firstSeenAt
+              ? formatShortTime(status.sessionIssue.firstSeenAt)
+              : "unknown"}
+            .
           </div>
         ) : null}
 

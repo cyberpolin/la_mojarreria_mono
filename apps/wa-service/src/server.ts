@@ -11,11 +11,17 @@ import {
   renderDebugLogsPage,
   subscribeDebugLogs,
 } from "./services/debugLogStore.js";
+import {
+  listReceivedMessageLogs,
+  renderReceivedMessageLogsPage,
+  subscribeReceivedMessageLogs,
+} from "./services/receivedMessageLogStore.js";
 import { getAuthHealth } from "./services/authHealth.js";
 import {
   getDomainFromRequestOrigin,
   isAllowedRequestDomain,
 } from "./utils/requestAuth.js";
+import { getSessionIssue } from "./services/sessionIssueStore.js";
 
 export function createServer(params: {
   config: AppConfig;
@@ -71,6 +77,7 @@ export function createServer(params: {
       ok: true,
       status: params.whatsAppClient.getStatus(),
       auth: await getAuthHealth(params.config.whatsappAuthDir),
+      sessionIssue: getSessionIssue(),
     });
   });
 
@@ -91,6 +98,29 @@ export function createServer(params: {
     res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
 
     const unsubscribe = subscribeDebugLogs((entry) => {
+      res.write(`data: ${JSON.stringify(entry)}\n\n`);
+    });
+
+    req.on("close", unsubscribe);
+  });
+
+  app.get("/debug/received-messages", (_req, res) => {
+    res.type("html").send(renderReceivedMessageLogsPage());
+  });
+
+  app.get("/debug/received-messages/recent", (_req, res) => {
+    res.json({ ok: true, logs: listReceivedMessageLogs() });
+  });
+
+  app.get("/debug/received-messages/events", (req, res) => {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+
+    const unsubscribe = subscribeReceivedMessageLogs((entry) => {
       res.write(`data: ${JSON.stringify(entry)}\n\n`);
     });
 

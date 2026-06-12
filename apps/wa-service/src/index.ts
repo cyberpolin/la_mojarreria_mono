@@ -5,6 +5,34 @@ import { WhatsAppClient } from "./baileys/client.js";
 import { notifyWaServiceStatusChanged } from "./services/backendWebhook.js";
 import { recordDebugLog } from "./services/debugLogStore.js";
 import { getAuthHealth, isAuthSessionMissing } from "./services/authHealth.js";
+import {
+  isSessionIssueMessage,
+  recordSessionIssue,
+} from "./services/sessionIssueStore.js";
+
+const originalConsoleError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  const message = args
+    .map((arg) => {
+      if (typeof arg === "string") return arg;
+      if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    })
+    .join(" ");
+
+  if (isSessionIssueMessage(message)) {
+    recordSessionIssue({
+      reason: "console_error",
+      message,
+    });
+  }
+
+  originalConsoleError(...args);
+};
 
 const whatsAppClient = new WhatsAppClient(config, logger);
 logger.info(
