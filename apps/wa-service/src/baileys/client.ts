@@ -145,17 +145,12 @@ export class WhatsAppClient {
     this.statusChangeHandler = handler;
   }
 
-  async start(reason = "manual_activate"): Promise<void> {
-    if (
-      this.desiredActive &&
-      this.socket &&
-      this.connectionStatus !== "close"
-    ) {
+  async connect(reason = "socket_connect"): Promise<void> {
+    if (this.socket && this.connectionStatus !== "close") {
       return;
     }
 
     this.isStopping = false;
-    this.desiredActive = true;
     this.connectionStatus = "connecting";
     this.updateServiceState("STARTING", reason);
 
@@ -216,7 +211,7 @@ export class WhatsAppClient {
           "WhatsApp socket disconnected",
         );
 
-        if (this.desiredActive && !this.isStopping && !loggedOut) {
+        if (!this.isStopping && !loggedOut) {
           this.updateServiceState("ERROR", "disconnected");
           this.scheduleReconnect();
         } else if (loggedOut) {
@@ -244,7 +239,32 @@ export class WhatsAppClient {
     });
   }
 
+  async start(reason = "manual_activate"): Promise<void> {
+    this.desiredActive = true;
+    recordDebugLog({
+      event: "autoresponse_enabled",
+      data: { reason, connection: this.connectionStatus },
+    });
+    await this.connect(reason);
+
+    if (this.connectionStatus === "open") {
+      this.updateServiceState("ACTIVE", reason);
+    }
+  }
+
   async stop(reason = "manual_deactivate"): Promise<void> {
+    this.desiredActive = false;
+    recordDebugLog({
+      event: "autoresponse_disabled_socket_kept_alive",
+      data: { reason, connection: this.connectionStatus },
+    });
+    this.updateServiceState(
+      this.connectionStatus === "open" ? "ACTIVE" : "INACTIVE",
+      reason,
+    );
+  }
+
+  async shutdown(reason = "shutdown"): Promise<void> {
     this.isStopping = true;
     this.desiredActive = false;
     this.updateServiceState("STOPPING", reason);
@@ -289,10 +309,6 @@ export class WhatsAppClient {
   }): Promise<string> {
     if (!this.socket) {
       throw new Error("WhatsApp socket is not initialized");
-    }
-
-    if (!this.desiredActive) {
-      throw new Error("WhatsApp service is inactive");
     }
 
     if (this.connectionStatus !== "open") {
@@ -354,17 +370,17 @@ export class WhatsAppClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer || !this.desiredActive) {
+    if (this.reconnectTimer || this.isStopping) {
       return;
     }
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (!this.desiredActive) {
+      if (this.isStopping) {
         return;
       }
 
-      void this.start("reconnect").catch((error: unknown) => {
+      void this.connect("reconnect").catch((error: unknown) => {
         this.logger.error(
           { err: error },
           "failed to reconnect WhatsApp socket",

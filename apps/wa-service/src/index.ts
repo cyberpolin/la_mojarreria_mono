@@ -29,12 +29,13 @@ whatsAppClient.setStatusChangeHandler((status, reason) =>
   }),
 );
 
+await whatsAppClient.connect("startup");
 if (config.waServiceAutoStart) {
-  await whatsAppClient.start("startup");
+  await whatsAppClient.start("startup_autoresponse_active");
 } else {
   logger.info(
     { autoStart: false },
-    "WhatsApp service auto-start disabled; waiting for manual activation",
+    "WhatsApp service auto-response disabled; Baileys socket remains connected",
   );
 }
 
@@ -101,7 +102,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     }
   });
 
-  await whatsAppClient.stop();
+  await whatsAppClient.shutdown();
   process.exit();
 }
 
