@@ -59,3 +59,14 @@ export function recordSessionIssue(params: {
 export function getSessionIssue(): SessionIssue {
   return { ...currentIssue };
 }
+
+export function resetSessionIssue(): void {
+  currentIssue = {
+    detected: false,
+    reason: null,
+    count: 0,
+    firstSeenAt: null,
+    lastSeenAt: null,
+    lastMessage: null,
+  };
+}

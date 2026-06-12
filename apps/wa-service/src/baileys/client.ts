@@ -9,6 +9,7 @@ import {
   type WASocket,
   type proto,
 } from "@whiskeysockets/baileys";
+import { rm } from "node:fs/promises";
 import type { Logger } from "pino";
 import qrcode from "qrcode-terminal";
 import type { AppConfig } from "../config.js";
@@ -24,6 +25,7 @@ import { activateDummyRegistry } from "../services/dummyRegistryApi.js";
 import { recordInboundContact } from "../services/inboundContactStore.js";
 import { recordDebugLog } from "../services/debugLogStore.js";
 import { recordReceivedMessageLog } from "../services/receivedMessageLogStore.js";
+import { resetSessionIssue } from "../services/sessionIssueStore.js";
 import {
   activateRegistry,
   getRegistryRecord,
@@ -306,6 +308,21 @@ export class WhatsAppClient {
     this.latestQr = null;
     this.connectionStatus = "close";
     this.updateServiceState("INACTIVE", "stopped");
+  }
+
+  async resetSession(reason = "reset_session"): Promise<void> {
+    await this.shutdown(reason);
+    await rm(this.config.whatsappAuthDir, { recursive: true, force: true });
+    this.latestQr = null;
+    this.phoneByLid.clear();
+    this.messageCache.clear();
+    resetSessionIssue();
+    recordDebugLog({
+      level: "warn",
+      event: "whatsapp_auth_session_reset",
+      data: { reason, authDir: this.config.whatsappAuthDir },
+    });
+    await this.connect(reason);
   }
 
   async sendSubscriptionMessage(params: {

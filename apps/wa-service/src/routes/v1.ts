@@ -125,6 +125,25 @@ export function createV1Router(params: {
     }
   });
 
+  router.post("/service/reset-session", async (req: Request, res: Response) => {
+    if (!ensureAuthorized(req, res, params.config)) {
+      return;
+    }
+
+    try {
+      await params.whatsAppClient.resetSession("manual_reset_session");
+      res.json({ ok: true, ...params.whatsAppClient.getStatus() });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to reset WhatsApp session",
+      });
+    }
+  });
+
   router.get("/whatsapp/qr", async (req: Request, res: Response) => {
     if (!ensureAuthorized(req, res, params.config)) {
       return;
