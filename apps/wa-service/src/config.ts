@@ -1,10 +1,15 @@
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
-loadDotenv({ path: resolve(currentDir, "../.env") });
+const serviceRoot = resolve(currentDir, "..");
+loadDotenv({ path: resolve(serviceRoot, ".env") });
+
+function resolveServicePath(path: string): string {
+  return isAbsolute(path) ? path : resolve(serviceRoot, path);
+}
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
@@ -53,12 +58,14 @@ export const config = {
   mainBackendWebhookSecret: env.MAIN_BACKEND_WEBHOOK_SECRET,
   waServiceAutoStart:
     env.WA_SERVICE_AUTO_START === "true" || env.WA_SERVICE_AUTO_START === "1",
-  whatsappAuthDir: env.WHATSAPP_AUTH_DIR,
-  registryStoreFile: env.REGISTRY_STORE_FILE,
-  inboundContactsStoreFile: env.INBOUND_CONTACTS_STORE_FILE,
-  conversationStoreFile: env.CONVERSATION_STORE_FILE,
-  webhookSubscriptionsFile: env.WEBHOOK_SUBSCRIPTIONS_FILE,
-  autoresponseTestPhonesFile: env.AUTORESPONSE_TEST_PHONES_FILE,
+  whatsappAuthDir: resolveServicePath(env.WHATSAPP_AUTH_DIR),
+  registryStoreFile: resolveServicePath(env.REGISTRY_STORE_FILE),
+  inboundContactsStoreFile: resolveServicePath(env.INBOUND_CONTACTS_STORE_FILE),
+  conversationStoreFile: resolveServicePath(env.CONVERSATION_STORE_FILE),
+  webhookSubscriptionsFile: resolveServicePath(env.WEBHOOK_SUBSCRIPTIONS_FILE),
+  autoresponseTestPhonesFile: resolveServicePath(
+    env.AUTORESPONSE_TEST_PHONES_FILE,
+  ),
   dummyRegistryApiUrl: env.DUMMY_REGISTRY_API_URL
     ? env.DUMMY_REGISTRY_API_URL.replace(/\/+$/, "")
     : null,

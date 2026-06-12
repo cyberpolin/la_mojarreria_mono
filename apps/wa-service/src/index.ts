@@ -6,6 +6,14 @@ import { notifyWaServiceStatusChanged } from "./services/backendWebhook.js";
 import { recordDebugLog } from "./services/debugLogStore.js";
 
 const whatsAppClient = new WhatsAppClient(config, logger);
+logger.info(
+  {
+    whatsappAuthDir: config.whatsappAuthDir,
+    conversationStoreFile: config.conversationStoreFile,
+    autoresponseTestPhonesFile: config.autoresponseTestPhonesFile,
+  },
+  "resolved wa-service runtime paths",
+);
 whatsAppClient.setStatusChangeHandler((status, reason) =>
   notifyWaServiceStatusChanged(config, logger, {
     service: "wa-service",
