@@ -172,11 +172,12 @@ export class WhatsAppClient {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
       },
+      syncFullHistory: false,
       logger: baileysLogger,
-      browser: ["La Mojarreria", "Chrome", "1.0.0"],
       markOnlineOnConnect: false,
       retryRequestDelayMs: 500,
       maxMsgRetryCount: 5,
+      shouldSyncHistoryMessage: () => false,
       getMessage: async (key) =>
         key.id ? this.messageCache.get(key.id) : undefined,
     });
