@@ -651,11 +651,15 @@ export class WhatsAppClient {
       },
     });
 
-    if (event.type !== "notify") {
+    const messagesToProcess = event.messages.filter(
+      (message) => event.type === "notify" || message.key.fromMe,
+    );
+
+    if (messagesToProcess.length === 0) {
       recordDebugLog({
         event: "baileys_messages_upsert_skipped",
         data: {
-          reason: "not_notify",
+          reason: "not_notify_or_from_me",
           type: event.type,
           messageCount: event.messages.length,
         },
@@ -664,7 +668,7 @@ export class WhatsAppClient {
     }
 
     await Promise.all(
-      event.messages.map((message) => this.handleIncomingMessage(message)),
+      messagesToProcess.map((message) => this.handleIncomingMessage(message)),
     );
   }
 
@@ -717,11 +721,14 @@ export class WhatsAppClient {
       return;
     }
 
+    const direction = message.key.fromMe ? "outbound" : "inbound";
     const phone =
-      message.key.senderPn?.split("@")[0] ?? phoneFromWhatsAppJid(remoteJid);
+      direction === "outbound"
+        ? phoneFromWhatsAppJid(remoteJid)
+        : (message.key.senderPn?.split("@")[0] ??
+          phoneFromWhatsAppJid(remoteJid));
     const text = getMessageText(message.message);
     const messageId = message.key.id;
-    const direction = message.key.fromMe ? "outbound" : "inbound";
 
     if (messageId && message.message) {
       this.rememberMessage(messageId, message.message);

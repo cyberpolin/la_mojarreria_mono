@@ -88,6 +88,13 @@ export async function recordConversationMessage(params: {
       timestamp: params.timestamp,
     };
 
+    const existingMessage = data.messages.find(
+      (item) => item.id === message.id && item.phone === message.phone,
+    );
+    if (existingMessage) {
+      return existingMessage;
+    }
+
     data.messages.push(message);
     await writeData(params.filePath, data);
     return message;
