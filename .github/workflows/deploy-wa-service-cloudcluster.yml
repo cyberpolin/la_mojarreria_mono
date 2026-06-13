@@ -7,6 +7,15 @@ on:
         description: "Branch, tag, or commit SHA to deploy"
         required: true
         default: "main"
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/wa-service/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/deploy-wa-service-cloudcluster.yml"
 
 concurrency:
   group: wa-service-cloudcluster
@@ -22,7 +31,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
