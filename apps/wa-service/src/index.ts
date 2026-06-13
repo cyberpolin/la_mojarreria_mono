@@ -119,7 +119,14 @@ const heartbeatInterval = setInterval(() => {
     });
 }, 60_000);
 
+let shutdownStarted = false;
+
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (shutdownStarted) {
+    return;
+  }
+
+  shutdownStarted = true;
   logger.info({ signal }, "shutting down WhatsApp adapter service");
   clearInterval(heartbeatInterval);
 
@@ -131,7 +138,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   });
 
   await whatsAppClient.shutdown();
-  process.exit();
+  process.exit(0);
 }
 
 process.on("SIGINT", (signal) => {

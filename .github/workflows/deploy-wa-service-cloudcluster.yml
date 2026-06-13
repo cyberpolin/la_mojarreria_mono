@@ -311,7 +311,34 @@ jobs:
             mkdir -p "$SERVICE_DIR/auth"
             (
               cd "$SERVICE_DIR"
+              wait_for_wa_lock_release() {
+                LOCK_FILE="/tmp/mojarreria-wa-service.lock"
+                MAX_WAIT_SECONDS=30
+                waited=0
+
+                while [ -f "$LOCK_FILE" ]; do
+                  lock_pid="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+                  if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+                    if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+                      echo "WA lock is still held by pid $lock_pid after ${MAX_WAIT_SECONDS}s"
+                      return 1
+                    fi
+
+                    echo "Waiting for WA lock release from pid $lock_pid (${waited}s/${MAX_WAIT_SECONDS}s)"
+                    sleep 1
+                    waited=$((waited + 1))
+                    continue
+                  fi
+
+                  echo "Removing stale WA lock at $LOCK_FILE"
+                  rm -f "$LOCK_FILE"
+                done
+
+                echo "WA lock is clear"
+              }
+
               pnpm exec pm2 delete mojarreria-wa-service || true
+              wait_for_wa_lock_release
               pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               pnpm exec pm2 save
               pnpm exec pm2 describe mojarreria-wa-service

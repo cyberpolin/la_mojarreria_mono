@@ -9,7 +9,8 @@ import {
   type WASocket,
   type proto,
 } from "@whiskeysockets/baileys";
-import { rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readFile, rm, unlink } from "node:fs/promises";
 import type { Logger } from "pino";
 import qrcode from "qrcode-terminal";
 import type { AppConfig } from "../config.js";
@@ -57,6 +58,8 @@ type StatusChangeHandler = (
   reason: string,
 ) => void | Promise<void>;
 
+const LOCK_FILE = "/tmp/mojarreria-wa-service.lock";
+
 function getDisconnectStatusCode(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) {
     return undefined;
@@ -72,6 +75,20 @@ function getDisconnectStatusCode(error: unknown): number | undefined {
   }
 
   return typeof output.statusCode === "number" ? output.statusCode : undefined;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "EPERM"
+    );
+  }
 }
 
 function getMessageText(
@@ -138,6 +155,9 @@ export class WhatsAppClient {
   private statusChangeHandler: StatusChangeHandler | null = null;
   private phoneByLid = new Map<string, string>();
   private messageCache = new Map<string, proto.IMessage>();
+  private lockAcquired = false;
+  private saveChain: Promise<void> = Promise.resolve();
+  private saveCreds: (() => Promise<void>) | null = null;
 
   constructor(
     private readonly config: AppConfig,
@@ -153,6 +173,20 @@ export class WhatsAppClient {
       return;
     }
 
+    const lockAcquired = await this.acquireLock();
+    if (!lockAcquired) {
+      this.logger.error(
+        { lockFile: LOCK_FILE },
+        "WhatsApp socket start rejected because lock is active",
+      );
+      recordDebugLog({
+        level: "error",
+        event: "whatsapp_socket_start_rejected_lock_active",
+        data: { lockFile: LOCK_FILE },
+      });
+      return;
+    }
+
     this.isStopping = false;
     this.connectionStatus = "connecting";
     this.updateServiceState("STARTING", reason);
@@ -162,31 +196,40 @@ export class WhatsAppClient {
       this.socket = null;
     }
 
-    const { state, saveCreds } = await useMultiFileAuthState(
-      this.config.whatsappAuthDir,
-    );
-    const { version } = await fetchLatestBaileysVersion();
-    const baileysLogger = this.logger.child({ module: "baileys" });
+    let socket: WASocket;
+    try {
+      const { state, saveCreds } = await useMultiFileAuthState(
+        this.config.whatsappAuthDir,
+      );
+      this.saveCreds = saveCreds;
+      const { version } = await fetchLatestBaileysVersion();
+      const baileysLogger = this.logger.child({ module: "baileys" });
 
-    const socket = makeWASocket({
-      version,
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
-      },
-      syncFullHistory: false,
-      logger: baileysLogger,
-      markOnlineOnConnect: false,
-      retryRequestDelayMs: 500,
-      maxMsgRetryCount: 5,
-      shouldSyncHistoryMessage: () => false,
-      getMessage: async (key) =>
-        key.id ? this.messageCache.get(key.id) : undefined,
-    });
+      socket = makeWASocket({
+        version,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
+        },
+        syncFullHistory: false,
+        logger: baileysLogger,
+        markOnlineOnConnect: false,
+        retryRequestDelayMs: 500,
+        maxMsgRetryCount: 5,
+        shouldSyncHistoryMessage: () => false,
+        getMessage: async (key) =>
+          key.id ? this.messageCache.get(key.id) : undefined,
+      });
+    } catch (error) {
+      await this.releaseLock();
+      throw error;
+    }
 
     this.socket = socket;
 
-    socket.ev.on("creds.update", saveCreds);
+    socket.ev.on("creds.update", () => {
+      this.enqueueSaveCreds("creds.update");
+    });
     socket.ev.on("connection.update", (update) => {
       recordDebugLog({
         event: "baileys_connection_update",
@@ -237,18 +280,6 @@ export class WhatsAppClient {
     });
 
     socket.ev.on("messages.upsert", (event) => {
-      console.log("----------------------------------");
-      console.log("messages.upsert event received:", {
-        type: event.type,
-        messageCount: event.messages.length,
-        messageIds: event.messages
-          .map((message) => message.key.id)
-          .filter(Boolean),
-        remoteJids: event.messages
-          .map((message) => message.key.remoteJid)
-          .filter(Boolean),
-      });
-      console.log("----------------------------------");
       void this.handleMessagesUpsert(event);
     });
     socket.ev.on("messages.update", (updates) => {
@@ -291,6 +322,7 @@ export class WhatsAppClient {
   }
 
   async shutdown(reason = "shutdown"): Promise<void> {
+    this.logger.info({ reason }, "starting clean WhatsApp socket shutdown");
     this.isStopping = true;
     this.desiredActive = false;
     this.updateServiceState("STOPPING", reason);
@@ -301,10 +333,14 @@ export class WhatsAppClient {
     }
 
     if (this.socket) {
+      await this.flushCreds("shutdown");
       this.socket.end(undefined);
       this.socket = null;
+    } else {
+      await this.flushCreds("shutdown");
     }
 
+    await this.releaseLock();
     this.latestQr = null;
     this.connectionStatus = "close";
     this.updateServiceState("INACTIVE", "stopped");
@@ -323,6 +359,148 @@ export class WhatsAppClient {
       data: { reason, authDir: this.config.whatsappAuthDir },
     });
     await this.connect(reason);
+  }
+
+  private async acquireLock(): Promise<boolean> {
+    if (this.lockAcquired) {
+      return true;
+    }
+
+    try {
+      const handle = await open(
+        LOCK_FILE,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+        0o600,
+      );
+      await handle.writeFile(`${process.pid}\n`, "utf8");
+      await handle.close();
+      this.lockAcquired = true;
+      this.logger.info(
+        { lockFile: LOCK_FILE, pid: process.pid },
+        "WhatsApp socket lock acquired",
+      );
+      recordDebugLog({
+        event: "whatsapp_socket_lock_acquired",
+        data: { lockFile: LOCK_FILE, pid: process.pid },
+      });
+      return true;
+    } catch (error) {
+      if (
+        typeof error !== "object" ||
+        error === null ||
+        !("code" in error) ||
+        error.code !== "EEXIST"
+      ) {
+        throw error;
+      }
+    }
+
+    const rawPid = await readFile(LOCK_FILE, "utf8").catch(() => "");
+    const existingPid = Number(rawPid.trim());
+    if (
+      Number.isInteger(existingPid) &&
+      existingPid > 0 &&
+      isProcessAlive(existingPid)
+    ) {
+      this.logger.warn(
+        { lockFile: LOCK_FILE, existingPid },
+        "WhatsApp socket lock is active",
+      );
+      recordDebugLog({
+        level: "warn",
+        event: "whatsapp_socket_lock_active",
+        data: { lockFile: LOCK_FILE, existingPid },
+      });
+      return false;
+    }
+
+    this.logger.warn(
+      { lockFile: LOCK_FILE, existingPid: rawPid.trim() || null },
+      "Removing stale WhatsApp socket lock",
+    );
+    await unlink(LOCK_FILE).catch(() => undefined);
+    return this.acquireLock();
+  }
+
+  private enqueueSaveCreds(reason: string): void {
+    this.logger.info({ reason }, "queueing WhatsApp creds.update save");
+    recordDebugLog({
+      event: "whatsapp_creds_update_queued",
+      data: { reason },
+    });
+
+    this.saveChain = this.saveChain
+      .then(async () => {
+        if (!this.saveCreds) {
+          return;
+        }
+
+        this.logger.info({ reason }, "running WhatsApp creds.update save");
+        await this.saveCreds();
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          { err: error, reason },
+          "failed to save WhatsApp credentials",
+        );
+        recordDebugLog({
+          level: "error",
+          event: "whatsapp_creds_save_failed",
+          data: {
+            reason,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        });
+      });
+  }
+
+  private async flushCreds(reason: string): Promise<void> {
+    await this.saveChain;
+
+    if (this.saveCreds) {
+      try {
+        this.logger.info({ reason }, "running final WhatsApp credentials save");
+        await this.saveCreds();
+      } catch (error) {
+        this.logger.error(
+          { err: error, reason },
+          "failed final WhatsApp credentials save",
+        );
+        recordDebugLog({
+          level: "error",
+          event: "whatsapp_creds_final_save_failed",
+          data: {
+            reason,
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        });
+      }
+    }
+
+    this.logger.info({ reason }, "final WhatsApp credentials save finished");
+    recordDebugLog({
+      event: "whatsapp_creds_final_save_finished",
+      data: { reason },
+    });
+  }
+
+  private async releaseLock(): Promise<void> {
+    if (!this.lockAcquired) {
+      return;
+    }
+
+    await unlink(LOCK_FILE).catch((error: unknown) => {
+      this.logger.warn(
+        { err: error, lockFile: LOCK_FILE },
+        "failed to release WhatsApp socket lock",
+      );
+    });
+    this.lockAcquired = false;
+    this.logger.info({ lockFile: LOCK_FILE }, "WhatsApp socket lock released");
+    recordDebugLog({
+      event: "whatsapp_socket_lock_released",
+      data: { lockFile: LOCK_FILE },
+    });
   }
 
   async sendSubscriptionMessage(params: {
