@@ -67,6 +67,8 @@ type WaQrResponse = {
   error?: string;
 };
 
+const MESSAGE_LIMIT = 100;
+
 function formatTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -171,7 +173,7 @@ export function WaChatClient() {
     setLoadingMessages(true);
     try {
       const response = await fetch(
-        `/api/wa-chat/conversations/${encodeURIComponent(phone)}/messages?limit=120`,
+        `/api/wa-chat/conversations/${encodeURIComponent(phone)}/messages?limit=${MESSAGE_LIMIT}`,
         { cache: "no-store" },
       );
       const payload = (await response
