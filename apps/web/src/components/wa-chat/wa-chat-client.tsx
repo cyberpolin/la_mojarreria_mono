@@ -1,6 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 type ConversationMessage = {
   id: string;
@@ -101,6 +108,8 @@ export function WaChatClient() {
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [qrStatus, setQrStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const selectedPhoneRef = useRef<string | null>(null);
+  const latestMessagesRequestIdRef = useRef(0);
 
   const selectedConversation = useMemo(
     () =>
@@ -144,13 +153,12 @@ export function WaChatClient() {
       const nextConversations = payload.conversations ?? [];
       setConversations(nextConversations);
       setSelectedPhone((current) => {
-        if (
-          current &&
-          nextConversations.some((item) => item.phone === current)
-        ) {
-          return current;
-        }
-        return nextConversations[0]?.phone ?? null;
+        const nextPhone =
+          current && nextConversations.some((item) => item.phone === current)
+            ? current
+            : (nextConversations[0]?.phone ?? null);
+        selectedPhoneRef.current = nextPhone;
+        return nextPhone;
       });
     } finally {
       setLoadingConversations(false);
@@ -158,6 +166,8 @@ export function WaChatClient() {
   }, []);
 
   const loadMessages = useCallback(async (phone: string) => {
+    const requestId = latestMessagesRequestIdRef.current + 1;
+    latestMessagesRequestIdRef.current = requestId;
     setLoadingMessages(true);
     try {
       const response = await fetch(
@@ -174,20 +184,28 @@ export function WaChatClient() {
         );
       }
 
-      setMessages(normalizeMessageOrder(payload.messages ?? []));
+      const responsePhone = payload.phone ?? phone;
+      if (
+        requestId === latestMessagesRequestIdRef.current &&
+        selectedPhoneRef.current === responsePhone
+      ) {
+        setMessages(normalizeMessageOrder(payload.messages ?? []));
+      }
     } finally {
-      setLoadingMessages(false);
+      if (requestId === latestMessagesRequestIdRef.current) {
+        setLoadingMessages(false);
+      }
     }
   }, []);
 
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      await Promise.all([
-        loadStatus(),
-        loadConversations(),
-        selectedPhone ? loadMessages(selectedPhone) : Promise.resolve(),
-      ]);
+      const phone = selectedPhoneRef.current;
+      await Promise.all([loadStatus(), loadConversations()]);
+      if (phone) {
+        await loadMessages(phone);
+      }
     } catch (refreshError) {
       setError(
         refreshError instanceof Error
@@ -195,11 +213,15 @@ export function WaChatClient() {
           : "Failed to load WhatsApp chat",
       );
     }
-  }, [loadConversations, loadMessages, loadStatus, selectedPhone]);
+  }, [loadConversations, loadMessages, loadStatus]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    selectedPhoneRef.current = selectedPhone;
+  }, [selectedPhone]);
 
   useEffect(() => {
     if (!selectedPhone) {
@@ -418,7 +440,11 @@ export function WaChatClient() {
               <button
                 key={conversation.phone}
                 type="button"
-                onClick={() => setSelectedPhone(conversation.phone)}
+                onClick={() => {
+                  selectedPhoneRef.current = conversation.phone;
+                  setSelectedPhone(conversation.phone);
+                  setMessages([]);
+                }}
                 className={`block w-full border-b border-slate-900 px-4 py-3 text-left hover:bg-slate-900 ${
                   selectedPhone === conversation.phone ? "bg-slate-900" : ""
                 }`}
