@@ -19,6 +19,7 @@ const links = [
   { href: "/wa-received-messages", label: "WA Received" },
   { href: "/autoresponse", label: "Auto-response" },
   { href: "/service-logs", label: "Service Logs" },
+  { href: "/docs/wa-service", label: "WA Docs" },
   { href: "/sync-logs", label: "Sync Logs" },
   { href: "/admin/error-logs", label: "Error Logs" },
   { href: "/weekly", label: "Weekly" },
@@ -35,6 +36,7 @@ const productionLinks = new Set([
   "/autoresponse",
   "/restaurant-business-hour",
   "/service-logs",
+  "/docs/wa-service",
   "/weekly",
 ]);
 
