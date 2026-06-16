@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { WhatsAppClient } from "../baileys/client.js";
+import type { ConnectionManager } from "../connections/connectionManager.js";
 import {
   getLastConversationMessage,
   listConversationMessages,
@@ -24,6 +25,19 @@ const limitQuerySchema = z.object({
 const sendMessageSchema = z.object({
   to: z.string().trim().min(10).max(20),
   text: z.string().trim().min(1).max(4000),
+});
+
+const createConnectionSchema = z.object({
+  connectionId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .regex(/^[a-zA-Z0-9_-]+$/, "Use only letters, numbers, _ or -")
+    .default("default"),
+  businessId: z.string().trim().min(1).max(120).optional(),
+  label: z.string().trim().min(1).max(120).optional(),
+  autoStart: z.boolean().optional(),
 });
 
 const webhookSubscriptionSchema = z.object({
@@ -61,15 +75,313 @@ function parsePhoneParam(req: Request, res: Response): string | null {
   }
 }
 
+function parseConnectionIdParam(req: Request, res: Response): string | null {
+  const connectionId = req.params.connectionId?.trim();
+  if (!connectionId) {
+    res.status(400).json({
+      ok: false,
+      error: "connectionId is required",
+    });
+    return null;
+  }
+
+  return connectionId;
+}
+
 export function createV1Router(params: {
   config: AppConfig;
   whatsAppClient: WhatsAppClient;
+  connectionManager: ConnectionManager;
 }): Router {
   const router = Router();
 
   router.get("/health", (_req: Request, res: Response) => {
     res.json({ ok: true, version: "v1" });
   });
+
+  router.get("/connections", (req: Request, res: Response) => {
+    if (!ensureAuthorized(req, res, params.config)) {
+      return;
+    }
+
+    const connections = params.connectionManager.list();
+    res.json({ ok: true, total: connections.length, connections });
+  });
+
+  router.post("/connections", async (req: Request, res: Response) => {
+    if (!ensureAuthorized(req, res, params.config)) {
+      return;
+    }
+
+    const parsed = createConnectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid connection payload",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    if (parsed.data.connectionId === "default") {
+      const connection = params.connectionManager.getSnapshot("default");
+      if (!connection) {
+        res.status(500).json({
+          ok: false,
+          error: "Default WhatsApp connection is not registered.",
+        });
+        return;
+      }
+
+      res.status(200).json({ ok: true, connection });
+      return;
+    }
+
+    try {
+      const connection = await params.connectionManager.createConnection({
+        connectionId: parsed.data.connectionId,
+        businessId: parsed.data.businessId ?? null,
+        label: parsed.data.label ?? null,
+        autoStart: parsed.data.autoStart,
+      });
+      res.status(201).json({ ok: true, connection });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create WhatsApp connection",
+      });
+    }
+  });
+
+  router.get(
+    "/connections/:connectionId/status",
+    (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      const connection = params.connectionManager.getSnapshot(connectionId);
+      if (!connection) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      res.json({ ok: true, connection });
+    },
+  );
+
+  router.post(
+    "/connections/:connectionId/start",
+    async (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      if (!params.connectionManager.get(connectionId)) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      try {
+        const connection = await params.connectionManager.start(
+          connectionId,
+          "connection_api_start",
+        );
+        res.json({ ok: true, connection });
+      } catch (error) {
+        res.status(500).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to start WhatsApp connection",
+        });
+      }
+    },
+  );
+
+  router.post(
+    "/connections/:connectionId/stop",
+    async (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      if (!params.connectionManager.get(connectionId)) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      try {
+        const connection = await params.connectionManager.stop(
+          connectionId,
+          "connection_api_stop",
+        );
+        res.json({ ok: true, connection });
+      } catch (error) {
+        res.status(500).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to stop WhatsApp connection",
+        });
+      }
+    },
+  );
+
+  router.post(
+    "/connections/:connectionId/reset-session",
+    async (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      if (!params.connectionManager.get(connectionId)) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      try {
+        const connection = await params.connectionManager.resetSession(
+          connectionId,
+          "connection_api_reset_session",
+        );
+        res.json({ ok: true, connection });
+      } catch (error) {
+        res.status(500).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to reset WhatsApp connection session",
+        });
+      }
+    },
+  );
+
+  router.get(
+    "/connections/:connectionId/qr",
+    async (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      const connection = params.connectionManager.getSnapshot(connectionId);
+      if (!connection) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      const qr = params.connectionManager.getLatestQr(connectionId);
+      const qrImage = qr
+        ? await QRCode.toDataURL(qr, {
+            margin: 2,
+            width: 320,
+            errorCorrectionLevel: "M",
+          })
+        : null;
+
+      res.json({ ok: true, connection, qr, qrImage });
+    },
+  );
+
+  router.post(
+    "/connections/:connectionId/messages",
+    async (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      if (!params.connectionManager.get(connectionId)) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      const parsed = sendMessageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid request body",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      try {
+        const phone = normalizePhone(parsed.data.to);
+        const messageId = await params.connectionManager.sendTextMessage({
+          connectionId,
+          phone,
+          text: parsed.data.text,
+        });
+
+        res.json({
+          ok: true,
+          connectionId,
+          to: phone,
+          messageId,
+        });
+      } catch (error) {
+        res.status(502).json({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Failed to send message",
+        });
+      }
+    },
+  );
 
   router.get("/whatsapp/status", (req: Request, res: Response) => {
     if (!ensureAuthorized(req, res, params.config)) {

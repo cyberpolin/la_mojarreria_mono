@@ -24,6 +24,9 @@ const envSchema = z.object({
     .min(1, "MAIN_BACKEND_WEBHOOK_SECRET is required"),
   WA_SERVICE_AUTO_START: z.enum(["true", "false", "1", "0"]).default("false"),
   WHATSAPP_AUTH_DIR: z.string().min(1).default("./auth"),
+  WHATSAPP_AUTH_ROOT: z.string().min(1).default("./data/auth"),
+  CONNECTION_STORE_FILE: z.string().min(1).default("./data/connections.json"),
+  CONNECTION_DATA_ROOT: z.string().min(1).default("./data/connections"),
   REGISTRY_STORE_FILE: z.string().min(1).default("./data/registrations.json"),
   INBOUND_CONTACTS_STORE_FILE: z
     .string()
@@ -44,6 +47,9 @@ const envSchema = z.object({
   DUMMY_REGISTRY_API_URL: z.string().url().optional().or(z.literal("")),
   BOT_SERVICE_BASE_URL: z.string().url().default("http://127.0.0.1:3002"),
   BOT_SERVICE_API_KEY: z.string().optional().or(z.literal("")),
+  TAKU_API_BASE_URL: z.string().url().default("http://127.0.0.1:3010"),
+  TAKU_API_KEY: z.string().optional().or(z.literal("")),
+  TAKU_API_BUSINESS_ID: z.string().trim().default("business_001"),
 });
 
 const env = envSchema.parse(process.env);
@@ -59,6 +65,9 @@ export const config = {
   waServiceAutoStart:
     env.WA_SERVICE_AUTO_START === "true" || env.WA_SERVICE_AUTO_START === "1",
   whatsappAuthDir: resolveServicePath(env.WHATSAPP_AUTH_DIR),
+  whatsappAuthRoot: resolveServicePath(env.WHATSAPP_AUTH_ROOT),
+  connectionStoreFile: resolveServicePath(env.CONNECTION_STORE_FILE),
+  connectionDataRoot: resolveServicePath(env.CONNECTION_DATA_ROOT),
   registryStoreFile: resolveServicePath(env.REGISTRY_STORE_FILE),
   inboundContactsStoreFile: resolveServicePath(env.INBOUND_CONTACTS_STORE_FILE),
   conversationStoreFile: resolveServicePath(env.CONVERSATION_STORE_FILE),
@@ -71,6 +80,9 @@ export const config = {
     : null,
   botServiceBaseUrl: env.BOT_SERVICE_BASE_URL.replace(/\/+$/, ""),
   botServiceApiKey: env.BOT_SERVICE_API_KEY || null,
+  takuApiBaseUrl: env.TAKU_API_BASE_URL.replace(/\/+$/, ""),
+  takuApiKey: env.TAKU_API_KEY || null,
+  takuApiBusinessId: env.TAKU_API_BUSINESS_ID,
 } as const;
 
 export type AppConfig = typeof config;

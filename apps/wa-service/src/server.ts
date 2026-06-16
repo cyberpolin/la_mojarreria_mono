@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import type { Logger } from "pino";
 import type { AppConfig } from "./config.js";
 import type { WhatsAppClient } from "./baileys/client.js";
+import type { ConnectionManager } from "./connections/connectionManager.js";
 import { createMessagesRouter } from "./routes/messages.js";
 import { createServiceRouter } from "./routes/service.js";
 import { createV1Router } from "./routes/v1.js";
@@ -27,6 +28,7 @@ export function createServer(params: {
   config: AppConfig;
   logger: Logger;
   whatsAppClient: WhatsAppClient;
+  connectionManager: ConnectionManager;
 }): Express {
   const app = express();
 
@@ -132,6 +134,7 @@ export function createServer(params: {
     createV1Router({
       config: params.config,
       whatsAppClient: params.whatsAppClient,
+      connectionManager: params.connectionManager,
     }),
   );
 

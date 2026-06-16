@@ -1,0 +1,326 @@
+name: Deploy TAKU to CloudCluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to deploy"
+        required: true
+        default: "taku-deployment"
+  push:
+    branches:
+      - taku-deployment
+    paths:
+      - "apps/taku-api-service/**"
+      - "apps/taku-web/**"
+      - "apps/wa-service/**"
+      - "apps/bot-service/**"
+      - "scripts/dev-taku.sh"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/deploy-taku-cloudcluster.yml"
+
+concurrency:
+  group: taku-cloudcluster
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: cloudcluster
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Resolve CloudCluster deploy env
+        id: cloudcluster
+        env:
+          BOT_PUSH_ENV_FILE: ${{ secrets.BOT_PUSH_ENV_FILE }}
+          CLOUDCLUSTER_HOST: ${{ secrets.CLOUDCLUSTER_HOST }}
+          CLOUDCLUSTER_USER: ${{ secrets.CLOUDCLUSTER_USER }}
+          CLOUDCLUSTER_SSH_KEY: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          CLOUDCLUSTER_SSH_PORT: ${{ secrets.CLOUDCLUSTER_SSH_PORT }}
+          CLOUDCLUSTER_TAKU_DEPLOY_PATH: ${{ secrets.CLOUDCLUSTER_TAKU_DEPLOY_PATH }}
+        run: |
+          set -eu
+
+          PUSH_ENV_FILE="$RUNNER_TEMP/taku-push-env"
+          printf '%s\n' "${BOT_PUSH_ENV_FILE:-}" > "$PUSH_ENV_FILE"
+
+          read_push_value() {
+            awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$PUSH_ENV_FILE"
+          }
+
+          read_push_ssh_key() {
+            awk '
+              /^CLOUDCLUSTER_SSH_KEY=-----BEGIN OPENSSH PRIVATE KEY-----/ {
+                sub(/^CLOUDCLUSTER_SSH_KEY=/, "")
+                capture = 1
+              }
+              capture { print }
+              /^-----END OPENSSH PRIVATE KEY-----/ { exit }
+            ' "$PUSH_ENV_FILE"
+          }
+
+          HOST="${CLOUDCLUSTER_HOST:-$(read_push_value CLOUDCLUSTER_HOST)}"
+          USER="${CLOUDCLUSTER_USER:-$(read_push_value CLOUDCLUSTER_USER)}"
+          PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
+          SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
+          DEPLOY_PATH="${CLOUDCLUSTER_TAKU_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_TAKU_DEPLOY_PATH)}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/vars/www/taku}"
+          PORT="${PORT:-22}"
+
+          missing=0
+          for name in HOST USER SSH_KEY DEPLOY_PATH; do
+            value="$(eval "printf '%s' \"\${$name:-}\"")"
+            if [ -z "$value" ]; then
+              echo "::error::$name is missing"
+              missing=1
+            else
+              echo "$name is configured (length: ${#value})"
+            fi
+          done
+          echo "PORT is configured: $PORT"
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
+          echo "::add-mask::$SSH_KEY"
+          echo "::add-mask::$DEPLOY_PATH"
+          printf '%s\n' "$SSH_KEY" | while IFS= read -r line; do
+            [ -z "$line" ] || echo "::add-mask::$line"
+          done
+
+          {
+            echo "host=$HOST"
+            echo "user=$USER"
+            echo "port=$PORT"
+            echo "deploy_path=$DEPLOY_PATH"
+            echo "ssh_key<<EOF"
+            printf '%s\n' "$SSH_KEY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Write service env files
+        env:
+          TAKU_API_SERVICE_ENV_FILE: ${{ secrets.TAKU_API_SERVICE_ENV_FILE }}
+          TAKU_WEB_ENV_FILE: ${{ secrets.TAKU_WEB_ENV_FILE }}
+          WA_SERVICE_ENV_FILE: ${{ secrets.WA_SERVICE_ENV_FILE }}
+          BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
+        run: |
+          set -eu
+
+          write_env() {
+            name="$1"
+            path="$2"
+            value="$3"
+            if [ -z "$value" ]; then
+              echo "::error::$name is missing"
+              exit 1
+            fi
+
+            printf '%s\n' "$value" > "$path"
+            chmod 600 "$path"
+            echo "$name wrote $path ($(wc -c < "$path") bytes)"
+          }
+
+          write_env TAKU_API_SERVICE_ENV_FILE apps/taku-api-service/.env "${TAKU_API_SERVICE_ENV_FILE:-}"
+          write_env TAKU_WEB_ENV_FILE apps/taku-web/.env "${TAKU_WEB_ENV_FILE:-}"
+          write_env WA_SERVICE_ENV_FILE apps/wa-service/.env "${WA_SERVICE_ENV_FILE:-}"
+          write_env BOT_SERVICE_ENV_FILE apps/bot-service/.env "${BOT_SERVICE_ENV_FILE:-}"
+
+      - name: Typecheck and build
+        run: |
+          set -eux
+          pnpm --filter @taku/api-service typecheck
+          pnpm --filter @taku/web typecheck
+          pnpm --filter @mojarreria/wa-service typecheck
+          pnpm --filter @mojarreria/bot-service typecheck
+          pnpm --filter @taku/api-service build
+          pnpm --filter @taku/web build
+          pnpm --filter @mojarreria/wa-service build
+          pnpm --filter @mojarreria/bot-service build
+
+      - name: Prepare release bundle
+        run: |
+          set -eux
+          mkdir -p /tmp/taku-release
+          rsync -a \
+            --exclude ".git" \
+            --exclude "node_modules" \
+            --exclude "apps/taku-api-service/data" \
+            --exclude "apps/wa-service/auth" \
+            --exclude "apps/wa-service/data" \
+            --exclude "apps/bot-service/data" \
+            ./ /tmp/taku-release/
+          tar -czf taku-release.tar.gz -C /tmp taku-release
+          ls -lh taku-release.tar.gz
+
+      - name: Upload release bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          source: taku-release.tar.gz
+          target: /tmp
+          debug: true
+
+      - name: SSH smoke test
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            whoami
+            hostname
+            pwd
+
+      - name: Deploy on CloudCluster
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          envs: DEPLOY_PATH
+          timeout: 60s
+          command_timeout: 20m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            LOG_FILE="/tmp/taku-deploy.log"
+            : > "$LOG_FILE"
+
+            run_deploy() {
+              : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
+
+              export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+              [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
+
+              echo "Remote user: $(whoami)"
+              echo "Remote host: $(hostname)"
+              echo "Deploy path: configured"
+              df -h .
+              free -h || true
+              ls -lh /tmp/taku-release.tar.gz
+
+              mkdir -p "$DEPLOY_PATH"
+              tar -xzf /tmp/taku-release.tar.gz -C "$DEPLOY_PATH" --strip-components=1
+              cd "$DEPLOY_PATH"
+
+              mkdir -p apps/taku-api-service/data
+              mkdir -p apps/wa-service/auth
+              mkdir -p apps/wa-service/data
+              mkdir -p apps/bot-service/data
+              ln -sfn apps/wa-service wa-service
+
+              if command -v nvm >/dev/null 2>&1; then
+                nvm install 20.19.4
+                nvm use 20.19.4
+              fi
+
+              node --version
+              corepack enable
+              corepack prepare pnpm@9.15.5 --activate
+              pnpm --version
+
+              if [ -f pnpm-lock.yaml ]; then
+                pnpm install --prod=false --frozen-lockfile
+              else
+                pnpm install --prod=false --no-frozen-lockfile
+              fi
+
+              pnpm --filter @taku/api-service build
+              pnpm --filter @taku/web build
+              pnpm --filter @mojarreria/wa-service build
+              pnpm --filter @mojarreria/bot-service build
+
+              PM2="pnpm --filter @mojarreria/wa-service exec pm2"
+
+              $PM2 delete taku-api-service || true
+              $PM2 delete taku-web || true
+              $PM2 delete mojarreria-bot-service || true
+              $PM2 delete mojarreria-wa-service || true
+
+              $PM2 start apps/taku-api-service/dist/index.js \
+                --name taku-api-service \
+                --cwd apps/taku-api-service \
+                --update-env
+              $PM2 start pnpm \
+                --name taku-web \
+                --cwd "$DEPLOY_PATH" \
+                -- --filter @taku/web start
+              (
+                cd apps/bot-service
+                pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
+              )
+              (
+                cd apps/wa-service
+                pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
+              )
+
+              $PM2 save
+              $PM2 status
+            }
+
+            set +e
+            run_deploy > "$LOG_FILE" 2>&1
+            DEPLOY_STATUS="$?"
+            set -e
+
+            echo "Remote deploy log:"
+            cat "$LOG_FILE"
+            exit "$DEPLOY_STATUS"
+
+      - name: Fetch remote deploy log
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            if [ -f /tmp/taku-deploy.log ]; then
+              cat /tmp/taku-deploy.log
+            else
+              echo "No remote deploy log found"
+            fi

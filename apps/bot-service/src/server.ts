@@ -35,6 +35,7 @@ type BotHistoryMessage = {
 
 type RespondPayload = {
   phone?: string;
+  instructions?: string;
   message: BotMessage;
   history: BotHistoryMessage[];
 };
@@ -106,6 +107,10 @@ function parseRespondBody(body: unknown): RespondPayload | null {
 
   return {
     phone: typeof record.phone === "string" ? record.phone.trim() : undefined,
+    instructions:
+      typeof record.instructions === "string" && record.instructions.trim()
+        ? record.instructions.trim()
+        : undefined,
     message: {
       id: messageRecord.id.trim(),
       text: messageRecord.text.trim(),
@@ -296,7 +301,13 @@ export function createBotServer(config: AppConfig, logger: Logger) {
             body: { ok: false, error: "Unauthorized" },
           };
         } else {
-          const instructions = await getInstructions(config.instructionsFile);
+          const payload = parseRespondBody(await readRequestJson(req));
+          const storedInstructions = payload?.instructions
+            ? null
+            : await getInstructions(config.instructionsFile);
+          const instructions =
+            payload?.instructions ?? storedInstructions?.instructions ?? null;
+
           if (!instructions) {
             recordDebugLog({
               level: "warn",
@@ -307,7 +318,6 @@ export function createBotServer(config: AppConfig, logger: Logger) {
               body: { ok: false, error: "No instructions configured" },
             };
           } else {
-            const payload = parseRespondBody(await readRequestJson(req));
             if (!payload) {
               recordDebugLog({
                 level: "warn",
@@ -356,7 +366,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   const replyText = await createDeepSeekReply({
                     config,
                     messages: buildChatMessages({
-                      instructions: instructions.instructions,
+                      instructions,
                       message: payload.message,
                       history: payload.history,
                     }),

@@ -14,6 +14,7 @@ export type BotReply = {
 };
 
 type BotRespondPayload = {
+  instructions?: string;
   message: {
     id: string;
     text: string;

@@ -9,6 +9,7 @@ import {
   type WASocket,
   type proto,
 } from "@whiskeysockets/baileys";
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, readFile, rm, unlink } from "node:fs/promises";
 import type { Logger } from "pino";
@@ -32,6 +33,10 @@ import {
   getRegistryRecord,
 } from "../services/registryStore.js";
 import { dispatchWebhookEvent } from "../services/webhookDispatcher.js";
+import {
+  getTakuConnectionBotConfig,
+  isTakuScheduleActive,
+} from "../services/takuApiClient.js";
 import { phoneFromWhatsAppJid, phoneToWhatsAppJid } from "../utils/phone.js";
 
 type MessagesUpsert = BaileysEventMap["messages.upsert"];
@@ -49,6 +54,7 @@ export type WaServiceStatus = {
   connected: boolean;
   connection: "connecting" | "open" | "close";
   hasQr: boolean;
+  phone: string | null;
   state: WaServiceState;
   lastChangedAt: string;
 };
@@ -58,7 +64,16 @@ type StatusChangeHandler = (
   reason: string,
 ) => void | Promise<void>;
 
-const LOCK_FILE = "/tmp/mojarreria-wa-service.lock";
+type WhatsAppClientOptions = {
+  connectionId?: string;
+  businessId?: string | null;
+};
+
+function getLockFile(connectionId: string): string {
+  return connectionId === "default"
+    ? "/tmp/mojarreria-wa-service.lock"
+    : `/tmp/mojarreria-wa-service-${connectionId}.lock`;
+}
 
 function getDisconnectStatusCode(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null) {
@@ -153,6 +168,7 @@ export class WhatsAppClient {
   private serviceState: WaServiceState = "INACTIVE";
   private lastChangedAt = new Date().toISOString();
   private statusChangeHandler: StatusChangeHandler | null = null;
+  private pairedPhone: string | null = null;
   private phoneByLid = new Map<string, string>();
   private messageCache = new Map<string, proto.IMessage>();
   private lockAcquired = false;
@@ -162,6 +178,7 @@ export class WhatsAppClient {
   constructor(
     private readonly config: AppConfig,
     private readonly logger: Logger,
+    private readonly options: WhatsAppClientOptions = {},
   ) {}
 
   setStatusChangeHandler(handler: StatusChangeHandler): void {
@@ -176,13 +193,13 @@ export class WhatsAppClient {
     const lockAcquired = await this.acquireLock();
     if (!lockAcquired) {
       this.logger.error(
-        { lockFile: LOCK_FILE },
+        { lockFile: this.lockFile },
         "WhatsApp socket start rejected because lock is active",
       );
       recordDebugLog({
         level: "error",
         event: "whatsapp_socket_start_rejected_lock_active",
-        data: { lockFile: LOCK_FILE },
+        data: { lockFile: this.lockFile },
       });
       return;
     }
@@ -201,6 +218,8 @@ export class WhatsAppClient {
       const { state, saveCreds } = await useMultiFileAuthState(
         this.config.whatsappAuthDir,
       );
+      this.pairedPhone =
+        phoneFromWhatsAppJid(state.creds.me?.id ?? "") ?? this.pairedPhone;
       this.saveCreds = saveCreds;
       const { version } = await fetchLatestBaileysVersion();
       const baileysLogger = this.logger.child({ module: "baileys" });
@@ -252,6 +271,8 @@ export class WhatsAppClient {
       if (update.connection === "open") {
         this.latestQr = null;
         this.connectionStatus = "open";
+        this.pairedPhone =
+          phoneFromWhatsAppJid(socket.user?.id ?? "") ?? this.pairedPhone;
         this.updateServiceState("ACTIVE", "connected");
         this.logger.info("WhatsApp socket connected");
       }
@@ -350,6 +371,7 @@ export class WhatsAppClient {
     await this.shutdown(reason);
     await rm(this.config.whatsappAuthDir, { recursive: true, force: true });
     this.latestQr = null;
+    this.pairedPhone = null;
     this.phoneByLid.clear();
     this.messageCache.clear();
     resetSessionIssue();
@@ -362,13 +384,14 @@ export class WhatsAppClient {
   }
 
   private async acquireLock(): Promise<boolean> {
+    const lockFile = this.lockFile;
     if (this.lockAcquired) {
       return true;
     }
 
     try {
       const handle = await open(
-        LOCK_FILE,
+        lockFile,
         constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
         0o600,
       );
@@ -376,12 +399,12 @@ export class WhatsAppClient {
       await handle.close();
       this.lockAcquired = true;
       this.logger.info(
-        { lockFile: LOCK_FILE, pid: process.pid },
+        { lockFile, pid: process.pid },
         "WhatsApp socket lock acquired",
       );
       recordDebugLog({
         event: "whatsapp_socket_lock_acquired",
-        data: { lockFile: LOCK_FILE, pid: process.pid },
+        data: { lockFile, pid: process.pid },
       });
       return true;
     } catch (error) {
@@ -395,7 +418,7 @@ export class WhatsAppClient {
       }
     }
 
-    const rawPid = await readFile(LOCK_FILE, "utf8").catch(() => "");
+    const rawPid = await readFile(lockFile, "utf8").catch(() => "");
     const existingPid = Number(rawPid.trim());
     if (
       Number.isInteger(existingPid) &&
@@ -403,22 +426,22 @@ export class WhatsAppClient {
       isProcessAlive(existingPid)
     ) {
       this.logger.warn(
-        { lockFile: LOCK_FILE, existingPid },
+        { lockFile, existingPid },
         "WhatsApp socket lock is active",
       );
       recordDebugLog({
         level: "warn",
         event: "whatsapp_socket_lock_active",
-        data: { lockFile: LOCK_FILE, existingPid },
+        data: { lockFile, existingPid },
       });
       return false;
     }
 
     this.logger.warn(
-      { lockFile: LOCK_FILE, existingPid: rawPid.trim() || null },
+      { lockFile, existingPid: rawPid.trim() || null },
       "Removing stale WhatsApp socket lock",
     );
-    await unlink(LOCK_FILE).catch(() => undefined);
+    await unlink(lockFile).catch(() => undefined);
     return this.acquireLock();
   }
 
@@ -489,18 +512,35 @@ export class WhatsAppClient {
       return;
     }
 
-    await unlink(LOCK_FILE).catch((error: unknown) => {
+    const lockFile = this.lockFile;
+    await unlink(lockFile).catch((error: unknown) => {
       this.logger.warn(
-        { err: error, lockFile: LOCK_FILE },
+        { err: error, lockFile },
         "failed to release WhatsApp socket lock",
       );
     });
     this.lockAcquired = false;
-    this.logger.info({ lockFile: LOCK_FILE }, "WhatsApp socket lock released");
+    this.logger.info({ lockFile }, "WhatsApp socket lock released");
     recordDebugLog({
       event: "whatsapp_socket_lock_released",
-      data: { lockFile: LOCK_FILE },
+      data: { lockFile },
     });
+  }
+
+  private get connectionId(): string {
+    return this.options.connectionId ?? "default";
+  }
+
+  private get businessId(): string | null {
+    return this.options.businessId ?? null;
+  }
+
+  private get isDefaultConnection(): boolean {
+    return this.connectionId === "default";
+  }
+
+  private get lockFile(): string {
+    return getLockFile(this.connectionId);
   }
 
   async sendSubscriptionMessage(params: {
@@ -571,6 +611,7 @@ export class WhatsAppClient {
     connected: boolean;
     connection: "connecting" | "open" | "close";
     hasQr: boolean;
+    phone: string | null;
     state: WaServiceState;
     lastChangedAt: string;
   } {
@@ -579,6 +620,8 @@ export class WhatsAppClient {
       connected: this.connectionStatus === "open",
       connection: this.connectionStatus,
       hasQr: this.latestQr !== null,
+      phone:
+        phoneFromWhatsAppJid(this.socket?.user?.id ?? "") ?? this.pairedPhone,
       state: this.serviceState,
       lastChangedAt: this.lastChangedAt,
     };
@@ -792,6 +835,148 @@ export class WhatsAppClient {
       data: { messageId, phone, direction, timestamp },
     });
     if (direction === "outbound") {
+      return;
+    }
+
+    if (!this.isDefaultConnection) {
+      await dispatchWebhookEvent({
+        filePath: this.config.webhookSubscriptionsFile,
+        logger: this.logger,
+        event: "message.received",
+        payload: {
+          event: "message.received",
+          eventId: randomUUID(),
+          provider: "baileys",
+          connectionId: this.connectionId,
+          businessId: this.businessId,
+          occurredAt: timestamp,
+          message: conversationMessage,
+        },
+      });
+      recordDebugLog({
+        event: "transport_only_message_received_dispatched",
+        data: {
+          messageId,
+          phone,
+          connectionId: this.connectionId,
+          businessId: this.businessId,
+        },
+      });
+
+      if (!this.desiredActive) {
+        recordDebugLog({
+          event: "taku_bot_reply_skipped_inactive",
+          data: {
+            messageId,
+            phone,
+            connectionId: this.connectionId,
+            businessId: this.businessId,
+          },
+        });
+        return;
+      }
+
+      const botConfig = await getTakuConnectionBotConfig({
+        config: this.config,
+        logger: this.logger,
+        connectionId: this.connectionId,
+        businessId: this.businessId,
+      });
+      const assignedBot = botConfig?.bot ?? null;
+
+      if (!assignedBot) {
+        recordDebugLog({
+          event: "taku_bot_reply_skipped_no_assignment",
+          data: {
+            messageId,
+            phone,
+            connectionId: this.connectionId,
+            businessId: this.businessId,
+          },
+        });
+        return;
+      }
+
+      const activeSchedule = botConfig?.waConnection?.activeSchedule ?? null;
+      if (!isTakuScheduleActive(activeSchedule)) {
+        recordDebugLog({
+          event: "taku_bot_reply_skipped_schedule_inactive",
+          data: {
+            messageId,
+            phone,
+            connectionId: this.connectionId,
+            businessId: this.businessId,
+            botId: assignedBot.id,
+            activeSchedule,
+          },
+        });
+        return;
+      }
+
+      const priorMessages = (
+        await listConversationMessages({
+          filePath: this.config.conversationStoreFile,
+          phone,
+          limit: 13,
+        })
+      )
+        .filter((historyMessage) => historyMessage.id !== messageId)
+        .slice(0, 12)
+        .reverse();
+      const botReply = await createBotReply({
+        config: this.config,
+        logger: this.logger,
+        payload: {
+          instructions: assignedBot.instructions,
+          phone,
+          message: {
+            id: `${this.connectionId}:${messageId}`,
+            text,
+            timestamp,
+          },
+          history: priorMessages.map((historyMessage) => ({
+            role: historyMessage.direction === "inbound" ? "user" : "assistant",
+            text: historyMessage.text,
+            timestamp: historyMessage.timestamp,
+          })),
+        },
+      });
+
+      if (!botReply?.shouldSend) {
+        recordDebugLog({
+          event: "taku_bot_reply_not_sent",
+          data: {
+            messageId,
+            phone,
+            connectionId: this.connectionId,
+            botId: assignedBot.id,
+          },
+        });
+        return;
+      }
+
+      const replyMessageId = await this.sendTextMessage({
+        phone,
+        text: botReply.text,
+      });
+      await recordConversationMessage({
+        filePath: this.config.conversationStoreFile,
+        phone,
+        text: botReply.text,
+        messageId: replyMessageId,
+        direction: "outbound",
+        timestamp: new Date().toISOString(),
+      });
+      recordDebugLog({
+        event: "taku_bot_reply_sent",
+        data: {
+          inboundMessageId: messageId,
+          replyMessageId,
+          phone,
+          connectionId: this.connectionId,
+          botId: assignedBot.id,
+        },
+      });
       return;
     }
 

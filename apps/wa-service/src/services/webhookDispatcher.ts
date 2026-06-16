@@ -7,7 +7,11 @@ import {
 
 type WebhookPayload = {
   event: WebhookEventName;
+  eventId?: string;
   provider: "baileys";
+  connectionId?: string;
+  businessId?: string | null;
+  occurredAt?: string;
   message: ConversationMessage;
 };
 

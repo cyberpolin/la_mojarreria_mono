@@ -1,0 +1,70 @@
+name: TAKU CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/taku-api-service/**"
+      - "apps/taku-web/**"
+      - "apps/wa-service/**"
+      - "apps/bot-service/**"
+      - "scripts/dev-taku.sh"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/taku-ci.yml"
+  push:
+    branches:
+      - main
+      - taku-deployment
+    paths:
+      - "apps/taku-api-service/**"
+      - "apps/taku-web/**"
+      - "apps/wa-service/**"
+      - "apps/bot-service/**"
+      - "scripts/dev-taku.sh"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/taku-ci.yml"
+
+jobs:
+  typecheck-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck TAKU API
+        run: pnpm --filter @taku/api-service typecheck
+
+      - name: Typecheck TAKU Web
+        run: pnpm --filter @taku/web typecheck
+
+      - name: Typecheck WA Service
+        run: pnpm --filter @mojarreria/wa-service typecheck
+
+      - name: Typecheck Bot Service
+        run: pnpm --filter @mojarreria/bot-service typecheck
+
+      - name: Build services
+        run: |
+          set -eux
+          pnpm --filter @taku/api-service build
+          pnpm --filter @taku/web build
+          pnpm --filter @mojarreria/wa-service build
+          pnpm --filter @mojarreria/bot-service build
