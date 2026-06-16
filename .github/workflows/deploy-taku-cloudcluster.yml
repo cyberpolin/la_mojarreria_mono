@@ -16,6 +16,7 @@ on:
       - "apps/wa-service/**"
       - "apps/bot-service/**"
       - "apps/service-ports.conf"
+      - "scripts/ensure-taku-service-certs.sh"
       - "scripts/dev-taku.sh"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -257,7 +258,7 @@ jobs:
               . apps/service-ports.conf
               set +a
 
-              for name in TAKU_WA_SERVICE_PORT TAKU_BOT_SERVICE_PORT TAKU_WEB_SERVICE_PORT; do
+              for name in TAKU_API_SERVICE_PORT TAKU_WA_SERVICE_PORT TAKU_BOT_SERVICE_PORT TAKU_WEB_SERVICE_PORT; do
                 value="$(eval "printf '%s' \"\${$name:-}\"")"
                 case "$value" in
                   ''|*[!0-9]*)
@@ -311,7 +312,7 @@ jobs:
               $PM2 delete mojarreria-bot-service || true
               $PM2 delete mojarreria-wa-service || true
 
-              TAKU_API_PORT=3010 \
+              TAKU_API_PORT="$TAKU_API_SERVICE_PORT" \
               WA_SERVICE_BASE_URL="http://127.0.0.1:$TAKU_WA_SERVICE_PORT" \
               $PM2 start "$ROOT/apps/taku-api-service/dist/index.js" \
                 --name taku-api-service \
