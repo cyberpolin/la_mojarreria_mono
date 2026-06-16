@@ -213,12 +213,13 @@ jobs:
         env:
           DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
           CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
+          SUDO_PASSWORD: ${{ secrets.CLOUDCLUSTER_SUDO_PASSWORD }}
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          envs: DEPLOY_PATH,CERTBOT_EMAIL
+          envs: DEPLOY_PATH,CERTBOT_EMAIL,SUDO_PASSWORD
           timeout: 60s
           command_timeout: 20m
           request_pty: true
@@ -230,6 +231,16 @@ jobs:
 
             run_deploy() {
               : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
+
+              run_sudo() {
+                if [ "$(id -u)" -eq 0 ]; then
+                  "$@"
+                elif [ -n "${SUDO_PASSWORD:-}" ]; then
+                  printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+                else
+                  sudo -n "$@"
+                fi
+              }
 
               export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
               [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
@@ -275,18 +286,18 @@ jobs:
 
               chmod +x scripts/ensure-taku-service-certs.sh scripts/enable-taku-nginx-sites.sh
               echo "Checking passwordless sudo for nginx/certbot operations"
-              sudo -n true
+              run_sudo true
               echo "Starting TAKU certificate check"
-              sudo -n env CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+              run_sudo env CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
               echo "Finished TAKU certificate check"
               echo "Starting TAKU nginx site enable"
-              sudo -n env DEBUG=true scripts/enable-taku-nginx-sites.sh
+              run_sudo env DEBUG=true scripts/enable-taku-nginx-sites.sh
               echo "Finished TAKU nginx site enable"
               echo "Verifying /etc/nginx TAKU site files from workflow"
               for site_file in TAKU_API_SERVICE_SITE.conf TAKU_WA_SERVICE_SITE.conf TAKU_BOT_SERVICE_SITE.conf TAKU_WEB_SERVICE_SITE.conf; do
-                sudo -n test -f "/etc/nginx/sites-available/$site_file"
-                sudo -n test -L "/etc/nginx/sites-enabled/$site_file"
-                sudo -n ls -la "/etc/nginx/sites-available/$site_file" "/etc/nginx/sites-enabled/$site_file"
+                run_sudo test -f "/etc/nginx/sites-available/$site_file"
+                run_sudo test -L "/etc/nginx/sites-enabled/$site_file"
+                run_sudo ls -la "/etc/nginx/sites-available/$site_file" "/etc/nginx/sites-enabled/$site_file"
               done
 
               if command -v nvm >/dev/null 2>&1; then
@@ -363,21 +374,23 @@ jobs:
             }
 
             STATUS_FILE="/tmp/taku-deploy.status"
-            rm -f "$STATUS_FILE"
+            LOG_PIPE="/tmp/taku-deploy.pipe"
+            rm -f "$STATUS_FILE" "$LOG_PIPE"
+            mkfifo "$LOG_PIPE"
+            tee "$LOG_FILE" < "$LOG_PIPE" &
+            TEE_PID="$!"
 
             set +e
-            {
+            (
+              set -e
               run_deploy
-              printf '%s' "$?" > "$STATUS_FILE"
-            } 2>&1 | tee "$LOG_FILE"
-            TEE_STATUS="$?"
+            ) > "$LOG_PIPE" 2>&1
+            DEPLOY_STATUS="$?"
             set -e
 
-            if [ -f "$STATUS_FILE" ]; then
-              DEPLOY_STATUS="$(cat "$STATUS_FILE")"
-            else
-              DEPLOY_STATUS="$TEE_STATUS"
-            fi
+            wait "$TEE_PID" || true
+            rm -f "$LOG_PIPE"
+            printf '%s' "$DEPLOY_STATUS" > "$STATUS_FILE"
 
             echo "Remote deploy log saved to $LOG_FILE"
             exit "$DEPLOY_STATUS"
