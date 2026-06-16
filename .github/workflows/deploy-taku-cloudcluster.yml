@@ -16,6 +16,7 @@ on:
       - "apps/wa-service/**"
       - "apps/bot-service/**"
       - "apps/service-ports.conf"
+      - "scripts/enable-taku-nginx-sites.sh"
       - "scripts/ensure-taku-service-certs.sh"
       - "scripts/dev-taku.sh"
       - "pnpm-lock.yaml"
@@ -211,12 +212,13 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,CERTBOT_EMAIL
           timeout: 60s
           command_timeout: 20m
           request_pty: true
@@ -268,8 +270,12 @@ jobs:
                   *)
                     echo "$name=$value"
                     ;;
-                esac
+                  esac
               done
+
+              chmod +x scripts/ensure-taku-service-certs.sh scripts/enable-taku-nginx-sites.sh
+              sudo CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+              sudo scripts/enable-taku-nginx-sites.sh
 
               if command -v nvm >/dev/null 2>&1; then
                 nvm install 20.19.4
