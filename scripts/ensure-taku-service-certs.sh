@@ -37,7 +37,17 @@ fi
 
 certbot_args+=(--agree-tos --email "$CERTBOT_EMAIL")
 
+remove_broken_enabled_sites() {
+  if [ ! -d "$SITES_ENABLED_DIR" ]; then
+    return
+  fi
+
+  echo "Checking for broken nginx enabled-site symlinks in $SITES_ENABLED_DIR"
+  find "$SITES_ENABLED_DIR" -xtype l -print -delete
+}
+
 reload_nginx() {
+  remove_broken_enabled_sites
   "$NGINX_BIN" -t
 
   if command -v systemctl >/dev/null 2>&1; then

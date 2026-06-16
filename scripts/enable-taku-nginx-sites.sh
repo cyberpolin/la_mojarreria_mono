@@ -46,6 +46,13 @@ list_dir() {
   fi
 }
 
+remove_broken_enabled_sites() {
+  echo "[nginx-sites] Checking for broken enabled-site symlinks in $SITES_ENABLED_DIR"
+  if [ -d "$SITES_ENABLED_DIR" ]; then
+    "${SUDO[@]}" find "$SITES_ENABLED_DIR" -xtype l -print -delete
+  fi
+}
+
 assert_installed_site() {
   site_file="$1"
   available_file="$SITES_AVAILABLE_DIR/$site_file"
@@ -97,6 +104,7 @@ list_dir "$SITES_AVAILABLE_DIR"
 list_dir "$SITES_ENABLED_DIR"
 
 "${SUDO[@]}" mkdir -p "$SITES_AVAILABLE_DIR" "$SITES_ENABLED_DIR"
+remove_broken_enabled_sites
 
 for site_file in "${site_files[@]}"; do
   source_file="$ROOT_DIR/apps/$site_file"
@@ -160,6 +168,7 @@ echo "Verified ${#site_files[@]} nginx site file(s) in $SITES_AVAILABLE_DIR and 
 
 if [ "$NGINX_TEST" = "true" ]; then
   echo "Testing nginx configuration"
+  remove_broken_enabled_sites
   "${SUDO[@]}" "$NGINX_BIN" -t
 else
   echo "Skipping nginx test because NGINX_TEST=$NGINX_TEST"
