@@ -231,6 +231,7 @@ jobs:
 
             run_deploy() {
               : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
+              echo "Deploy wrapper entered run_deploy"
 
               run_sudo() {
                 if [ "$(id -u)" -eq 0 ]; then
@@ -243,7 +244,12 @@ jobs:
               }
 
               export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-              [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
+              if [ -s "$NVM_DIR/nvm.sh" ]; then
+                echo "Loading nvm from $NVM_DIR/nvm.sh"
+                . "$NVM_DIR/nvm.sh" || echo "Warning: failed to load nvm from $NVM_DIR/nvm.sh"
+              else
+                echo "nvm not found at $NVM_DIR/nvm.sh; continuing with system node"
+              fi
 
               echo "Remote user: $(whoami)"
               echo "Remote host: $(hostname)"
