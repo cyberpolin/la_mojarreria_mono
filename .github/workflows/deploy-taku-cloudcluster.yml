@@ -268,30 +268,33 @@ jobs:
               pnpm --filter @mojarreria/wa-service build
               pnpm --filter @mojarreria/bot-service build
 
-              PM2="pnpm --filter @mojarreria/wa-service exec pm2"
+              ROOT="$PWD"
+              PM2="pnpm --dir $ROOT/apps/wa-service exec pm2"
 
               $PM2 delete taku-api-service || true
               $PM2 delete taku-web || true
               $PM2 delete mojarreria-bot-service || true
               $PM2 delete mojarreria-wa-service || true
 
-              $PM2 start apps/taku-api-service/dist/index.js \
+              $PM2 start "$ROOT/apps/taku-api-service/dist/index.js" \
                 --name taku-api-service \
-                --cwd apps/taku-api-service \
+                --cwd "$ROOT/apps/taku-api-service" \
                 --update-env
               $PM2 start pnpm \
                 --name taku-web \
-                --cwd "$DEPLOY_PATH" \
+                --cwd "$ROOT" \
                 -- --filter @taku/web start
               (
-                cd apps/bot-service
+                cd "$ROOT/apps/bot-service"
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
               (
-                cd apps/wa-service
+                cd "$ROOT/apps/wa-service"
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
 
+              $PM2 describe taku-api-service
+              $PM2 describe taku-web
               $PM2 save
               $PM2 status
             }
