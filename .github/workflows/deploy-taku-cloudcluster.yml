@@ -274,8 +274,12 @@ jobs:
               done
 
               chmod +x scripts/ensure-taku-service-certs.sh scripts/enable-taku-nginx-sites.sh
+              echo "Starting TAKU certificate check"
               sudo CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
-              sudo scripts/enable-taku-nginx-sites.sh
+              echo "Finished TAKU certificate check"
+              echo "Starting TAKU nginx site enable"
+              sudo DEBUG=true scripts/enable-taku-nginx-sites.sh
+              echo "Finished TAKU nginx site enable"
 
               if command -v nvm >/dev/null 2>&1; then
                 nvm install 20.19.4

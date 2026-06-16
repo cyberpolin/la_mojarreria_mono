@@ -8,6 +8,7 @@ SITES_ENABLED_DIR="${SITES_ENABLED_DIR:-$NGINX_DIR/sites-enabled}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
 NGINX_TEST="${NGINX_TEST:-true}"
 NGINX_RELOAD="${NGINX_RELOAD:-true}"
+DEBUG="${DEBUG:-true}"
 
 site_files=(
   "TAKU_API_SERVICE_SITE.conf"
@@ -25,12 +26,65 @@ else
   exit 1
 fi
 
+log_debug() {
+  if [ "$DEBUG" = "true" ]; then
+    echo "[nginx-sites] $*"
+  fi
+}
+
+list_dir() {
+  dir="$1"
+  if [ "$DEBUG" != "true" ]; then
+    return
+  fi
+
+  echo "[nginx-sites] Listing $dir"
+  if [ -d "$dir" ]; then
+    "${SUDO[@]}" ls -la "$dir"
+  else
+    echo "[nginx-sites] $dir does not exist"
+  fi
+}
+
+log_debug "Running as user: $(id)"
+log_debug "Repo root: $ROOT_DIR"
+log_debug "NGINX_DIR: $NGINX_DIR"
+log_debug "SITES_AVAILABLE_DIR: $SITES_AVAILABLE_DIR"
+log_debug "SITES_ENABLED_DIR: $SITES_ENABLED_DIR"
+log_debug "NGINX_BIN: $NGINX_BIN"
+log_debug "NGINX_TEST: $NGINX_TEST"
+log_debug "NGINX_RELOAD: $NGINX_RELOAD"
+log_debug "Source site configs:"
+for site_file in "${site_files[@]}"; do
+  if [ -f "$ROOT_DIR/apps/$site_file" ]; then
+    log_debug "  found $ROOT_DIR/apps/$site_file"
+  else
+    log_debug "  missing $ROOT_DIR/apps/$site_file"
+  fi
+done
+
+if [ -f "$NGINX_DIR/nginx.conf" ]; then
+  log_debug "nginx.conf include lines:"
+  "${SUDO[@]}" grep -n "sites-enabled\|conf.d\|include" "$NGINX_DIR/nginx.conf" || true
+else
+  log_debug "$NGINX_DIR/nginx.conf does not exist"
+fi
+
+list_dir "$NGINX_DIR"
+list_dir "$SITES_AVAILABLE_DIR"
+list_dir "$SITES_ENABLED_DIR"
+
 "${SUDO[@]}" mkdir -p "$SITES_AVAILABLE_DIR" "$SITES_ENABLED_DIR"
 
 for site_file in "${site_files[@]}"; do
   source_file="$ROOT_DIR/apps/$site_file"
   available_file="$SITES_AVAILABLE_DIR/$site_file"
   enabled_file="$SITES_ENABLED_DIR/$site_file"
+
+  log_debug "Processing $site_file"
+  log_debug "  source: $source_file"
+  log_debug "  available: $available_file"
+  log_debug "  enabled: $enabled_file"
 
   if [ ! -f "$source_file" ]; then
     echo "Missing nginx site config: $source_file" >&2
@@ -45,6 +99,8 @@ for site_file in "${site_files[@]}"; do
 
   echo "Installing $site_file into $SITES_AVAILABLE_DIR"
   "${SUDO[@]}" install -m 0644 "$source_file" "$available_file"
+  log_debug "Installed file details:"
+  "${SUDO[@]}" ls -la "$available_file"
 
   if [ -e "$enabled_file" ] && [ ! -L "$enabled_file" ]; then
     backup_file="$enabled_file.$(date +%Y%m%d%H%M%S).bak"
@@ -54,7 +110,12 @@ for site_file in "${site_files[@]}"; do
 
   echo "Enabling $site_file"
   "${SUDO[@]}" ln -sfn "$available_file" "$enabled_file"
+  log_debug "Enabled symlink details:"
+  "${SUDO[@]}" ls -la "$enabled_file"
 done
+
+list_dir "$SITES_AVAILABLE_DIR"
+list_dir "$SITES_ENABLED_DIR"
 
 if [ "$NGINX_TEST" = "true" ]; then
   echo "Testing nginx configuration"
