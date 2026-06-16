@@ -282,6 +282,12 @@ jobs:
               echo "Starting TAKU nginx site enable"
               sudo -n env DEBUG=true scripts/enable-taku-nginx-sites.sh
               echo "Finished TAKU nginx site enable"
+              echo "Verifying /etc/nginx TAKU site files from workflow"
+              for site_file in TAKU_API_SERVICE_SITE.conf TAKU_WA_SERVICE_SITE.conf TAKU_BOT_SERVICE_SITE.conf TAKU_WEB_SERVICE_SITE.conf; do
+                sudo -n test -f "/etc/nginx/sites-available/$site_file"
+                sudo -n test -L "/etc/nginx/sites-enabled/$site_file"
+                sudo -n ls -la "/etc/nginx/sites-available/$site_file" "/etc/nginx/sites-enabled/$site_file"
+              done
 
               if command -v nvm >/dev/null 2>&1; then
                 nvm install 20.19.4

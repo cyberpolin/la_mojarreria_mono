@@ -46,6 +46,28 @@ list_dir() {
   fi
 }
 
+assert_installed_site() {
+  site_file="$1"
+  available_file="$SITES_AVAILABLE_DIR/$site_file"
+  enabled_file="$SITES_ENABLED_DIR/$site_file"
+
+  if ! "${SUDO[@]}" test -f "$available_file"; then
+    echo "Expected installed nginx site file is missing: $available_file" >&2
+    exit 1
+  fi
+
+  if ! "${SUDO[@]}" test -L "$enabled_file"; then
+    echo "Expected enabled nginx site symlink is missing: $enabled_file" >&2
+    exit 1
+  fi
+
+  symlink_target="$("${SUDO[@]}" readlink "$enabled_file")"
+  if [ "$symlink_target" != "$available_file" ]; then
+    echo "Enabled nginx site symlink points to $symlink_target, expected $available_file" >&2
+    exit 1
+  fi
+}
+
 log_debug "Running as user: $(id)"
 log_debug "Repo root: $ROOT_DIR"
 log_debug "NGINX_DIR: $NGINX_DIR"
@@ -116,6 +138,12 @@ done
 
 list_dir "$SITES_AVAILABLE_DIR"
 list_dir "$SITES_ENABLED_DIR"
+
+echo "Verifying nginx site installation"
+for site_file in "${site_files[@]}"; do
+  assert_installed_site "$site_file"
+done
+echo "Verified ${#site_files[@]} nginx site file(s) in $SITES_AVAILABLE_DIR and $SITES_ENABLED_DIR"
 
 if [ "$NGINX_TEST" = "true" ]; then
   echo "Testing nginx configuration"
