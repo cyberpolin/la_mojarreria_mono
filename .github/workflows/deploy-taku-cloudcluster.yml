@@ -248,6 +248,11 @@ jobs:
               echo "Remote user: $(whoami)"
               echo "Remote host: $(hostname)"
               echo "Deploy path: configured"
+              if [ -n "${SUDO_PASSWORD:-}" ]; then
+                echo "SUDO_PASSWORD is configured"
+              else
+                echo "SUDO_PASSWORD is not configured; passwordless sudo is required"
+              fi
               df -h .
               free -h || true
               ls -lh /tmp/taku-release.tar.gz
@@ -374,22 +379,24 @@ jobs:
             }
 
             STATUS_FILE="/tmp/taku-deploy.status"
-            LOG_PIPE="/tmp/taku-deploy.pipe"
-            rm -f "$STATUS_FILE" "$LOG_PIPE"
-            mkfifo "$LOG_PIPE"
-            tee "$LOG_FILE" < "$LOG_PIPE" &
-            TEE_PID="$!"
+            rm -f "$STATUS_FILE"
 
             set +e
             (
               set -e
               run_deploy
-            ) > "$LOG_PIPE" 2>&1
+            ) > "$LOG_FILE" 2>&1 &
+            DEPLOY_PID="$!"
+
+            tail -n +1 -f "$LOG_FILE" &
+            TAIL_PID="$!"
+
+            wait "$DEPLOY_PID"
             DEPLOY_STATUS="$?"
             set -e
 
-            wait "$TEE_PID" || true
-            rm -f "$LOG_PIPE"
+            kill "$TAIL_PID" 2>/dev/null || true
+            wait "$TAIL_PID" 2>/dev/null || true
             printf '%s' "$DEPLOY_STATUS" > "$STATUS_FILE"
 
             echo "Remote deploy log saved to $LOG_FILE"
