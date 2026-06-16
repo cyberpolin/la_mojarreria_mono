@@ -399,6 +399,8 @@ jobs:
             wait "$TAIL_PID" 2>/dev/null || true
             printf '%s' "$DEPLOY_STATUS" > "$STATUS_FILE"
 
+            echo "Remote deploy log:"
+            cat "$LOG_FILE"
             echo "Remote deploy log saved to $LOG_FILE"
             exit "$DEPLOY_STATUS"
 
