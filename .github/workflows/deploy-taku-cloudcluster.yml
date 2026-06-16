@@ -15,6 +15,7 @@ on:
       - "apps/taku-web/**"
       - "apps/wa-service/**"
       - "apps/bot-service/**"
+      - "apps/service-ports.conf"
       - "scripts/dev-taku.sh"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -247,6 +248,28 @@ jobs:
               mkdir -p apps/bot-service/data
               ln -sfn apps/wa-service wa-service
 
+              if [ ! -f apps/service-ports.conf ]; then
+                echo "apps/service-ports.conf is missing"
+                return 1
+              fi
+
+              set -a
+              . apps/service-ports.conf
+              set +a
+
+              for name in TAKU_WA_SERVICE_PORT TAKU_BOT_SERVICE_PORT TAKU_WEB_SERVICE_PORT; do
+                value="$(eval "printf '%s' \"\${$name:-}\"")"
+                case "$value" in
+                  ''|*[!0-9]*)
+                    echo "$name must be a numeric port"
+                    return 1
+                    ;;
+                  *)
+                    echo "$name=$value"
+                    ;;
+                esac
+              done
+
               if command -v nvm >/dev/null 2>&1; then
                 nvm install 20.19.4
                 nvm use 20.19.4
@@ -276,20 +299,26 @@ jobs:
               $PM2 delete mojarreria-bot-service || true
               $PM2 delete mojarreria-wa-service || true
 
+              TAKU_API_PORT=3010 \
+              WA_SERVICE_BASE_URL="http://127.0.0.1:$TAKU_WA_SERVICE_PORT" \
               $PM2 start "$ROOT/apps/taku-api-service/dist/index.js" \
                 --name taku-api-service \
                 --cwd "$ROOT/apps/taku-api-service" \
                 --update-env
-              $PM2 start pnpm \
+              $PM2 start "$ROOT/apps/taku-web/node_modules/.bin/next" \
                 --name taku-web \
-                --cwd "$ROOT" \
-                -- --filter @taku/web start
+                --cwd "$ROOT/apps/taku-web" \
+                --update-env \
+                -- start -p "$TAKU_WEB_SERVICE_PORT"
               (
                 cd "$ROOT/apps/bot-service"
+                PORT="$TAKU_BOT_SERVICE_PORT" \
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
               (
                 cd "$ROOT/apps/wa-service"
+                PORT="$TAKU_WA_SERVICE_PORT" \
+                BOT_SERVICE_BASE_URL="http://127.0.0.1:$TAKU_BOT_SERVICE_PORT" \
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
 
