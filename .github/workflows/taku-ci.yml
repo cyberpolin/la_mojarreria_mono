@@ -14,7 +14,6 @@ on:
       - ".github/workflows/taku-ci.yml"
   push:
     branches:
-      - main
       - taku-deployment
     paths:
       - "apps/taku-api-service/**"
