@@ -1,6 +1,12 @@
 name: Deploy TAKU to CloudCluster
 
 on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to deploy"
+        required: true
+        default: "taku-deployment"
   push:
     branches:
       - taku-deployment
@@ -28,6 +34,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
