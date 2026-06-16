@@ -102,6 +102,9 @@ for site_file in "${site_files[@]}"; do
   source_file="$ROOT_DIR/apps/$site_file"
   available_file="$SITES_AVAILABLE_DIR/$site_file"
   enabled_file="$SITES_ENABLED_DIR/$site_file"
+  acme_site_file="${site_file%_SITE.conf}_ACME.conf"
+  acme_available_file="$SITES_AVAILABLE_DIR/$acme_site_file"
+  acme_enabled_file="$SITES_ENABLED_DIR/$acme_site_file"
 
   log_debug "Processing $site_file"
   log_debug "  source: $source_file"
@@ -111,6 +114,16 @@ for site_file in "${site_files[@]}"; do
   if [ ! -f "$source_file" ]; then
     echo "Missing nginx site config: $source_file" >&2
     exit 1
+  fi
+
+  if [ -e "$acme_enabled_file" ] || [ -L "$acme_enabled_file" ]; then
+    echo "Removing temporary ACME enabled site $acme_enabled_file"
+    "${SUDO[@]}" rm -f "$acme_enabled_file"
+  fi
+
+  if [ -e "$acme_available_file" ]; then
+    echo "Removing temporary ACME available site $acme_available_file"
+    "${SUDO[@]}" rm -f "$acme_available_file"
   fi
 
   if [ -e "$available_file" ] && ! cmp -s "$source_file" "$available_file"; then
