@@ -294,6 +294,18 @@ jobs:
               ROOT="$PWD"
               PM2="pnpm --dir $ROOT/apps/wa-service exec pm2"
 
+              assert_pm2_online() {
+                name="$1"
+                status_file="/tmp/taku-pm2-${name}.txt"
+                $PM2 describe "$name" > "$status_file"
+                cat "$status_file"
+                if ! grep -q "status.*online" "$status_file"; then
+                  echo "$name is not online"
+                  $PM2 logs "$name" --lines 80 --nostream || true
+                  return 1
+                fi
+              }
+
               $PM2 delete taku-api-service || true
               $PM2 delete taku-web || true
               $PM2 delete mojarreria-bot-service || true
@@ -305,11 +317,12 @@ jobs:
                 --name taku-api-service \
                 --cwd "$ROOT/apps/taku-api-service" \
                 --update-env
-              $PM2 start "$ROOT/apps/taku-web/node_modules/.bin/next" \
+              PORT="$TAKU_WEB_SERVICE_PORT" \
+              $PM2 start pnpm \
                 --name taku-web \
                 --cwd "$ROOT/apps/taku-web" \
                 --update-env \
-                -- start -p "$TAKU_WEB_SERVICE_PORT"
+                -- start
               (
                 cd "$ROOT/apps/bot-service"
                 PORT="$TAKU_BOT_SERVICE_PORT" \
@@ -322,8 +335,10 @@ jobs:
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
 
-              $PM2 describe taku-api-service
-              $PM2 describe taku-web
+              assert_pm2_online taku-api-service
+              assert_pm2_online taku-web
+              assert_pm2_online mojarreria-bot-service
+              assert_pm2_online mojarreria-wa-service
               $PM2 save
               $PM2 status
             }
