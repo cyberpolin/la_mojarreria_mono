@@ -82,7 +82,7 @@ jobs:
           PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
           SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
           DEPLOY_PATH="${CLOUDCLUSTER_TAKU_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_TAKU_DEPLOY_PATH)}"
-          DEPLOY_PATH="${DEPLOY_PATH:-/vars/www/taku}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/taku}"
           PORT="${PORT:-22}"
 
           missing=0
