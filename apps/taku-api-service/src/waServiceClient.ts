@@ -26,6 +26,21 @@ export type WaServiceQr = {
   qrImage: string | null;
 };
 
+export type WaServiceConversationMessage = {
+  id: string;
+  phone: string;
+  text: string;
+  direction: "inbound" | "outbound";
+  timestamp: string;
+};
+
+export type WaServiceConversation = {
+  phone: string;
+  lastMessage: WaServiceConversationMessage;
+  messageCount: number;
+  updatedAt: string;
+};
+
 type WaServiceResponse<T> = T & {
   ok: boolean;
   error?: string;
@@ -103,6 +118,48 @@ export class WaServiceClient {
       connection: body.connection,
       qr: body.qr,
       qrImage: body.qrImage,
+    };
+  }
+
+  async listConversations(limit: number): Promise<WaServiceConversation[]> {
+    const body = await this.request<{
+      conversations: WaServiceConversation[];
+      total: number;
+    }>(`/v1/conversations?limit=${encodeURIComponent(String(limit))}`);
+
+    return body.conversations;
+  }
+
+  async listConversationMessages(params: {
+    phone: string;
+    limit: number;
+  }): Promise<WaServiceConversationMessage[]> {
+    const body = await this.request<{
+      phone: string;
+      messages: WaServiceConversationMessage[];
+      total: number;
+    }>(
+      `/v1/conversations/${encodeURIComponent(params.phone)}/messages?limit=${encodeURIComponent(String(params.limit))}`,
+    );
+
+    return body.messages;
+  }
+
+  async sendConversationMessage(params: {
+    phone: string;
+    text: string;
+  }): Promise<{ phone: string; messageId: string }> {
+    const body = await this.request<{ phone: string; messageId: string }>(
+      `/v1/conversations/${encodeURIComponent(params.phone)}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({ text: params.text }),
+      },
+    );
+
+    return {
+      phone: body.phone,
+      messageId: body.messageId,
     };
   }
 

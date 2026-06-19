@@ -74,6 +74,14 @@ const waConnectionUpdateSchema = z.object({
   activeSchedule: scheduleSchema.optional(),
 });
 
+const limitQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(150).default(80),
+});
+
+const sendChatMessageSchema = z.object({
+  text: z.string().trim().min(1).max(4000),
+});
+
 const botSchema = z.object({
   businessId: z.string().trim().min(1),
   name: z.string().trim().min(1).max(160),
@@ -1424,6 +1432,123 @@ export function createV1Router(params: {
         waConnection: record,
         error:
           error instanceof Error ? error.message : "Failed to unlink WA phone",
+      });
+    }
+  });
+
+  router.get("/wa-chat/conversations", async (req, res) => {
+    const parsed = limitQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid query",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const context = getRequestContext(req, params.config);
+    const data = await params.store.list();
+    const accessibleConnections = scoped(data.waConnections, context);
+    if (accessibleConnections.length === 0) {
+      res.json({ ok: true, total: 0, conversations: [] });
+      return;
+    }
+
+    try {
+      const conversations = await params.waServiceClient.listConversations(
+        parsed.data.limit,
+      );
+      res.json({
+        ok: true,
+        total: conversations.length,
+        conversations,
+        sync: {
+          mode: "rest-polling",
+          websocket: false,
+        },
+      });
+    } catch (error) {
+      res.status(502).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load WA conversations",
+      });
+    }
+  });
+
+  router.get("/wa-chat/conversations/:phone/messages", async (req, res) => {
+    const parsed = limitQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid query",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const context = getRequestContext(req, params.config);
+    const data = await params.store.list();
+    const accessibleConnections = scoped(data.waConnections, context);
+    if (accessibleConnections.length === 0) {
+      res.status(403).json({ ok: false, error: "Business access denied" });
+      return;
+    }
+
+    try {
+      const phone = req.params.phone.trim();
+      const messages = await params.waServiceClient.listConversationMessages({
+        phone,
+        limit: parsed.data.limit,
+      });
+      res.json({
+        ok: true,
+        phone,
+        total: messages.length,
+        messages,
+      });
+    } catch (error) {
+      res.status(502).json({
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Failed to load WA messages",
+      });
+    }
+  });
+
+  router.post("/wa-chat/conversations/:phone/messages", async (req, res) => {
+    const parsed = sendChatMessageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid request body",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const context = getRequestContext(req, params.config);
+    const data = await params.store.list();
+    const accessibleConnections = scoped(data.waConnections, context);
+    if (accessibleConnections.length === 0) {
+      res.status(403).json({ ok: false, error: "Business access denied" });
+      return;
+    }
+
+    try {
+      const result = await params.waServiceClient.sendConversationMessage({
+        phone: req.params.phone.trim(),
+        text: parsed.data.text,
+      });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(502).json({
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Failed to send WA message",
       });
     }
   });

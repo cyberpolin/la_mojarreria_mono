@@ -48,6 +48,17 @@ export default function HomePage() {
                 </span>
               </Link>
               <Link
+                href="/whatsapp"
+                className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300"
+              >
+                <span className="block text-base font-semibold">
+                  WhatsApp Inbox
+                </span>
+                <span className="mt-2 block text-sm text-slate-400">
+                  View and answer conversations from wa-service.
+                </span>
+              </Link>
+              <Link
                 href="/docs"
                 className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300"
               >
