@@ -110,7 +110,7 @@ export function ExpensesClient() {
   };
 
   return (
-    <main className="mx-4 mt-4 w-auto max-w-6xl rounded-xl border border-slate-800 bg-slate-950/40 p-3 md:mx-auto md:mt-0 md:w-full md:border-0 md:bg-transparent md:px-6 md:py-8">
+    <main className="mx-4 mt-4 w-auto max-w-6xl p-3 md:mx-auto md:mt-0 md:w-full md:px-6 md:py-8">
       {error ? (
         <section className="mb-4 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm text-slate-200">
           <p className="font-medium text-slate-100">Expense issue</p>
@@ -128,7 +128,7 @@ export function ExpensesClient() {
       ) : null}
 
       <section className="md:grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
-        <AppCard>
+        <AppCard className="md:grid">
           <h2 className="text-lg font-semibold text-slate-100">New Expense</h2>
           <form onSubmit={submit} className="mt-4 space-y-4">
             <label className="flex flex-col gap-2 text-sm text-slate-300">
@@ -211,12 +211,24 @@ export function ExpensesClient() {
 
         <div className="grid gap-5">
           <section className="grid gap-3 sm:grid-cols-3">
-            <MetricCard title="Today" value={toMoney(todayTotal)} />
-            <MetricCard title="Latest Total" value={toMoney(listTotal)} />
-            <MetricCard title="Entries" value={String(expenses.length)} />
+            <MetricCard
+              title="Today"
+              value={toMoney(todayTotal)}
+              className="md:grid"
+            />
+            <MetricCard
+              title="Latest Total"
+              value={toMoney(listTotal)}
+              className="md:grid"
+            />
+            <MetricCard
+              title="Entries"
+              value={String(expenses.length)}
+              className="md:grid"
+            />
           </section>
 
-          <AppCard>
+          <AppCard className="md:grid">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-slate-100">
                 Latest Expenses

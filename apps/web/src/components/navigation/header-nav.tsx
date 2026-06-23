@@ -321,7 +321,7 @@ export function HeaderNav() {
 
   if (isExpensesPage) {
     return (
-      <nav className="mx-4 mt-[calc(env(safe-area-inset-top)+0.5rem)] w-auto rounded-xl border border-slate-800 bg-slate-950/95 p-3 md:mx-auto md:mt-0 md:flex md:w-full md:max-w-7xl md:flex-wrap md:items-center md:gap-2 md:border-0 md:bg-transparent md:p-0 md:px-6 md:py-3">
+      <nav className="mx-4 mt-[calc(env(safe-area-inset-top)+0.5rem)] w-auto p-3 md:mx-auto md:mt-0 md:flex md:w-full md:max-w-7xl md:flex-wrap md:items-center md:gap-2 md:p-0 md:px-6 md:py-3">
         <button
           type="button"
           aria-expanded={expensesMenuOpen}
