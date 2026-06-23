@@ -45,7 +45,8 @@ const isLocalEnv =
   process.env.NEXT_PUBLIC_ENV === "local" ||
   (!process.env.NEXT_PUBLIC_ENV && process.env.NODE_ENV === "development");
 
-const EXPENSES_MENU_ORDER_KEY = "MOJARRERIA_EXPENSES_MENU_ORDER_V1";
+const MOBILE_MENU_ORDER_KEY = "MOJARRERIA_MOBILE_MENU_ORDER_V1";
+const LEGACY_EXPENSES_MENU_ORDER_KEY = "MOJARRERIA_EXPENSES_MENU_ORDER_V1";
 const LONG_PRESS_MS = 450;
 
 type BeforeInstallPromptEvent = Event & {
@@ -75,9 +76,9 @@ const reorderHref = (
 export function HeaderNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const [expensesMenuOpen, setExpensesMenuOpen] = useState(false);
-  const [expensesMenuOrder, setExpensesMenuOrder] = useState<string[]>([]);
-  const [expensesMenuArranging, setExpensesMenuArranging] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMenuOrder, setMobileMenuOrder] = useState<string[]>([]);
+  const [mobileMenuArranging, setMobileMenuArranging] = useState(false);
   const [draggedHref, setDraggedHref] = useState<string | null>(null);
   const [installPrompt, setInstallPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
@@ -96,26 +97,27 @@ export function HeaderNav() {
     () => visibleLinks.map((link) => link.href),
     [visibleLinks],
   );
-  const orderedExpensesLinks = useMemo(() => {
+  const orderedMobileLinks = useMemo(() => {
     const orderedHrefs = [
-      ...expensesMenuOrder.filter((href) => visibleHrefs.includes(href)),
-      ...visibleHrefs.filter((href) => !expensesMenuOrder.includes(href)),
+      ...mobileMenuOrder.filter((href) => visibleHrefs.includes(href)),
+      ...visibleHrefs.filter((href) => !mobileMenuOrder.includes(href)),
     ];
 
     return orderedHrefs
       .map((href) => visibleLinks.find((link) => link.href === href))
       .filter((link): link is (typeof visibleLinks)[number] => Boolean(link));
-  }, [expensesMenuOrder, visibleHrefs, visibleLinks]);
-  const isExpensesPage = pathname === "/expenses";
+  }, [mobileMenuOrder, visibleHrefs, visibleLinks]);
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(EXPENSES_MENU_ORDER_KEY);
+      const stored =
+        window.localStorage.getItem(MOBILE_MENU_ORDER_KEY) ??
+        window.localStorage.getItem(LEGACY_EXPENSES_MENU_ORDER_KEY);
       if (!stored) return;
 
       const parsed = JSON.parse(stored) as unknown;
       if (Array.isArray(parsed)) {
-        setExpensesMenuOrder(
+        setMobileMenuOrder(
           parsed.filter((href): href is string => typeof href === "string"),
         );
       }
@@ -125,12 +127,12 @@ export function HeaderNav() {
   }, []);
 
   useEffect(() => {
-    if (expensesMenuOrder.length === 0) return;
+    if (mobileMenuOrder.length === 0) return;
     window.localStorage.setItem(
-      EXPENSES_MENU_ORDER_KEY,
-      JSON.stringify(expensesMenuOrder),
+      MOBILE_MENU_ORDER_KEY,
+      JSON.stringify(mobileMenuOrder),
     );
-  }, [expensesMenuOrder]);
+  }, [mobileMenuOrder]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
@@ -204,8 +206,8 @@ export function HeaderNav() {
       arrangingRef.current = true;
       draggedHrefRef.current = href;
       suppressClickHrefRef.current = href;
-      setExpensesMenuOpen(true);
-      setExpensesMenuArranging(true);
+      setMobileMenuOpen(true);
+      setMobileMenuArranging(true);
       setDraggedHref(href);
       setSuppressClickHref(href);
     }, LONG_PRESS_MS);
@@ -218,11 +220,11 @@ export function HeaderNav() {
 
     const target = document
       .elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>("[data-expenses-nav-href]");
-    const targetHref = target?.dataset.expensesNavHref;
+      ?.closest<HTMLElement>("[data-mobile-nav-href]");
+    const targetHref = target?.dataset.mobileNavHref;
     if (!targetHref || targetHref === currentDraggedHref) return;
 
-    setExpensesMenuOrder((current) => {
+    setMobileMenuOrder((current) => {
       const baseOrder =
         current.length > 0
           ? [
@@ -243,7 +245,7 @@ export function HeaderNav() {
     draggedHrefRef.current = null;
     setDraggedHref(null);
     if (shouldNavigate && href) {
-      setExpensesMenuOpen(false);
+      setMobileMenuOpen(false);
       router.push(href);
     }
   };
@@ -252,17 +254,17 @@ export function HeaderNav() {
     <Link
       key={link.href}
       href={link.href}
-      onClick={() => setExpensesMenuOpen(false)}
+      onClick={() => setMobileMenuOpen(false)}
       className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-slate-50"
     >
       {link.label}
     </Link>
   ));
-  const expensesMobileNavLinks = orderedExpensesLinks.map((link) => (
+  const mobileNavLinks = orderedMobileLinks.map((link) => (
     <button
       key={link.href}
       type="button"
-      data-expenses-nav-href={link.href}
+      data-mobile-nav-href={link.href}
       aria-pressed={draggedHref === link.href}
       onPointerDown={(event) => startLongPress(event, link.href)}
       onPointerMove={moveDraggedItem}
@@ -272,7 +274,7 @@ export function HeaderNav() {
       onClick={() => {
         if (
           arrangingRef.current ||
-          expensesMenuArranging ||
+          mobileMenuArranging ||
           suppressClickHrefRef.current === link.href ||
           suppressClickHref === link.href
         ) {
@@ -284,7 +286,7 @@ export function HeaderNav() {
       className={`flex aspect-square touch-none select-none items-center justify-center rounded-lg border p-1.5 text-center text-sm font-medium leading-tight transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 ${
         draggedHref === link.href
           ? "scale-[0.98] border-slate-400 bg-slate-800 text-slate-50"
-          : expensesMenuArranging
+          : mobileMenuArranging
             ? "border-slate-600 bg-slate-900 text-slate-100"
             : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-slate-50"
       }`}
@@ -306,7 +308,7 @@ export function HeaderNav() {
       type="button"
       aria-label="Open costs context menu"
       onClick={() => {
-        setExpensesMenuOpen(false);
+        setMobileMenuOpen(false);
         if (pathname === "/cost-control") {
           window.dispatchEvent(new CustomEvent("mojarreria:open-costs-menu"));
           return;
@@ -319,67 +321,54 @@ export function HeaderNav() {
     </button>
   );
 
-  if (isExpensesPage) {
-    return (
-      <nav className="mx-4 mt-[calc(env(safe-area-inset-top)+0.5rem)] w-auto p-3 md:mx-auto md:mt-0 md:flex md:w-full md:max-w-7xl md:flex-wrap md:items-center md:gap-2 md:p-0 md:px-6 md:py-3">
-        <button
-          type="button"
-          aria-expanded={expensesMenuOpen}
-          aria-controls="expenses-mobile-nav"
-          onClick={() => {
-            if (expensesMenuArranging) {
-              arrangingRef.current = false;
-              draggedHrefRef.current = null;
-              suppressClickHrefRef.current = null;
-              setExpensesMenuArranging(false);
-              setDraggedHref(null);
-              setSuppressClickHref(null);
-              return;
-            }
-            setExpensesMenuOpen((open) => !open);
-          }}
-          className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 md:hidden"
-        >
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-            {expensesMenuArranging ? "Arrange Menu" : "Menu"}
-          </span>
-          <span className="text-sm font-medium text-slate-100">
-            {expensesMenuArranging
-              ? "Done"
-              : expensesMenuOpen
-                ? "Hide"
-                : "Show"}
-          </span>
-        </button>
+  return (
+    <nav className="mx-4 mt-[calc(env(safe-area-inset-top)+0.5rem)] w-auto p-3 md:mx-auto md:mt-0 md:flex md:w-full md:max-w-7xl md:flex-wrap md:items-center md:gap-2 md:p-0 md:px-6 md:py-3">
+      <button
+        type="button"
+        aria-expanded={mobileMenuOpen}
+        aria-controls="mobile-nav"
+        onClick={() => {
+          if (mobileMenuArranging) {
+            arrangingRef.current = false;
+            draggedHrefRef.current = null;
+            suppressClickHrefRef.current = null;
+            setMobileMenuArranging(false);
+            setDraggedHref(null);
+            setSuppressClickHref(null);
+            return;
+          }
+          setMobileMenuOpen((open) => !open);
+        }}
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-left transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 md:hidden"
+      >
+        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+          {mobileMenuArranging ? "Arrange Menu" : "Menu"}
+        </span>
+        <span className="text-sm font-medium text-slate-100">
+          {mobileMenuArranging ? "Done" : mobileMenuOpen ? "Hide" : "Show"}
+        </span>
+      </button>
 
-        <div
-          id="expenses-mobile-nav"
-          className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out md:hidden ${
-            expensesMenuOpen
-              ? "grid-rows-[1fr] opacity-100"
-              : "grid-rows-[0fr] opacity-0"
-          }`}
-        >
-          <div className="min-h-0">
-            <div className="grid grid-cols-2 gap-4 py-5">
-              {installAppTile}
-              {expensesMobileNavLinks}
-            </div>
+      <div
+        id="mobile-nav"
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out md:hidden ${
+          mobileMenuOpen
+            ? "grid-rows-[1fr] opacity-100"
+            : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="min-h-0">
+          <div className="grid grid-cols-2 gap-4 py-5">
+            {installAppTile}
+            {mobileNavLinks}
           </div>
         </div>
+      </div>
 
-        <div className="hidden w-full flex-wrap items-center gap-2 md:flex">
-          {navLinks}
-          {costsButton}
-        </div>
-      </nav>
-    );
-  }
-
-  return (
-    <nav className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-2 px-4 py-3 md:px-6">
-      {navLinks}
-      {costsButton}
+      <div className="hidden w-full flex-wrap items-center gap-2 md:flex">
+        {navLinks}
+        {costsButton}
+      </div>
     </nav>
   );
 }
