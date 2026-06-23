@@ -18,6 +18,14 @@ type AuthSuccess = {
 
 type AuthFailure = { message?: string };
 
+type BootstrapPayload = {
+  data?: {
+    users?: Array<{ id: string }>;
+    restaurants?: Array<{ name?: string | null }>;
+  };
+  errors?: Array<{ message?: string }>;
+};
+
 const isAuthSuccess = (
   result: AuthSuccess | AuthFailure | undefined,
 ): result is AuthSuccess =>
@@ -28,12 +36,31 @@ const isAuthSuccess = (
       result.sessionToken,
   );
 
+const getSafeNextPath = (formData: FormData) => {
+  const next = String(formData.get("next") ?? "");
+  if (!next.startsWith("/") || next.startsWith("//")) return "/dashboard";
+  if (next.startsWith("/login") || next.startsWith("/logout")) {
+    return "/dashboard";
+  }
+  return next;
+};
+
+const getEndpointLogLabel = () => {
+  try {
+    const endpoint = new URL(getGraphqlEndpoint());
+    return `${endpoint.hostname}${endpoint.pathname}`;
+  } catch {
+    return "invalid-graphql-endpoint";
+  }
+};
+
 export async function loginAction(
   _prevState: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
   const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
+  const nextPath = getSafeNextPath(formData);
 
   if (!email || !password) {
     return { error: "Email and password are required." };
@@ -112,6 +139,7 @@ export async function loginAction(
 
   let ownerExists = false;
   let restaurantReady = false;
+  let bootstrapCompleted = false;
   try {
     const bootstrapResponse = await fetch(getGraphqlEndpoint(), {
       method: "POST",
@@ -119,32 +147,40 @@ export async function loginAction(
       body: JSON.stringify({ query: bootstrapQuery }),
       cache: "no-store",
     });
+    const payload = (await bootstrapResponse.json()) as BootstrapPayload;
+    const errorMessages =
+      payload.errors?.map((error) => error.message).filter(Boolean) ?? [];
     if (bootstrapResponse.ok) {
-      const payload = (await bootstrapResponse.json()) as {
-        data?: {
-          users?: Array<{ id: string }>;
-          restaurants?: Array<{ name?: string | null }>;
-        };
-      };
-      ownerExists = Boolean(payload.data?.users?.length);
-      restaurantReady = Boolean(payload.data?.restaurants?.[0]?.name?.trim());
+      if (!payload.errors?.length) {
+        bootstrapCompleted = true;
+        ownerExists = Boolean(payload.data?.users?.length);
+        restaurantReady = Boolean(payload.data?.restaurants?.[0]?.name?.trim());
+      }
     }
-  } catch {
-    // fall back to defaults
+    console.info("[web-login] bootstrap", {
+      endpoint: getEndpointLogLabel(),
+      status: bootstrapResponse.status,
+      role,
+      bootstrapCompleted,
+      ownerExists,
+      restaurantReady,
+      restaurantCount: payload.data?.restaurants?.length ?? 0,
+      userCount: payload.data?.users?.length ?? 0,
+      errors: errorMessages,
+    });
+  } catch (error) {
+    console.warn("[web-login] bootstrap failed", {
+      endpoint: getEndpointLogLabel(),
+      role,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   setSessionCookie(result.sessionToken);
-
-  if (role === "ADMIN") {
-    if (!ownerExists) {
-      redirect("/admin/owner-onboarding");
-    }
-    redirect("/dashboard");
-  }
 
   if (!restaurantReady) {
     redirect("/onboarding");
   }
 
-  redirect("/dashboard");
+  redirect(nextPath);
 }

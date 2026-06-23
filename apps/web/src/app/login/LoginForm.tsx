@@ -5,11 +5,12 @@ import { loginAction } from "./actions";
 
 const initialState = { error: "" };
 
-export default function LoginForm() {
+export default function LoginForm({ nextPath }: { nextPath?: string }) {
   const [state, action] = useFormState(loginAction, initialState);
 
   return (
     <form action={action} className="mt-8 grid gap-4">
+      <input name="next" type="hidden" value={nextPath ?? ""} />
       <label className="grid gap-2 text-sm text-slate-200">
         Email
         <input

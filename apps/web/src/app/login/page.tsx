@@ -1,6 +1,10 @@
 import LoginForm from "./LoginForm";
 
-export default function LoginPage() {
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams?: { next?: string };
+}) {
   return (
     <div className="min-h-screen bg-slate-950 px-6 py-16 text-slate-100">
       <div className="mx-auto w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-lg shadow-black/40">
@@ -13,7 +17,7 @@ export default function LoginPage() {
             Use your superadmin credentials to access the dashboard.
           </p>
         </div>
-        <LoginForm />
+        <LoginForm nextPath={searchParams?.next} />
       </div>
     </div>
   );
