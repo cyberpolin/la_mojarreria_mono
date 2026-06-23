@@ -110,7 +110,7 @@ export function ExpensesClient() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-4 md:px-6 md:py-8">
+    <main className="mx-4 mt-4 w-auto max-w-6xl rounded-xl border border-slate-800 bg-slate-950/40 p-3 md:mx-auto md:mt-0 md:w-full md:border-0 md:bg-transparent md:px-6 md:py-8">
       {error ? (
         <section className="mb-4 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm text-slate-200">
           <p className="font-medium text-slate-100">Expense issue</p>
