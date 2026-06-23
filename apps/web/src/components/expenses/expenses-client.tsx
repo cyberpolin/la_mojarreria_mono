@@ -210,7 +210,7 @@ export function ExpensesClient() {
         </AppCard>
 
         <div className="grid gap-5">
-          <section className="grid gap-3 sm:grid-cols-3">
+          <section className="md:grid gap-3 sm:grid-cols-3">
             <MetricCard
               title="Today"
               value={toMoney(todayTotal)}
