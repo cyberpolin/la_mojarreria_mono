@@ -1,0 +1,18 @@
+{
+  "name": "MOJARRERIA",
+  "short_name": "Mojarreria",
+  "description": "MOJARRERIA web app",
+  "start_url": "/expenses",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    {
+      "src": "/icons/mojarreria-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

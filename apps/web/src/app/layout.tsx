@@ -5,6 +5,17 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "MOJARRERIA",
   description: "MOJARRERIA web app",
+  applicationName: "MOJARRERIA",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "MOJARRERIA",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: "/icons/mojarreria-icon.svg",
+    apple: "/icons/mojarreria-icon.svg",
+  },
 };
 
 export default function RootLayout({

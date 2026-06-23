@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MOJARRERIA">
+  <rect width="512" height="512" rx="96" fill="#020617"/>
+  <circle cx="256" cy="256" r="168" fill="#0f172a" stroke="#e2e8f0" stroke-width="18"/>
+  <path fill="#e2e8f0" d="M150 267c42-71 116-92 205-55l42-34c8-6 19 2 15 12l-21 56 21 56c4 10-7 18-15 12l-42-34c-89 37-163 16-205-55-5-8-5-16 0-24Zm62-11c0 15 12 27 27 27s27-12 27-27-12-27-27-27-27 12-27 27Z"/>
+  <path fill="#94a3b8" d="M282 317c-40 0-76-13-104-37 42 53 108 67 181 36l38 31c8 6 19-2 15-12l-18-49c-34 21-71 31-112 31Z" opacity=".85"/>
+</svg>

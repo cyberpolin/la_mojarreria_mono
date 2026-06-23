@@ -110,14 +110,7 @@ export function ExpensesClient() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6">
-      <header className="mb-6">
-        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-          MOJARRERIA EXPENSES
-        </p>
-        <h1 className="text-2xl font-semibold text-slate-50">Quick Expenses</h1>
-      </header>
-
+    <main className="mx-auto w-full max-w-6xl px-4 py-4 md:px-6 md:py-8">
       {error ? (
         <section className="mb-4 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm text-slate-200">
           <p className="font-medium text-slate-100">Expense issue</p>
@@ -134,13 +127,7 @@ export function ExpensesClient() {
         </section>
       ) : null}
 
-      <section className="grid gap-3 sm:grid-cols-3">
-        <MetricCard title="Today" value={toMoney(todayTotal)} />
-        <MetricCard title="Latest Total" value={toMoney(listTotal)} />
-        <MetricCard title="Entries" value={String(expenses.length)} />
-      </section>
-
-      <section className="mt-5 grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+      <section className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
         <AppCard>
           <h2 className="text-lg font-semibold text-slate-100">New Expense</h2>
           <form onSubmit={submit} className="mt-4 space-y-4">
@@ -222,53 +209,61 @@ export function ExpensesClient() {
           </form>
         </AppCard>
 
-        <AppCard>
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-slate-100">
-              Latest Expenses
-            </h2>
-            {loading ? (
-              <span className="text-xs text-slate-400">Loading...</span>
-            ) : null}
-          </div>
+        <div className="grid gap-5">
+          <section className="grid gap-3 sm:grid-cols-3">
+            <MetricCard title="Today" value={toMoney(todayTotal)} />
+            <MetricCard title="Latest Total" value={toMoney(listTotal)} />
+            <MetricCard title="Entries" value={String(expenses.length)} />
+          </section>
 
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-2 py-2 text-left">Date</th>
-                  <th className="px-2 py-2 text-left">Concept</th>
-                  <th className="px-2 py-2 text-right">Amount</th>
-                  <th className="px-2 py-2 text-left">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {expenses.map((expense) => (
-                  <tr key={expense.id}>
-                    <td className="whitespace-nowrap px-2 py-3 text-slate-100">
-                      {expense.date}
-                    </td>
-                    <td className="px-2 py-3 font-medium text-slate-100">
-                      {expense.concept}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-3 text-right text-slate-100">
-                      {toMoney(expense.amountCents)}
-                    </td>
-                    <td className="px-2 py-3 text-slate-300">
-                      {expense.notes || "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {!loading && expenses.length === 0 ? (
-            <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
-              No expenses yet.
+          <AppCard>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-100">
+                Latest Expenses
+              </h2>
+              {loading ? (
+                <span className="text-xs text-slate-400">Loading...</span>
+              ) : null}
             </div>
-          ) : null}
-        </AppCard>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="text-xs uppercase tracking-wide text-slate-400">
+                  <tr>
+                    <th className="px-2 py-2 text-left">Date</th>
+                    <th className="px-2 py-2 text-left">Concept</th>
+                    <th className="px-2 py-2 text-right">Amount</th>
+                    <th className="px-2 py-2 text-left">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {expenses.map((expense) => (
+                    <tr key={expense.id}>
+                      <td className="whitespace-nowrap px-2 py-3 text-slate-100">
+                        {expense.date}
+                      </td>
+                      <td className="px-2 py-3 font-medium text-slate-100">
+                        {expense.concept}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-3 text-right text-slate-100">
+                        {toMoney(expense.amountCents)}
+                      </td>
+                      <td className="px-2 py-3 text-slate-300">
+                        {expense.notes || "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {!loading && expenses.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
+                No expenses yet.
+              </div>
+            ) : null}
+          </AppCard>
+        </div>
       </section>
     </main>
   );
