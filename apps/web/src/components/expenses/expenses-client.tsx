@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { AppCard, MetricCard } from "@/components/ui/card";
+import { useIntervalTasks } from "@/hooks/useIntervalTasks";
 import { CloseReportsPayload } from "@/types/close-report";
 import { DailyExpenseRecord, ExpensesPayload } from "@/types/expense";
 
@@ -42,6 +43,7 @@ const initialForm = () => ({
 });
 
 export function ExpensesClient() {
+  const { addTask, removeTask } = useIntervalTasks();
   const [expenses, setExpenses] = useState<DailyExpenseRecord[]>([]);
   const [soldMojarras, setSoldMojarras] = useState(0);
   const [form, setForm] = useState(initialForm);
@@ -51,8 +53,8 @@ export function ExpensesClient() {
   const [message, setMessage] = useState<string | null>(null);
   const [fromCache, setFromCache] = useState(false);
 
-  const loadExpenses = async () => {
-    setLoading(true);
+  const loadExpenses = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError(null);
 
     const cached = localStorage.getItem(CACHE_KEY);
@@ -76,11 +78,11 @@ export function ExpensesClient() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load expenses");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
-  };
+  }, []);
 
-  const loadMojarraSales = async () => {
+  const loadMojarraSales = useCallback(async () => {
     try {
       const response = await fetch("/api/close-reports?limit=365", {
         cache: "no-store",
@@ -102,12 +104,20 @@ export function ExpensesClient() {
     } catch {
       setSoldMojarras(0);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadExpenses();
     loadMojarraSales();
-  }, []);
+  }, [loadExpenses, loadMojarraSales]);
+
+  useEffect(() => {
+    addTask("syncExpenses", async () => {
+      await Promise.all([loadExpenses(false), loadMojarraSales()]);
+    });
+
+    return () => removeTask("syncExpenses");
+  }, [addTask, loadExpenses, loadMojarraSales, removeTask]);
 
   const todayTotal = useMemo(
     () =>
