@@ -1,6 +1,9 @@
+import { HomeStandaloneRedirect } from "./HomeStandaloneRedirect";
+
 export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-10 md:px-6">
+      <HomeStandaloneRedirect />
       <header className="space-y-2">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
           MOJARRERIA
