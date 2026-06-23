@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { HeaderNav } from "@/components/navigation/header-nav";
 import "./globals.css";
 
@@ -16,6 +16,15 @@ export const metadata: Metadata = {
     icon: "/icons/mojarreria-icon.svg",
     apple: "/icons/mojarreria-icon.svg",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#020617",
 };
 
 export default function RootLayout({

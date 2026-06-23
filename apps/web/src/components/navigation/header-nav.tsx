@@ -53,6 +53,10 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
+type NavigatorWithStandalone = Navigator & {
+  standalone?: boolean;
+};
+
 const reorderHref = (
   order: string[],
   draggedHref: string,
@@ -136,7 +140,7 @@ export function HeaderNav() {
   useEffect(() => {
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in navigator && Boolean(navigator.standalone));
+      Boolean((navigator as NavigatorWithStandalone).standalone);
     setAppInstalled(isStandalone);
 
     const media = window.matchMedia("(display-mode: standalone)");

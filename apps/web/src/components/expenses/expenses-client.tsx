@@ -143,7 +143,7 @@ export function ExpensesClient() {
                   }))
                 }
                 required
-                className="h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
+                className="h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-base text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 md:text-sm"
               />
             </label>
 
@@ -159,7 +159,7 @@ export function ExpensesClient() {
                 }
                 required
                 placeholder="Ice, gas, repair, supplies"
-                className="h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
+                className="h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-base text-slate-100 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 md:text-sm"
               />
             </label>
 
@@ -179,7 +179,7 @@ export function ExpensesClient() {
                 }
                 required
                 placeholder="0.00"
-                className="h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
+                className="h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-base text-slate-100 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 md:text-sm"
               />
             </label>
 
@@ -195,7 +195,7 @@ export function ExpensesClient() {
                 }
                 rows={4}
                 placeholder="Optional"
-                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
+                className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-100 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 md:text-sm"
               />
             </label>
 
