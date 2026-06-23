@@ -127,7 +127,7 @@ export function ExpensesClient() {
         </section>
       ) : null}
 
-      <section className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
+      <section className="md:grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
         <AppCard>
           <h2 className="text-lg font-semibold text-slate-100">New Expense</h2>
           <form onSubmit={submit} className="mt-4 space-y-4">
