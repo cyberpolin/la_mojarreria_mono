@@ -17,6 +17,7 @@
     "dev:web": "pnpm --filter @mojarreria/web dev",
     "dev:taku": "bash ./scripts/dev-taku.sh",
     "dev:taku-web": "pnpm --filter @taku/web dev",
+    "dev:taku-wa-web": "pnpm --filter @taku/wa-web-service dev",
     "dev:taku-api": "pnpm --filter @taku/api-service dev",
     "dev:mobile": "pnpm --filter @mojarreria/mobile start",
     "seed:products": "pnpm --filter @mojarreria/api run seed:products",

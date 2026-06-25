@@ -1,0 +1,393 @@
+"use client";
+
+import { FormEvent, useMemo, useState } from "react";
+import Image from "next/image";
+
+type SignupResult = {
+  ok: true;
+  account: {
+    id: string;
+    name: string;
+    email: string;
+    projectName: string;
+    plan: string;
+    connectionIds: string[];
+  };
+  apiKey: string;
+  sessionToken: string;
+  sessionExpiresAt: string;
+  entitlements: {
+    connectionLimit: number | null;
+    dailyMessageLimit: number | null;
+    webhooksEnabled: boolean;
+  };
+  usage: {
+    date: string;
+    messagesSent: number;
+  };
+  connectionId: string;
+  qrImage: string | null;
+  pairingError: string | null;
+};
+
+type SignupError = {
+  ok: false;
+  error: string;
+  issues?: Record<string, string[]>;
+};
+
+type QrResponse = {
+  ok: boolean;
+  qrImage: string | null;
+  error?: string;
+};
+
+const apiBaseUrl =
+  process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
+
+function Field(params: {
+  id: string;
+  label: string;
+  type?: string;
+  value: string;
+  autoComplete?: string;
+  error?: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-2 text-sm font-medium text-slate-700">
+      {params.label}
+      <input
+        id={params.id}
+        type={params.type ?? "text"}
+        value={params.value}
+        autoComplete={params.autoComplete}
+        onChange={(event) => params.onChange(event.target.value)}
+        className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm text-slate-950 outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+      />
+      {params.error ? (
+        <span className="text-xs font-medium text-red-600">
+          {params.error.join(", ")}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
+export default function SignupPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFetchingQr, setIsFetchingQr] = useState(false);
+  const [qrStatus, setQrStatus] = useState<string | null>(null);
+  const [result, setResult] = useState<SignupResult | null>(null);
+  const [error, setError] = useState<SignupError | null>(null);
+
+  const connectionId = result?.connectionId ?? "wa_connection_id";
+  const curlExample = useMemo(
+    () => `curl -X POST ${apiBaseUrl}/v1/account/connections/${connectionId}/messages \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: ${result?.apiKey ?? "$TAKU_WA_API_KEY"}" \\
+  -d '{
+    "to": "5219931234567",
+    "text": "Your order is ready."
+  }'`,
+    [connectionId, result?.apiKey],
+  );
+
+  async function refreshQr(params: {
+    apiKey: string;
+    connectionId: string;
+    attempts?: number;
+  }) {
+    setIsFetchingQr(true);
+    setQrStatus("Waiting for WhatsApp QR...");
+
+    try {
+      const attempts = params.attempts ?? 1;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const response = await fetch(
+          `${apiBaseUrl}/v1/account/connections/${params.connectionId}/qr`,
+          { headers: { "x-api-key": params.apiKey } },
+        );
+        const payload = (await response.json()) as QrResponse;
+
+        if (!response.ok || !payload.ok) {
+          setQrStatus(payload.error ?? "Could not fetch the QR yet.");
+          return;
+        }
+
+        if (payload.qrImage) {
+          setResult((current) =>
+            current
+              ? {
+                  ...current,
+                  qrImage: payload.qrImage,
+                  pairingError: null,
+                }
+              : current,
+          );
+          setQrStatus("QR ready. Scan it from WhatsApp linked devices.");
+          return;
+        }
+
+        if (attempt < attempts) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+
+      setQrStatus("QR is not ready yet. Try refreshing it in a moment.");
+    } catch (requestError) {
+      setQrStatus(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not fetch the QR.",
+      );
+    } finally {
+      setIsFetchingQr(false);
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+    setResult(null);
+    setQrStatus(null);
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/v1/public/signup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, email, projectName, password }),
+      });
+      const payload = (await response.json()) as SignupResult | SignupError;
+
+      if (!response.ok || !payload.ok) {
+        setError(payload as SignupError);
+        return;
+      }
+
+      window.localStorage.setItem(
+        "TAKU_WA_SIGNUP_RESULT",
+        JSON.stringify({
+          account: payload.account,
+          connectionId: payload.connectionId,
+          sessionToken: payload.sessionToken,
+          sessionExpiresAt: payload.sessionExpiresAt,
+          createdAt: new Date().toISOString(),
+        }),
+      );
+      setResult(payload);
+
+      if (!payload.qrImage) {
+        void refreshQr({
+          apiKey: payload.apiKey,
+          connectionId: payload.connectionId,
+          attempts: 10,
+        });
+      } else {
+        setQrStatus("QR ready. Scan it from WhatsApp linked devices.");
+      }
+    } catch (requestError) {
+      setError({
+        ok: false,
+        error:
+          requestError instanceof Error
+            ? requestError.message
+            : "Failed to create account",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50 text-slate-950">
+      <nav className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 md:px-6">
+        <a href="/" className="text-sm font-bold tracking-[0.2em]">
+          TAKU
+        </a>
+        <a
+          href="/status"
+          className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
+        >
+          Check status
+        </a>
+      </nav>
+
+      <section className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-16 pt-6 md:grid-cols-[0.9fr_1.1fr] md:px-6">
+        <div className="self-start">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-700">
+            Free developer account
+          </p>
+          <h1 className="mt-4 text-4xl font-semibold leading-tight text-slate-950 md:text-6xl">
+            Pair your first WhatsApp phone today.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
+            Create a standalone TAKU WA account, scan the QR, and send up to 100
+            messages per day on the free tier.
+          </p>
+          <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="text-sm font-semibold text-emerald-900">
+              Starter includes
+            </p>
+            <ul className="mt-4 grid gap-3 text-sm text-emerald-900">
+              <li>1 WhatsApp connection</li>
+              <li>100 messages per day</li>
+              <li>Account-scoped API key</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-950/5 md:p-6">
+          {!result ? (
+            <form className="grid gap-5" onSubmit={handleSubmit}>
+              <Field
+                id="name"
+                label="Your name"
+                value={name}
+                autoComplete="name"
+                error={error?.issues?.name}
+                onChange={setName}
+              />
+              <Field
+                id="email"
+                label="Email"
+                type="email"
+                value={email}
+                autoComplete="email"
+                error={error?.issues?.email}
+                onChange={setEmail}
+              />
+              <Field
+                id="projectName"
+                label="Project name"
+                value={projectName}
+                autoComplete="organization"
+                error={error?.issues?.projectName}
+                onChange={setProjectName}
+              />
+              <Field
+                id="password"
+                label="Password"
+                type="password"
+                value={password}
+                autoComplete="new-password"
+                error={error?.issues?.password}
+                onChange={setPassword}
+              />
+
+              {error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+                  {error.error}
+                </div>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isSubmitting ? "Creating account..." : "Start today"}
+              </button>
+            </form>
+          ) : (
+            <div className="grid gap-6">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                  Account ready
+                </p>
+                <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                  {result.account.projectName}
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Connection: {result.connectionId}
+                </p>
+              </div>
+
+              {result.qrImage ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-950">
+                    Scan this QR in WhatsApp
+                  </p>
+                  <Image
+                    src={result.qrImage}
+                    alt="WhatsApp pairing QR"
+                    width={320}
+                    height={320}
+                    unoptimized
+                    className="mt-4 aspect-square w-full max-w-xs rounded-xl border border-slate-200 bg-white"
+                  />
+                  {qrStatus ? (
+                    <p className="mt-3 text-sm text-slate-600">{qrStatus}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-950">
+                    WhatsApp QR
+                  </p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {qrStatus ??
+                      "The account is ready, but the QR is still being generated."}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={isFetchingQr}
+                    onClick={() =>
+                      void refreshQr({
+                        apiKey: result.apiKey,
+                        connectionId: result.connectionId,
+                        attempts: 5,
+                      })
+                    }
+                    className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {isFetchingQr ? "Refreshing..." : "Refresh QR"}
+                  </button>
+                </div>
+              )}
+
+              {result.pairingError ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+                  {result.pairingError}
+                </div>
+              ) : null}
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-950 p-4 text-white">
+                <p className="text-sm font-semibold">API key</p>
+                <p className="mt-2 text-xs text-slate-400">
+                  Store this now. It is only shown once.
+                </p>
+                <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-900 p-4 text-xs text-slate-100">
+                  <code>{result.apiKey}</code>
+                </pre>
+              </div>
+
+              <a
+                href="/admin"
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                Open admin
+              </a>
+
+              <div className="rounded-2xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-200 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">
+                    Send your first message
+                  </p>
+                </div>
+                <pre className="overflow-x-auto p-4 text-xs leading-6 text-slate-700">
+                  <code>{curlExample}</code>
+                </pre>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}

@@ -61,7 +61,7 @@ export function createServer(params: {
       res.header("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
       res.header(
         "access-control-allow-headers",
-        "content-type,x-api-key,x-client-domain",
+        "content-type,x-api-key,x-client-domain,x-session-token,authorization",
       );
     }
 

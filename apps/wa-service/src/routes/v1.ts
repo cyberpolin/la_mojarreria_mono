@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { join } from "node:path";
 import QRCode from "qrcode";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
@@ -8,13 +9,46 @@ import {
   getLastConversationMessage,
   listConversationMessages,
   listConversations,
+  listMessages,
 } from "../services/conversationStore.js";
 import {
   createWebhookSubscription,
   deleteWebhookSubscription,
+  deleteWebhookSubscriptionForAccount,
   listWebhookSubscriptions,
   type WebhookEventName,
 } from "../services/webhookSubscriptionStore.js";
+import {
+  addStandaloneConnection,
+  activateStandalonePreapprovalSubscription,
+  completeStandaloneBillingRequest,
+  createStandaloneBillingRequest,
+  createStandalonePaymentMethod,
+  createStandaloneConnectionId,
+  createStandaloneFreeAccount,
+  createStandaloneSession,
+  createStandaloneSessionForAccount,
+  deleteStandalonePaymentMethod,
+  findStandaloneAccountByApiKey,
+  findStandaloneAccountBySessionToken,
+  getStandaloneBillingSummary,
+  getStandaloneEffectiveBilling,
+  getStandaloneEntitlements,
+  getStandaloneUsage,
+  incrementStandaloneMessages,
+  listStandalonePlans,
+  listStandaloneUsageDays,
+  setDefaultStandalonePaymentMethod,
+  updateStandaloneSubscriptionFromProvider,
+  updateStandaloneBillingRequestCheckout,
+  type StandalonePlan,
+  type StandaloneAccount,
+} from "../services/standaloneAccountStore.js";
+import {
+  createMercadoPagoPreapproval,
+  getMercadoPagoPreapproval,
+  getMercadoPagoPayment,
+} from "../services/mercadoPagoClient.js";
 import { normalizePhone } from "../utils/phone.js";
 import { validateServiceRequest } from "../utils/requestAuth.js";
 
@@ -22,9 +56,21 @@ const limitQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
 });
 
+const messageStreamQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
 const sendMessageSchema = z.object({
   to: z.string().trim().min(10).max(20),
   text: z.string().trim().min(1).max(4000),
+});
+
+const monthQuerySchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
 });
 
 const createConnectionSchema = z.object({
@@ -47,6 +93,40 @@ const webhookSubscriptionSchema = z.object({
     .min(1)
     .default(["message.received"]),
   secret: z.string().trim().min(1).max(500).optional(),
+});
+
+const standaloneSignupSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  email: z.string().trim().email().max(254),
+  projectName: z.string().trim().min(1).max(160),
+  password: z.string().min(8).max(200),
+});
+
+const standaloneLoginSchema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(1).max(200),
+});
+
+const standaloneCreateConnectionSchema = z.object({
+  label: z.string().trim().min(1).max(120).optional(),
+});
+
+const paidPlanSchema = z.enum(["basic", "developer", "platform", "enterprise"]);
+
+const billingCheckoutSchema = z.object({
+  plan: paidPlanSchema,
+  billingCycle: z.enum(["monthly"]).default("monthly"),
+});
+
+const paymentMethodSchema = z.object({
+  brand: z.string().trim().min(1).max(40),
+  last4: z
+    .string()
+    .trim()
+    .regex(/^\d{4}$/),
+  expMonth: z.coerce.number().int().min(1).max(12),
+  expYear: z.coerce.number().int().min(2026).max(2100),
+  holderName: z.string().trim().min(1).max(120),
 });
 
 function ensureAuthorized(
@@ -88,6 +168,236 @@ function parseConnectionIdParam(req: Request, res: Response): string | null {
   return connectionId;
 }
 
+function publicStandaloneAccount(account: StandaloneAccount) {
+  return {
+    id: account.id,
+    name: account.name,
+    email: account.email,
+    projectName: account.projectName,
+    plan: account.plan,
+    connectionIds: account.connectionIds,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+  };
+}
+
+function currentMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function getMonthRange(month: string): { from: string; to: string } {
+  const [yearText, monthText] = month.split("-");
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  return {
+    from: `${month}-01`,
+    to: `${month}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
+function buildMonthlyUsageDays(params: {
+  month: string;
+  usageDays: Array<{ date: string; messagesSent: number; updatedAt: string }>;
+}) {
+  const usageByDate = new Map(
+    params.usageDays.map((usage) => [usage.date, usage]),
+  );
+  const range = getMonthRange(params.month);
+  const dayCount = Number(range.to.slice(-2));
+
+  return Array.from({ length: dayCount }, (_, index) => {
+    const date = `${params.month}-${String(index + 1).padStart(2, "0")}`;
+    const usage = usageByDate.get(date);
+    return {
+      date,
+      messagesSent: usage?.messagesSent ?? 0,
+      updatedAt: usage?.updatedAt ?? null,
+    };
+  });
+}
+
+function getConnectionConversationStoreFile(
+  config: AppConfig,
+  connectionId: string,
+) {
+  return join(
+    config.connectionDataRoot,
+    encodeURIComponent(connectionId),
+    "conversations.json",
+  );
+}
+
+async function requireStandaloneAccount(
+  req: Request,
+  res: Response,
+  config: AppConfig,
+): Promise<StandaloneAccount | null> {
+  const apiKey = req.header("x-api-key")?.trim();
+  if (apiKey) {
+    const account = await findStandaloneAccountByApiKey({
+      filePath: config.standaloneAccountsFile,
+      apiKey,
+    });
+    if (account) {
+      return account;
+    }
+  }
+
+  const authHeader = req.header("authorization")?.trim();
+  const bearerToken = authHeader?.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+  const sessionToken = req.header("x-session-token")?.trim() ?? bearerToken;
+  if (sessionToken) {
+    const account = await findStandaloneAccountBySessionToken({
+      filePath: config.standaloneAccountsFile,
+      sessionToken,
+    });
+    if (account) {
+      return account;
+    }
+  }
+
+  res.status(401).json({
+    ok: false,
+    error: "Valid x-api-key or session token is required",
+  });
+  return null;
+}
+
+function ensureAccountConnection(
+  account: StandaloneAccount,
+  connectionId: string,
+  res: Response,
+): boolean {
+  if (account.connectionIds.includes(connectionId)) {
+    return true;
+  }
+
+  res.status(404).json({
+    ok: false,
+    error: "WhatsApp connection not found for this account",
+  });
+  return false;
+}
+
+function readQueryString(value: unknown): string | null {
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === "string" && value[0]) {
+    return value[0];
+  }
+
+  return null;
+}
+
+function readWebhookPaymentId(req: Request): string | null {
+  const queryId =
+    readQueryString(req.query["data.id"]) ?? readQueryString(req.query.id);
+  if (queryId) {
+    return queryId;
+  }
+
+  const body = req.body as unknown;
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  const data = "data" in body ? (body as { data?: unknown }).data : null;
+  if (typeof data === "object" && data !== null && "id" in data) {
+    const id = (data as { id?: unknown }).id;
+    return typeof id === "string" || typeof id === "number" ? String(id) : null;
+  }
+
+  return null;
+}
+
+function readWebhookType(req: Request): string | null {
+  const queryType =
+    readQueryString(req.query.type) ??
+    readQueryString(req.query.topic) ??
+    readQueryString(req.query.action);
+  if (queryType) {
+    return queryType;
+  }
+
+  const body = req.body as unknown;
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+
+  for (const key of ["type", "topic", "action"] as const) {
+    if (key in body) {
+      const value = (body as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.length > 0) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function isPreapprovalWebhook(type: string | null): boolean {
+  const normalized = type?.toLowerCase() ?? "";
+  return (
+    normalized.includes("preapproval") ||
+    normalized.includes("subscription") ||
+    normalized.includes("authorized_payment")
+  );
+}
+
+function mapPreapprovalStatus(
+  status: string,
+): "active" | "past_due" | "cancelled" | null {
+  if (status === "authorized") {
+    return "active";
+  }
+
+  if (status === "paused" || status === "pending") {
+    return "past_due";
+  }
+
+  if (status === "cancelled") {
+    return "cancelled";
+  }
+
+  return null;
+}
+
+async function getEffectiveBillingForAccount(
+  config: AppConfig,
+  account: StandaloneAccount,
+) {
+  return getStandaloneEffectiveBilling({
+    filePath: config.standaloneAccountsFile,
+    accountId: account.id,
+  });
+}
+
+async function ensurePaidBillingAccess(
+  config: AppConfig,
+  account: StandaloneAccount,
+  res: Response,
+): Promise<boolean> {
+  const billing = await getEffectiveBillingForAccount(config, account);
+  if (!billing.billingRestricted) {
+    return true;
+  }
+
+  res.status(402).json({
+    ok: false,
+    error: "Subscription payment is past due. Update billing to continue.",
+    upgradeRequired: true,
+    subscription: billing.subscription,
+    entitlements: billing.entitlements,
+  });
+  return false;
+}
+
 export function createV1Router(params: {
   config: AppConfig;
   whatsAppClient: WhatsAppClient;
@@ -98,6 +408,958 @@ export function createV1Router(params: {
   router.get("/health", (_req: Request, res: Response) => {
     res.json({ ok: true, version: "v1" });
   });
+
+  router.post("/public/signup", async (req: Request, res: Response) => {
+    const parsed = standaloneSignupSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid signup payload",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    try {
+      const { account, apiKey, connectionId } =
+        await createStandaloneFreeAccount({
+          filePath: params.config.standaloneAccountsFile,
+          name: parsed.data.name,
+          email: parsed.data.email,
+          projectName: parsed.data.projectName,
+          password: parsed.data.password,
+        });
+
+      let connection = null;
+      let qr: string | null = null;
+      let qrImage: string | null = null;
+      let pairingError: string | null = null;
+
+      try {
+        await params.connectionManager.createConnection({
+          connectionId,
+          businessId: account.id,
+          label: account.projectName,
+          autoStart: false,
+        });
+        connection = await params.connectionManager.start(
+          connectionId,
+          "standalone_signup_start",
+        );
+        qr = params.connectionManager.getLatestQr(connectionId);
+        qrImage = qr
+          ? await QRCode.toDataURL(qr, {
+              margin: 2,
+              width: 320,
+              errorCorrectionLevel: "M",
+            })
+          : null;
+      } catch (error) {
+        pairingError =
+          error instanceof Error
+            ? error.message
+            : "Failed to start WhatsApp pairing";
+        connection = params.connectionManager.getSnapshot(connectionId);
+      }
+
+      const entitlements = getStandaloneEntitlements(account.plan);
+      const usage = await getStandaloneUsage({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: account.id,
+      });
+      const session = await createStandaloneSessionForAccount({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: account.id,
+      });
+
+      res.status(201).json({
+        ok: true,
+        account: publicStandaloneAccount(account),
+        apiKey,
+        apiKeyNotice: "Store this API key now. It is only returned once.",
+        sessionToken: session.sessionToken,
+        sessionExpiresAt: session.expiresAt,
+        entitlements,
+        usage,
+        connection,
+        connectionId,
+        qr,
+        qrImage,
+        pairingError,
+      });
+    } catch (error) {
+      res.status(409).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create TAKU WA account",
+      });
+    }
+  });
+
+  router.post("/public/login", async (req: Request, res: Response) => {
+    const parsed = standaloneLoginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid login payload",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    try {
+      const session = await createStandaloneSession({
+        filePath: params.config.standaloneAccountsFile,
+        email: parsed.data.email,
+        password: parsed.data.password,
+      });
+      const usage = await getStandaloneUsage({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: session.account.id,
+      });
+      const billing = await getEffectiveBillingForAccount(
+        params.config,
+        session.account,
+      );
+
+      res.json({
+        ok: true,
+        account: publicStandaloneAccount(session.account),
+        sessionToken: session.sessionToken,
+        sessionExpiresAt: session.expiresAt,
+        entitlements: billing.entitlements,
+        effectivePlan: billing.effectivePlan,
+        billingRestricted: billing.billingRestricted,
+        usage,
+      });
+    } catch (error) {
+      res.status(401).json({
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Invalid email or password",
+      });
+    }
+  });
+
+  router.post(
+    "/public/mercadopago/webhook",
+    async (req: Request, res: Response) => {
+      if (!params.config.mercadoPagoAccessToken) {
+        res.status(503).json({
+          ok: false,
+          error: "Mercado Pago access token is not configured",
+        });
+        return;
+      }
+
+      const eventType = readWebhookType(req);
+      const eventId = readWebhookPaymentId(req);
+      if (isPreapprovalWebhook(eventType)) {
+        if (!eventId) {
+          res.status(400).json({ ok: false, error: "Missing preapproval id" });
+          return;
+        }
+
+        try {
+          const preapproval = await getMercadoPagoPreapproval({
+            accessToken: params.config.mercadoPagoAccessToken,
+            preapprovalId: eventId,
+          });
+          const localStatus = mapPreapprovalStatus(preapproval.status);
+          if (!localStatus) {
+            res.json({
+              ok: true,
+              ignored: true,
+              reason: `Preapproval status is ${preapproval.status}`,
+            });
+            return;
+          }
+
+          if (localStatus === "active") {
+            if (!preapproval.externalReference) {
+              res.status(400).json({
+                ok: false,
+                error: "Preapproval is missing external reference",
+              });
+              return;
+            }
+
+            const activated = await activateStandalonePreapprovalSubscription({
+              filePath: params.config.standaloneAccountsFile,
+              billingRequestId: preapproval.externalReference,
+              providerSubscriptionId: preapproval.id,
+              nextPaymentDate: preapproval.nextPaymentDate,
+            });
+            res.json({
+              ok: true,
+              account: publicStandaloneAccount(activated.account),
+              billingRequest: activated.billingRequest,
+              subscription: activated.subscription,
+            });
+            return;
+          }
+
+          const subscription = await updateStandaloneSubscriptionFromProvider({
+            filePath: params.config.standaloneAccountsFile,
+            providerSubscriptionId: preapproval.id,
+            status: localStatus,
+            nextPaymentDate: preapproval.nextPaymentDate,
+          });
+          res.json({ ok: true, subscription });
+          return;
+        } catch (error) {
+          res.status(400).json({
+            ok: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not process Mercado Pago subscription webhook",
+          });
+          return;
+        }
+      }
+
+      const paymentId = eventId;
+      if (!paymentId) {
+        res.status(400).json({ ok: false, error: "Missing payment id" });
+        return;
+      }
+
+      try {
+        const payment = await getMercadoPagoPayment({
+          accessToken: params.config.mercadoPagoAccessToken,
+          paymentId,
+        });
+
+        if (payment.status !== "approved") {
+          res.json({
+            ok: true,
+            ignored: true,
+            reason: `Payment status is ${payment.status}`,
+          });
+          return;
+        }
+
+        if (!payment.externalReference) {
+          res.status(400).json({
+            ok: false,
+            error: "Payment is missing external reference",
+          });
+          return;
+        }
+
+        const completed = await completeStandaloneBillingRequest({
+          filePath: params.config.standaloneAccountsFile,
+          billingRequestId: payment.externalReference,
+          providerPaymentId: payment.id,
+          amountUsd: payment.transactionAmount ?? 0,
+          paidAt: payment.dateApproved ?? new Date().toISOString(),
+        });
+
+        res.json({
+          ok: true,
+          account: publicStandaloneAccount(completed.account),
+          billingRequest: completed.billingRequest,
+          subscription: completed.subscription,
+          invoice: completed.invoice,
+        });
+      } catch (error) {
+        res.status(400).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not process Mercado Pago webhook",
+        });
+      }
+    },
+  );
+
+  router.get("/account/me", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const usage = await getStandaloneUsage({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+    });
+    const billing = await getEffectiveBillingForAccount(params.config, account);
+
+    res.json({
+      ok: true,
+      account: publicStandaloneAccount(account),
+      entitlements: billing.entitlements,
+      effectivePlan: billing.effectivePlan,
+      billingRestricted: billing.billingRestricted,
+      usage,
+    });
+  });
+
+  router.get("/account/usage", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const usage = await getStandaloneUsage({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+    });
+
+    res.json({ ok: true, usage });
+  });
+
+  router.get("/account/usage/monthly", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const parsed = monthQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "month must use YYYY-MM format",
+      });
+      return;
+    }
+
+    const month = parsed.data.month ?? currentMonth();
+    const range = getMonthRange(month);
+    const storedUsageDays = await listStandaloneUsageDays({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+      from: range.from,
+      to: range.to,
+    });
+    const usageDays = buildMonthlyUsageDays({
+      month,
+      usageDays: storedUsageDays,
+    });
+    const totalMessages = usageDays.reduce(
+      (total, usage) => total + usage.messagesSent,
+      0,
+    );
+
+    res.json({
+      ok: true,
+      month,
+      from: range.from,
+      to: range.to,
+      usageDays,
+      totalMessages,
+    });
+  });
+
+  router.get("/account/billing", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const billing = await getStandaloneBillingSummary({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+    });
+
+    res.json({
+      ok: true,
+      account: publicStandaloneAccount(account),
+      plans: listStandalonePlans(),
+      currentPlan: billing.currentPlan,
+      subscription: billing.subscription,
+      invoices: billing.invoices,
+      paymentMethods: billing.paymentMethods,
+      billingRequests: billing.billingRequests,
+    });
+  });
+
+  router.post(
+    "/account/billing/payment-methods",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const parsed = paymentMethodSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid payment method payload",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      const paymentMethod = await createStandalonePaymentMethod({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: account.id,
+        ...parsed.data,
+      });
+
+      res.status(201).json({ ok: true, paymentMethod });
+    },
+  );
+
+  router.post(
+    "/account/billing/payment-methods/:paymentMethodId/default",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const paymentMethodId = req.params.paymentMethodId;
+      if (!paymentMethodId) {
+        res.status(400).json({ ok: false, error: "Missing payment method id" });
+        return;
+      }
+
+      try {
+        const paymentMethod = await setDefaultStandalonePaymentMethod({
+          filePath: params.config.standaloneAccountsFile,
+          accountId: account.id,
+          paymentMethodId,
+        });
+        res.json({ ok: true, paymentMethod });
+      } catch (error) {
+        res.status(404).json({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Payment method not found",
+        });
+      }
+    },
+  );
+
+  router.delete(
+    "/account/billing/payment-methods/:paymentMethodId",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const paymentMethodId = req.params.paymentMethodId;
+      if (!paymentMethodId) {
+        res.status(400).json({ ok: false, error: "Missing payment method id" });
+        return;
+      }
+
+      const deleted = await deleteStandalonePaymentMethod({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: account.id,
+        paymentMethodId,
+      });
+      res.json({ ok: true, deleted });
+    },
+  );
+
+  router.post(
+    "/account/billing/checkout",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const parsed = billingCheckoutSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid billing payload",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      try {
+        if (!params.config.mercadoPagoAccessToken) {
+          res.status(503).json({
+            ok: false,
+            error: "Mercado Pago access token is not configured",
+          });
+          return;
+        }
+
+        const selectedPlan = listStandalonePlans().find(
+          (plan) => plan.plan === parsed.data.plan,
+        );
+        if (!selectedPlan || selectedPlan.monthlyPriceUsd === null) {
+          res.status(400).json({
+            ok: false,
+            error: "Choose a fixed-price paid plan",
+          });
+          return;
+        }
+
+        const billingRequest = await createStandaloneBillingRequest({
+          filePath: params.config.standaloneAccountsFile,
+          accountId: account.id,
+          toPlan: parsed.data.plan as StandalonePlan,
+          billingCycle: parsed.data.billingCycle,
+        });
+        const preapproval = await createMercadoPagoPreapproval({
+          accessToken: params.config.mercadoPagoAccessToken,
+          reason: `TAKU WA ${selectedPlan.name}`,
+          payerEmail: account.email,
+          externalReference: billingRequest.id,
+          backUrl: `${params.config.takuWaWebBaseUrl}/admin/billing?subscription=pending`,
+          amount: selectedPlan.monthlyPriceUsd,
+          currencyId: params.config.mercadoPagoCurrencyId,
+        });
+        if (!preapproval.initPoint) {
+          throw new Error("Mercado Pago subscription checkout is missing");
+        }
+
+        const updatedBillingRequest =
+          await updateStandaloneBillingRequestCheckout({
+            filePath: params.config.standaloneAccountsFile,
+            accountId: account.id,
+            billingRequestId: billingRequest.id,
+            provider: "mercadopago_preapproval",
+            providerPreferenceId: null,
+            providerSubscriptionId: preapproval.id,
+            checkoutUrl: preapproval.initPoint,
+          });
+
+        res.status(201).json({
+          ok: true,
+          billingRequest: updatedBillingRequest,
+          checkoutUrl: updatedBillingRequest.checkoutUrl,
+        });
+      } catch (error) {
+        res.status(400).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not create billing request",
+        });
+      }
+    },
+  );
+
+  router.get("/account/connections", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const connections = [];
+    for (const connectionId of account.connectionIds) {
+      let connection = params.connectionManager.getSnapshot(connectionId);
+      if (!connection) {
+        connection = await params.connectionManager.createConnection({
+          connectionId,
+          businessId: account.id,
+          label: account.projectName,
+          autoStart: false,
+        });
+      }
+
+      connections.push(connection);
+    }
+
+    res.json({ ok: true, total: connections.length, connections });
+  });
+
+  router.get(
+    "/account/connections/:connectionId/messages",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (
+        !connectionId ||
+        !ensureAccountConnection(account, connectionId, res)
+      ) {
+        return;
+      }
+
+      const parsed = messageStreamQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid query",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      const billing = await getEffectiveBillingForAccount(
+        params.config,
+        account,
+      );
+      const isFreePlan = billing.effectivePlan === "free";
+      const limit = isFreePlan ? 20 : parsed.data.limit;
+      const offset = isFreePlan ? 0 : parsed.data.offset;
+      const result = await listMessages({
+        filePath: getConnectionConversationStoreFile(
+          params.config,
+          connectionId,
+        ),
+        direction: "inbound",
+        limit,
+        offset,
+      });
+
+      res.json({
+        ok: true,
+        connectionId,
+        messages: result.messages,
+        total: result.total,
+        limit,
+        offset,
+        hasMore: !isFreePlan && offset + result.messages.length < result.total,
+        restricted: isFreePlan,
+        entitlements: billing.entitlements,
+      });
+    },
+  );
+
+  router.post("/account/connections", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const parsed = standaloneCreateConnectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid connection payload",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const billing = await getEffectiveBillingForAccount(params.config, account);
+    const entitlements = billing.entitlements;
+    if (
+      entitlements.connectionLimit !== null &&
+      account.connectionIds.length >= entitlements.connectionLimit
+    ) {
+      res.status(402).json({
+        ok: false,
+        error: "Upgrade required to add another WhatsApp phone",
+        upgradeRequired: true,
+        billingRestricted: billing.billingRestricted,
+        entitlements,
+      });
+      return;
+    }
+
+    const connectionId = createStandaloneConnectionId();
+    try {
+      await params.connectionManager.createConnection({
+        connectionId,
+        businessId: account.id,
+        label: parsed.data.label ?? account.projectName,
+        autoStart: false,
+      });
+      const updatedAccount = await addStandaloneConnection({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: account.id,
+        connectionId,
+      });
+      const connection = await params.connectionManager.start(
+        connectionId,
+        "standalone_account_add_connection",
+      );
+      const qr = params.connectionManager.getLatestQr(connectionId);
+      const qrImage = qr
+        ? await QRCode.toDataURL(qr, {
+            margin: 2,
+            width: 320,
+            errorCorrectionLevel: "M",
+          })
+        : null;
+
+      res.status(201).json({
+        ok: true,
+        account: publicStandaloneAccount(updatedAccount),
+        connection,
+        connectionId,
+        qr,
+        qrImage,
+        entitlements,
+      });
+    } catch (error) {
+      res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to create WhatsApp connection",
+      });
+    }
+  });
+
+  router.get(
+    "/account/connections/:connectionId/status",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (
+        !connectionId ||
+        !ensureAccountConnection(account, connectionId, res)
+      ) {
+        return;
+      }
+
+      const connection = params.connectionManager.getSnapshot(connectionId);
+      if (!connection) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      res.json({ ok: true, connection });
+    },
+  );
+
+  router.get(
+    "/account/connections/:connectionId/qr",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (
+        !connectionId ||
+        !ensureAccountConnection(account, connectionId, res)
+      ) {
+        return;
+      }
+
+      let connection = params.connectionManager.getSnapshot(connectionId);
+      if (!connection) {
+        connection = await params.connectionManager.createConnection({
+          connectionId,
+          businessId: account.id,
+          label: account.projectName,
+          autoStart: false,
+        });
+      }
+
+      if (!connection.connected && !connection.hasQr) {
+        connection = await params.connectionManager.start(
+          connectionId,
+          "standalone_account_qr_request",
+        );
+      }
+
+      let qr = params.connectionManager.getLatestQr(connectionId);
+      for (let attempt = 0; !qr && attempt < 4; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        qr = params.connectionManager.getLatestQr(connectionId);
+      }
+      connection =
+        params.connectionManager.getSnapshot(connectionId) ?? connection;
+      const qrImage = qr
+        ? await QRCode.toDataURL(qr, {
+            margin: 2,
+            width: 320,
+            errorCorrectionLevel: "M",
+          })
+        : null;
+
+      res.json({ ok: true, connection, qr, qrImage });
+    },
+  );
+
+  router.post(
+    "/account/connections/:connectionId/messages",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (
+        !connectionId ||
+        !ensureAccountConnection(account, connectionId, res)
+      ) {
+        return;
+      }
+
+      if (!params.connectionManager.get(connectionId)) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      const parsed = sendMessageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid request body",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      if (!(await ensurePaidBillingAccess(params.config, account, res))) {
+        return;
+      }
+
+      const billing = await getEffectiveBillingForAccount(
+        params.config,
+        account,
+      );
+      const entitlements = billing.entitlements;
+      const usageBeforeSend = await getStandaloneUsage({
+        filePath: params.config.standaloneAccountsFile,
+        accountId: account.id,
+      });
+
+      if (
+        entitlements.dailyMessageLimit !== null &&
+        usageBeforeSend.messagesSent >= entitlements.dailyMessageLimit
+      ) {
+        res.status(429).json({
+          ok: false,
+          error: "Daily message limit reached",
+          usage: usageBeforeSend,
+          entitlements,
+        });
+        return;
+      }
+
+      try {
+        const phone = normalizePhone(parsed.data.to);
+        const messageId = await params.connectionManager.sendTextMessage({
+          connectionId,
+          phone,
+          text: parsed.data.text,
+        });
+        const usage = await incrementStandaloneMessages({
+          filePath: params.config.standaloneAccountsFile,
+          accountId: account.id,
+        });
+
+        res.json({
+          ok: true,
+          connectionId,
+          to: phone,
+          messageId,
+          usage,
+          entitlements,
+        });
+      } catch (error) {
+        res.status(502).json({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Failed to send message",
+        });
+      }
+    },
+  );
+
+  router.get(
+    "/account/webhooks/subscriptions",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const subscriptions = await listWebhookSubscriptions(
+        params.config.webhookSubscriptionsFile,
+        { accountId: account.id },
+      );
+
+      res.json({ ok: true, total: subscriptions.length, subscriptions });
+    },
+  );
+
+  router.post(
+    "/account/webhooks/subscriptions",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const billing = await getEffectiveBillingForAccount(
+        params.config,
+        account,
+      );
+      const entitlements = billing.entitlements;
+      if (!entitlements.webhooksEnabled) {
+        res.status(403).json({
+          ok: false,
+          error: "Webhooks are not enabled for this plan",
+          entitlements,
+        });
+        return;
+      }
+
+      const parsed = webhookSubscriptionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid request body",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      const subscription = await createWebhookSubscription({
+        filePath: params.config.webhookSubscriptionsFile,
+        url: parsed.data.url,
+        events: parsed.data.events as WebhookEventName[],
+        secret: parsed.data.secret ?? null,
+        accountId: account.id,
+        connectionIds: account.connectionIds,
+      });
+
+      res.status(201).json({ ok: true, subscription });
+    },
+  );
+
+  router.delete(
+    "/account/webhooks/subscriptions/:id",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const id = req.params.id;
+      if (!id) {
+        res.status(400).json({ ok: false, error: "Missing subscription id" });
+        return;
+      }
+
+      const deleted = await deleteWebhookSubscriptionForAccount({
+        filePath: params.config.webhookSubscriptionsFile,
+        id,
+        accountId: account.id,
+      });
+      res.json({ ok: true, deleted });
+    },
+  );
 
   router.get("/connections", (req: Request, res: Response) => {
     if (!ensureAuthorized(req, res, params.config)) {

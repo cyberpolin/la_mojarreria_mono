@@ -136,12 +136,40 @@ export async function listConversationMessages(params: {
   filePath: string;
   phone: string;
   limit?: number;
+  offset?: number;
+  direction?: ConversationMessageDirection;
 }): Promise<ConversationMessage[]> {
   const data = await readData(params.filePath);
   return data.messages
-    .filter((message) => message.phone === params.phone)
+    .filter(
+      (message) =>
+        message.phone === params.phone &&
+        (!params.direction || message.direction === params.direction),
+    )
     .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-    .slice(0, params.limit ?? 50);
+    .slice(params.offset ?? 0, (params.offset ?? 0) + (params.limit ?? 50));
+}
+
+export async function listMessages(params: {
+  filePath: string;
+  limit?: number;
+  offset?: number;
+  direction?: ConversationMessageDirection;
+}): Promise<{ total: number; messages: ConversationMessage[] }> {
+  const data = await readData(params.filePath);
+  const messages = data.messages
+    .filter(
+      (message) => !params.direction || message.direction === params.direction,
+    )
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+
+  return {
+    total: messages.length,
+    messages: messages.slice(
+      params.offset ?? 0,
+      (params.offset ?? 0) + (params.limit ?? 50),
+    ),
+  };
 }
 
 export async function getLastConversationMessage(params: {
