@@ -111,13 +111,22 @@ export function ExpensesClient() {
     loadMojarraSales();
   }, [loadExpenses, loadMojarraSales]);
 
+  const evaluateAlerts = useCallback(async () => {
+    await fetch("/api/alerts/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: false }),
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     addTask("syncExpenses", async () => {
       await Promise.all([loadExpenses(false), loadMojarraSales()]);
+      await evaluateAlerts();
     });
 
     return () => removeTask("syncExpenses");
-  }, [addTask, loadExpenses, loadMojarraSales, removeTask]);
+  }, [addTask, evaluateAlerts, loadExpenses, loadMojarraSales, removeTask]);
 
   const todayTotal = useMemo(
     () =>
@@ -184,6 +193,7 @@ export function ExpensesClient() {
       setMessage("Expense saved.");
       await loadExpenses();
       await loadMojarraSales();
+      await evaluateAlerts();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save expense");
     } finally {

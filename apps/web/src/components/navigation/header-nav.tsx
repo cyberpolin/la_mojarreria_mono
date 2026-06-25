@@ -19,8 +19,11 @@ const links = [
   { href: "/wa-chat", label: "WA Chat" },
   { href: "/wa-received-messages", label: "WA Received" },
   { href: "/autoresponse", label: "Auto-response" },
+  { href: "/bot-handlers", label: "Bot Handlers" },
+  { href: "/alerts", label: "Alerts" },
   { href: "/service-logs", label: "Service Logs" },
   { href: "/docs/wa-service", label: "WA Docs" },
+  { href: "/docs/alerts", label: "Alerts Docs" },
   { href: "/sync-logs", label: "Sync Logs" },
   { href: "/admin/error-logs", label: "Error Logs" },
   { href: "/weekly", label: "Weekly" },
@@ -35,9 +38,12 @@ const productionLinks = new Set([
   "/wa-chat",
   "/wa-received-messages",
   "/autoresponse",
+  "/bot-handlers",
+  "/alerts",
   "/restaurant-business-hour",
   "/service-logs",
   "/docs/wa-service",
+  "/docs/alerts",
   "/weekly",
 ]);
 
@@ -48,6 +54,7 @@ const isLocalEnv =
 const MOBILE_MENU_ORDER_KEY = "MOJARRERIA_MOBILE_MENU_ORDER_V1";
 const LEGACY_EXPENSES_MENU_ORDER_KEY = "MOJARRERIA_EXPENSES_MENU_ORDER_V1";
 const LONG_PRESS_MS = 450;
+const BOT_HANDLERS_HREF = "/bot-handlers";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -71,6 +78,34 @@ const reorderHref = (
   nextOrder.splice(fromIndex, 1);
   nextOrder.splice(toIndex, 0, draggedHref);
   return nextOrder;
+};
+
+const desktopLinkClassName = (href: string) =>
+  href === BOT_HANDLERS_HREF
+    ? "rounded-lg border border-emerald-800/70 bg-emerald-950/40 px-3 py-1.5 text-xs text-emerald-100 hover:bg-emerald-900/50 hover:text-emerald-50"
+    : "rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-slate-50";
+
+const mobileLinkClassName = (
+  href: string,
+  isDragged: boolean,
+  isArranging: boolean,
+) => {
+  const base =
+    "flex aspect-square touch-none select-none items-center justify-center rounded-lg border p-1.5 text-center text-sm font-medium leading-tight transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400";
+
+  if (isDragged) {
+    return `${base} scale-[0.98] border-slate-400 bg-slate-800 text-slate-50`;
+  }
+
+  if (isArranging) {
+    return `${base} border-slate-600 bg-slate-900 text-slate-100`;
+  }
+
+  if (href === BOT_HANDLERS_HREF) {
+    return `${base} border-emerald-800/70 bg-emerald-950/40 text-emerald-100 hover:bg-emerald-900/50 hover:text-emerald-50`;
+  }
+
+  return `${base} border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-slate-50`;
 };
 
 export function HeaderNav() {
@@ -255,7 +290,7 @@ export function HeaderNav() {
       key={link.href}
       href={link.href}
       onClick={() => setMobileMenuOpen(false)}
-      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800 hover:text-slate-50"
+      className={desktopLinkClassName(link.href)}
     >
       {link.label}
     </Link>
@@ -283,13 +318,11 @@ export function HeaderNav() {
           return;
         }
       }}
-      className={`flex aspect-square touch-none select-none items-center justify-center rounded-lg border p-1.5 text-center text-sm font-medium leading-tight transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400 ${
-        draggedHref === link.href
-          ? "scale-[0.98] border-slate-400 bg-slate-800 text-slate-50"
-          : mobileMenuArranging
-            ? "border-slate-600 bg-slate-900 text-slate-100"
-            : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-slate-50"
-      }`}
+      className={mobileLinkClassName(
+        link.href,
+        draggedHref === link.href,
+        mobileMenuArranging,
+      )}
     >
       {link.label}
     </button>
