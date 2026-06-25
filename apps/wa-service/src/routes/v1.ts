@@ -116,6 +116,11 @@ const paidPlanSchema = z.enum(["basic", "developer", "platform", "enterprise"]);
 const billingCheckoutSchema = z.object({
   plan: paidPlanSchema,
   billingCycle: z.enum(["monthly"]).default("monthly"),
+  returnPath: z
+    .string()
+    .trim()
+    .regex(/^\/[a-zA-Z0-9/_-]*$/)
+    .default("/admin/billing"),
 });
 
 const paymentMethodSchema = z.object({
@@ -909,7 +914,7 @@ export function createV1Router(params: {
           reason: `TAKU WA ${selectedPlan.name}`,
           payerEmail: account.email,
           externalReference: billingRequest.id,
-          backUrl: `${params.config.takuWaWebBaseUrl}/admin/billing?subscription=pending`,
+          backUrl: `${params.config.takuWaWebBaseUrl}${parsed.data.returnPath}?subscription=pending`,
           amount: selectedPlan.monthlyPriceUsd,
           currencyId: params.config.mercadoPagoCurrencyId,
         });

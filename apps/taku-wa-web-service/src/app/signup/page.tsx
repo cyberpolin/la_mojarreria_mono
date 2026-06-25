@@ -3,6 +3,29 @@
 import { FormEvent, useMemo, useState } from "react";
 import Image from "next/image";
 
+type PaidPlan = "basic" | "developer" | "platform";
+
+const paidPlans: Record<
+  PaidPlan,
+  { name: string; price: string; description: string }
+> = {
+  basic: {
+    name: "Basic",
+    price: "$9/mo",
+    description: "For testing and prototypes.",
+  },
+  developer: {
+    name: "Developer",
+    price: "$29/mo",
+    description: "Build WhatsApp into your own application.",
+  },
+  platform: {
+    name: "Platform",
+    price: "$99/mo",
+    description: "For SaaS teams that need tenant-aware WhatsApp transport.",
+  },
+};
+
 type SignupResult = {
   ok: true;
   account: {
@@ -42,8 +65,26 @@ type QrResponse = {
   error?: string;
 };
 
+type CheckoutResponse =
+  | {
+      ok: true;
+      checkoutUrl: string;
+    }
+  | { ok: false; error: string };
+
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
+
+function readSelectedPlan(): PaidPlan | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const plan = new URLSearchParams(window.location.search).get("plan");
+  return plan === "basic" || plan === "developer" || plan === "platform"
+    ? plan
+    : null;
+}
 
 function Field(params: {
   id: string;
@@ -75,17 +116,20 @@ function Field(params: {
 }
 
 export default function SignupPage() {
+  const [selectedPlan] = useState<PaidPlan | null>(() => readSelectedPlan());
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [projectName, setProjectName] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const [isFetchingQr, setIsFetchingQr] = useState(false);
   const [qrStatus, setQrStatus] = useState<string | null>(null);
   const [result, setResult] = useState<SignupResult | null>(null);
   const [error, setError] = useState<SignupError | null>(null);
 
   const connectionId = result?.connectionId ?? "wa_connection_id";
+  const selectedPlanDetails = selectedPlan ? paidPlans[selectedPlan] : null;
   const curlExample = useMemo(
     () => `curl -X POST ${apiBaseUrl}/v1/account/connections/${connectionId}/messages \\
   -H "content-type: application/json" \\
@@ -156,6 +200,7 @@ export default function SignupPage() {
     setError(null);
     setResult(null);
     setQrStatus(null);
+    setPaymentStatus(null);
 
     try {
       const response = await fetch(`${apiBaseUrl}/v1/public/signup`, {
@@ -180,6 +225,43 @@ export default function SignupPage() {
           createdAt: new Date().toISOString(),
         }),
       );
+
+      if (selectedPlan) {
+        setPaymentStatus("Account ready. Opening Mercado Pago payment...");
+        const checkoutResponse = await fetch(
+          `${apiBaseUrl}/v1/account/billing/checkout`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-session-token": payload.sessionToken,
+            },
+            body: JSON.stringify({
+              plan: selectedPlan,
+              billingCycle: "monthly",
+              returnPath: "/admin",
+            }),
+          },
+        );
+        const checkoutPayload =
+          (await checkoutResponse.json()) as CheckoutResponse;
+
+        if (!checkoutResponse.ok || !checkoutPayload.ok) {
+          setResult(payload);
+          setError({
+            ok: false,
+            error:
+              !checkoutPayload.ok && checkoutPayload.error
+                ? checkoutPayload.error
+                : "Could not start payment",
+          });
+          return;
+        }
+
+        window.location.href = checkoutPayload.checkoutUrl;
+        return;
+      }
+
       setResult(payload);
 
       if (!payload.qrImage) {
@@ -221,23 +303,52 @@ export default function SignupPage() {
       <section className="mx-auto grid w-full max-w-6xl gap-8 px-4 pb-16 pt-6 md:grid-cols-[0.9fr_1.1fr] md:px-6">
         <div className="self-start">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-700">
-            Free developer account
+            {selectedPlanDetails
+              ? "Payment, then onboarding"
+              : "Free developer account"}
           </p>
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-slate-950 md:text-6xl">
-            Pair your first WhatsApp phone today.
+            {selectedPlanDetails
+              ? `Start ${selectedPlanDetails.name} for ${selectedPlanDetails.price}.`
+              : "Pair your first WhatsApp phone today."}
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
-            Create a standalone TAKU WA account, scan the QR, and send up to 100
-            messages per day on the free tier.
+            {selectedPlanDetails
+              ? "Create your account, complete payment in Mercado Pago, then pair your WhatsApp phone from the admin onboarding screen."
+              : "Create a standalone TAKU WA account, scan the QR, and send up to 100 messages per day on the free tier."}
           </p>
           <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm font-semibold text-emerald-900">
-              Starter includes
+              {selectedPlanDetails
+                ? `${selectedPlanDetails.name} includes`
+                : "Starter includes"}
             </p>
             <ul className="mt-4 grid gap-3 text-sm text-emerald-900">
-              <li>1 WhatsApp connection</li>
-              <li>100 messages per day</li>
-              <li>Account-scoped API key</li>
+              {selectedPlan === "developer" ? (
+                <>
+                  <li>Up to 10 WhatsApp connections</li>
+                  <li>Conversation history</li>
+                  <li>Auto reconnect</li>
+                </>
+              ) : selectedPlan === "platform" ? (
+                <>
+                  <li>Up to 50 WhatsApp connections</li>
+                  <li>Multi-tenant management</li>
+                  <li>Operational support</li>
+                </>
+              ) : selectedPlan === "basic" ? (
+                <>
+                  <li>1 WhatsApp connection</li>
+                  <li>Send and receive messages</li>
+                  <li>Webhooks</li>
+                </>
+              ) : (
+                <>
+                  <li>1 WhatsApp connection</li>
+                  <li>100 messages per day</li>
+                  <li>Account-scoped API key</li>
+                </>
+              )}
             </ul>
           </div>
         </div>
@@ -286,12 +397,24 @@ export default function SignupPage() {
                 </div>
               ) : null}
 
+              {paymentStatus ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+                  {paymentStatus}
+                </div>
+              ) : null}
+
               <button
                 type="submit"
                 disabled={isSubmitting}
                 className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {isSubmitting ? "Creating account..." : "Start today"}
+                {isSubmitting
+                  ? selectedPlan
+                    ? "Opening payment..."
+                    : "Creating account..."
+                  : selectedPlanDetails
+                    ? `Pay ${selectedPlanDetails.price}`
+                    : "Start today"}
               </button>
             </form>
           ) : (
