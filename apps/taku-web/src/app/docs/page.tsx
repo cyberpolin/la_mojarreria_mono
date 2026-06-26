@@ -28,7 +28,7 @@ const sections = [
       "TAKU API returns account entitlements with businesses. Trial accounts last 30 days, can create one bot, and cannot use schedules. Paid accounts can use all current features.",
       "Suspended client accounts see a blocking payment prompt in Admin. Superowners can still inspect suspended accounts.",
       "Superowners see a Users & Payments panel in Admin with client users, business account status, and the latest stored payment record.",
-      "The payment screen at `/payment` creates a Mercado Pago Checkout Pro preference through TAKU API, redirects the user to Mercado Pago, and confirms approved returned payments before marking the business as paid. A local dev mock button remains available in development.",
+      "The payment screen at `/payment` renders Mercado Pago Card Payment Brick in TAKU Web, sends only the tokenized card payload to TAKU API, and marks the business as paid when Mercado Pago approves the charge. A local dev mock button remains available in development.",
       "Mercado Pago can also call `POST /v1/billing/mercadopago/webhook`; TAKU API verifies the webhook signature when configured, fetches the payment from Mercado Pago, stores it, and activates the linked business when approved.",
       "Approved Mercado Pago and mock payments are persisted in TAKU API and linked to the business account before the account is activated.",
     ],
@@ -55,6 +55,7 @@ const endpoints = [
   "POST /v1/wa-connections/:id/pairing/unlink",
   "GET /v1/wa-connections/by-connection/:connectionId/bot",
   "POST /v1/billing/mercadopago/preference",
+  "POST /v1/billing/mercadopago/card-payment",
   "POST /v1/billing/mercadopago/confirm",
   "POST /v1/billing/mercadopago/webhook",
   "POST /v1/billing/mock-payment",
@@ -162,7 +163,8 @@ export default function DocsPage() {
               `apps/taku-web/.env`. The current API target is `{apiBaseUrl}`.
             </p>
             <CodeBlock>{`NEXT_PUBLIC_TAKU_API_BASE_URL=http://localhost:3010
-NEXT_PUBLIC_TAKU_API_KEY=taku-local-dev-token`}</CodeBlock>
+NEXT_PUBLIC_TAKU_API_KEY=taku-local-dev-token
+NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY=your-mercado-pago-public-key`}</CodeBlock>
             <CodeBlock>{`TAKU_WEB_BASE_URL=http://localhost:3003
 MERCADOPAGO_ACCESS_TOKEN=your-mercado-pago-access-token
 MERCADOPAGO_USE_SANDBOX=true`}</CodeBlock>

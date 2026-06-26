@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed:standalone-superowner": "tsx scripts/seed-standalone-superowner.ts",
     "reset:whatsapp": "node scripts/reset-whatsapp-auth.mjs"
   },
   "dependencies": {

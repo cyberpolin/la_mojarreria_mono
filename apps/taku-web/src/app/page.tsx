@@ -37,14 +37,29 @@ export default function HomePage() {
           {sessionChecked && session ? (
             <>
               <Link
-                href="/admin"
+                href={session.role === "superowner" ? "/dashboard" : "/admin"}
                 className="rounded-lg border border-slate-700 bg-slate-100 p-5 text-slate-950 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300"
               >
                 <span className="block text-base font-semibold">
-                  Open Admin
+                  {session.role === "superowner"
+                    ? "Open Dashboard"
+                    : "Open Admin"}
                 </span>
                 <span className="mt-2 block text-sm text-slate-700">
                   Continue with your active backoffice session.
+                </span>
+              </Link>
+              <Link
+                href={
+                  session.businessId
+                    ? `/payment?businessId=${encodeURIComponent(session.businessId)}`
+                    : "/payment"
+                }
+                className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300"
+              >
+                <span className="block text-base font-semibold">Billing</span>
+                <span className="mt-2 block text-sm text-slate-400">
+                  Pay or reactivate a TAKU business account.
                 </span>
               </Link>
               <Link

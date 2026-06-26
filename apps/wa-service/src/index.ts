@@ -10,6 +10,7 @@ import {
   isSessionIssueMessage,
   recordSessionIssue,
 } from "./services/sessionIssueStore.js";
+import { ensureStandaloneSuperownerAccount } from "./services/standaloneAccountStore.js";
 
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
@@ -77,6 +78,18 @@ logger.info(
   },
   "resolved wa-service runtime paths",
 );
+if (config.takuSuperownerEmail && config.takuSuperownerPassword) {
+  await ensureStandaloneSuperownerAccount({
+    filePath: config.standaloneAccountsFile,
+    email: config.takuSuperownerEmail,
+    password: config.takuSuperownerPassword,
+  });
+  logger.info(
+    { email: config.takuSuperownerEmail },
+    "ensured TAKU WA standalone superowner account",
+  );
+}
+
 whatsAppClient.setStatusChangeHandler(
   createStatusChangeHandler("default", null),
 );

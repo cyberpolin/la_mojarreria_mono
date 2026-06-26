@@ -55,7 +55,7 @@ export default function LoginPage() {
       const result = await login({ email, password });
       storeSession(result);
       window.location.href =
-        result.session.role === "superowner" ? "/admin" : "/onboarding";
+        result.session.role === "superowner" ? "/dashboard" : "/onboarding";
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Login failed");
     } finally {

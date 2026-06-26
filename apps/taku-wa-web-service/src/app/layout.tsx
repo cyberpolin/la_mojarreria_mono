@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PasswordSetupWarning } from "./password-setup-warning";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,7 +15,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <PasswordSetupWarning />
+        {children}
+      </body>
     </html>
   );
 }

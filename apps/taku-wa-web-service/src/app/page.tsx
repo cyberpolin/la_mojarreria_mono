@@ -58,7 +58,7 @@ const plans = [
       "Community support",
     ],
     cta: "Pay $9",
-    href: "/signup?plan=basic",
+    href: "/payment?plan=basic",
   },
   {
     name: "Developer",
@@ -73,7 +73,7 @@ const plans = [
       "Email support",
     ],
     cta: "Pay $29",
-    href: "/signup?plan=developer",
+    href: "/payment?plan=developer",
   },
   {
     name: "Platform",
@@ -87,7 +87,7 @@ const plans = [
       "TAKU Control integration",
     ],
     cta: "Pay $99",
-    href: "/signup?plan=platform",
+    href: "/payment?plan=platform",
   },
   {
     name: "Enterprise",

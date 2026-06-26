@@ -19,10 +19,21 @@ Set these variables in Vercel:
 ```bash
 NEXT_PUBLIC_TAKU_WA_API_BASE_URL=https://api.wa.lamojarreria.com
 NEXT_PUBLIC_TAKU_WA_HEALTH_URL=https://api.wa.lamojarreria.com/v1/health
+NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY=<mercado-pago-public-key>
 ```
 
-The same values are also present in `apps/taku-wa-web-service/.env` for local
-production-like testing.
+For local development, `apps/taku-wa-web-service/.env` should point to the local
+WA backend:
+
+```bash
+NEXT_PUBLIC_TAKU_WA_API_BASE_URL=http://localhost:3001
+NEXT_PUBLIC_TAKU_WA_HEALTH_URL=http://localhost:3001/v1/health
+NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY=<mercado-pago-test-public-key>
+```
+
+For production-like local builds, `apps/taku-wa-web-service/.env.production`
+can hold the production API values. These env files are ignored and should not
+be committed.
 
 ## Backend Variables
 
@@ -35,8 +46,23 @@ MERCADOPAGO_CURRENCY_ID=MXN
 MERCADOPAGO_NOTIFICATION_URL=https://api.wa.lamojarreria.com/v1/public/mercadopago/webhook
 ```
 
-`TAKU_WA_WEB_BASE_URL` is used by the WA service to send Mercado Pago users back
-to the billing page after starting a subscription.
+`TAKU_WA_WEB_BASE_URL` is used by the legacy Mercado Pago Checkout Pro fallback
+and webhook context. The primary payment flow renders Mercado Pago Card Payment
+Brick in TAKU WA Web and sends only the tokenized payment payload to WA Service.
+
+For local development, the UI can still point to the local WA API. The embedded
+card form requires `NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY` on the web app and
+`MERCADOPAGO_ACCESS_TOKEN` on WA Service.
+
+To test the full real Mercado Pago payment and return flow locally, expose the
+web app with a tunnel or use a deployed Vercel preview URL, then set this on
+`apps/wa-service`:
+
+```bash
+TAKU_WA_WEB_BASE_URL=https://<public-web-url>
+```
+
+Restart `pnpm dev:taku-wa` after changing it.
 
 ## Publish Checklist
 

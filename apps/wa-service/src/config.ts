@@ -55,6 +55,13 @@ const envSchema = z.object({
   TAKU_API_KEY: z.string().optional().or(z.literal("")),
   TAKU_API_BUSINESS_ID: z.string().trim().default("business_001"),
   TAKU_WA_WEB_BASE_URL: z.string().url().default("http://localhost:3004"),
+  TAKU_SUPEROWNER_EMAIL: z.string().trim().email().optional().or(z.literal("")),
+  TAKU_SUPEROWNER_PASSWORD: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .or(z.literal("")),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional().or(z.literal("")),
   MERCADOPAGO_PUBLIC_KEY: z.string().optional().or(z.literal("")),
   MERCADOPAGO_CURRENCY_ID: z.string().trim().min(3).max(3).default("MXN"),
@@ -95,6 +102,8 @@ export const config = {
   takuApiKey: env.TAKU_API_KEY || null,
   takuApiBusinessId: env.TAKU_API_BUSINESS_ID,
   takuWaWebBaseUrl: env.TAKU_WA_WEB_BASE_URL.replace(/\/+$/, ""),
+  takuSuperownerEmail: env.TAKU_SUPEROWNER_EMAIL || null,
+  takuSuperownerPassword: env.TAKU_SUPEROWNER_PASSWORD || null,
   mercadoPagoAccessToken: env.MERCADOPAGO_ACCESS_TOKEN || null,
   mercadoPagoPublicKey: env.MERCADOPAGO_PUBLIC_KEY || null,
   mercadoPagoCurrencyId: env.MERCADOPAGO_CURRENCY_ID,

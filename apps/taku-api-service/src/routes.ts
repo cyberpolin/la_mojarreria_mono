@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -122,6 +122,23 @@ const billingBusinessSchema = z.object({
 const mercadoPagoConfirmSchema = z.object({
   businessId: z.string().trim().min(1).optional(),
   paymentId: z.string().trim().min(1),
+});
+
+const mercadoPagoCardPaymentSchema = z.object({
+  businessId: z.string().trim().min(1).optional(),
+  token: z.string().trim().min(1),
+  payment_method_id: z.string().trim().min(1),
+  issuer_id: z.union([z.string(), z.number()]).optional(),
+  installments: z.coerce.number().int().positive().max(48).default(1),
+  payer: z.object({
+    email: z.string().trim().email(),
+    identification: z
+      .object({
+        type: z.string().trim().min(1).optional(),
+        number: z.string().trim().min(1).optional(),
+      })
+      .optional(),
+  }),
 });
 
 const mercadoPagoWebhookSchema = z.object({
@@ -866,6 +883,110 @@ export function createV1Router(params: {
           error instanceof Error
             ? error.message
             : "Unable to confirm Mercado Pago payment",
+      });
+    }
+  });
+
+  router.post("/billing/mercadopago/card-payment", async (req, res) => {
+    const parsed = mercadoPagoCardPaymentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid Mercado Pago card payment payload",
+        issues: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const context = getRequestContext(req, params.config);
+    const businessId =
+      context.role === "superowner"
+        ? (parsed.data.businessId ?? context.businessId)
+        : context.businessId;
+
+    if (!businessId) {
+      res.status(400).json({ ok: false, error: "Business is required" });
+      return;
+    }
+
+    if (!canAccessBusiness(context, businessId)) {
+      res.status(403).json({ ok: false, error: "Business access denied" });
+      return;
+    }
+
+    const data = await params.store.list();
+    const business = findBusiness(data, businessId);
+    if (!business) {
+      res.status(404).json({ ok: false, error: "Business not found" });
+      return;
+    }
+
+    try {
+      const payment = await mercadoPagoRequest<MercadoPagoPayment>(
+        params.config,
+        "/v1/payments",
+        {
+          method: "POST",
+          headers: {
+            "X-Idempotency-Key": randomUUID(),
+          },
+          body: JSON.stringify({
+            token: parsed.data.token,
+            transaction_amount: 99,
+            installments: parsed.data.installments,
+            payment_method_id: parsed.data.payment_method_id,
+            issuer_id: parsed.data.issuer_id
+              ? String(parsed.data.issuer_id)
+              : undefined,
+            payer: parsed.data.payer,
+            description: "TAKU Paid Monthly",
+            external_reference: businessId,
+            metadata: {
+              business_id: businessId,
+              business_name: business.name,
+            },
+          }),
+        },
+      );
+
+      const storedPayment = await upsertPaymentRecord(params.store, {
+        businessId,
+        provider: "mercadopago",
+        providerPaymentId: String(payment.id),
+        providerPreferenceId: payment.preference_id ?? null,
+        status: payment.status,
+        amount: payment.transaction_amount ?? 99,
+        currency: payment.currency_id ?? "MXN",
+        paidAt:
+          payment.status === "approved"
+            ? (payment.date_approved ?? new Date().toISOString())
+            : null,
+        rawProviderStatus: payment.status_detail ?? payment.status,
+      });
+
+      if (payment.status !== "approved") {
+        res.status(402).json({
+          ok: false,
+          error: `Payment is ${payment.status}`,
+          payment: storedPayment,
+        });
+        return;
+      }
+
+      const paidBusiness = await markBusinessPaid(params.store, businessId);
+      const refreshedData = await params.store.list();
+      res.json({
+        ok: true,
+        business: withEntitlements(refreshedData, paidBusiness),
+        payment: storedPayment,
+      });
+    } catch (error) {
+      res.status(502).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to create Mercado Pago card payment",
       });
     }
   });

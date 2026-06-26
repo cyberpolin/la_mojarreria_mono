@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
 type PaidPlan = "basic" | "developer" | "platform";
@@ -65,10 +65,14 @@ type QrResponse = {
   error?: string;
 };
 
-type CheckoutResponse =
+type PaymentIntentResponse =
   | {
       ok: true;
-      checkoutUrl: string;
+      paymentIntent: {
+        id: string;
+        status: "pending" | "paid" | "attached" | "cancelled";
+        toPlan: PaidPlan;
+      };
     }
   | { ok: false; error: string };
 
@@ -84,6 +88,28 @@ function readSelectedPlan(): PaidPlan | null {
   return plan === "basic" || plan === "developer" || plan === "platform"
     ? plan
     : null;
+}
+
+function readPaymentIntentId(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const value = new URLSearchParams(window.location.search).get(
+    "paymentIntent",
+  );
+  return value && value.length > 0 ? value : null;
+}
+
+function readPaymentEmail(paymentIntentId: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const value = window.localStorage.getItem(
+    `TAKU_WA_PAYMENT_EMAIL_${paymentIntentId}`,
+  );
+  return value && value.length > 0 ? value : null;
 }
 
 function Field(params: {
@@ -116,13 +142,17 @@ function Field(params: {
 }
 
 export default function SignupPage() {
-  const [selectedPlan] = useState<PaidPlan | null>(() => readSelectedPlan());
+  const [selectedPlan, setSelectedPlan] = useState<PaidPlan | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [projectName, setProjectName] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+  const [paymentIntentStatus, setPaymentIntentStatus] = useState<
+    "pending" | "paid" | "attached" | "cancelled" | null
+  >(null);
   const [isFetchingQr, setIsFetchingQr] = useState(false);
   const [qrStatus, setQrStatus] = useState<string | null>(null);
   const [result, setResult] = useState<SignupResult | null>(null);
@@ -130,6 +160,10 @@ export default function SignupPage() {
 
   const connectionId = result?.connectionId ?? "wa_connection_id";
   const selectedPlanDetails = selectedPlan ? paidPlans[selectedPlan] : null;
+  const requiresPaymentFirst = Boolean(selectedPlan && !paymentIntentId);
+  const waitsForPaymentConfirmation = Boolean(
+    selectedPlan && paymentIntentId && paymentIntentStatus !== "paid",
+  );
   const curlExample = useMemo(
     () => `curl -X POST ${apiBaseUrl}/v1/account/connections/${connectionId}/messages \\
   -H "content-type: application/json" \\
@@ -140,6 +174,72 @@ export default function SignupPage() {
   }'`,
     [connectionId, result?.apiKey],
   );
+
+  useEffect(() => {
+    const nextSelectedPlan = readSelectedPlan();
+    const nextPaymentIntentId = readPaymentIntentId();
+    setSelectedPlan(nextSelectedPlan);
+    setPaymentIntentId(nextPaymentIntentId);
+    if (nextPaymentIntentId) {
+      setEmail(
+        (currentEmail) =>
+          currentEmail || readPaymentEmail(nextPaymentIntentId) || "",
+      );
+    }
+    setPaymentIntentStatus(nextPaymentIntentId ? "pending" : null);
+    setPaymentStatus(
+      nextPaymentIntentId
+        ? "Payment received. Add your account details to start onboarding."
+        : null,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!paymentIntentId) {
+      return;
+    }
+
+    let cancelled = false;
+    async function checkPaymentIntent() {
+      try {
+        const response = await fetch(
+          `${apiBaseUrl}/v1/public/billing/intents/${paymentIntentId}`,
+        );
+        const payload = (await response.json()) as PaymentIntentResponse;
+        if (cancelled) {
+          return;
+        }
+
+        if (!response.ok || !payload.ok) {
+          setPaymentIntentStatus("pending");
+          setPaymentStatus("Payment is not confirmed yet.");
+          return;
+        }
+
+        setPaymentIntentStatus(payload.paymentIntent.status);
+        if (payload.paymentIntent.status === "paid") {
+          setPaymentStatus(
+            "Payment confirmed. Add your account details to start onboarding.",
+          );
+        } else if (payload.paymentIntent.status === "attached") {
+          setPaymentStatus("Payment was already used for an account.");
+        } else {
+          setPaymentStatus("Payment is still pending. Try again in a moment.");
+        }
+      } catch {
+        if (!cancelled) {
+          setPaymentStatus("Payment is not confirmed yet.");
+        }
+      }
+    }
+
+    void checkPaymentIntent();
+    const timer = window.setInterval(() => void checkPaymentIntent(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [paymentIntentId]);
 
   async function refreshQr(params: {
     apiKey: string;
@@ -206,7 +306,13 @@ export default function SignupPage() {
       const response = await fetch(`${apiBaseUrl}/v1/public/signup`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, email, projectName, password }),
+        body: JSON.stringify({
+          name,
+          email,
+          projectName,
+          password,
+          paidPaymentIntentId: paymentIntentId,
+        }),
       });
       const payload = (await response.json()) as SignupResult | SignupError;
 
@@ -220,6 +326,7 @@ export default function SignupPage() {
         JSON.stringify({
           account: payload.account,
           connectionId: payload.connectionId,
+          apiKey: payload.apiKey,
           sessionToken: payload.sessionToken,
           sessionExpiresAt: payload.sessionExpiresAt,
           createdAt: new Date().toISOString(),
@@ -227,38 +334,7 @@ export default function SignupPage() {
       );
 
       if (selectedPlan) {
-        setPaymentStatus("Account ready. Opening Mercado Pago payment...");
-        const checkoutResponse = await fetch(
-          `${apiBaseUrl}/v1/account/billing/checkout`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-session-token": payload.sessionToken,
-            },
-            body: JSON.stringify({
-              plan: selectedPlan,
-              billingCycle: "monthly",
-              returnPath: "/admin",
-            }),
-          },
-        );
-        const checkoutPayload =
-          (await checkoutResponse.json()) as CheckoutResponse;
-
-        if (!checkoutResponse.ok || !checkoutPayload.ok) {
-          setResult(payload);
-          setError({
-            ok: false,
-            error:
-              !checkoutPayload.ok && checkoutPayload.error
-                ? checkoutPayload.error
-                : "Could not start payment",
-          });
-          return;
-        }
-
-        window.location.href = checkoutPayload.checkoutUrl;
+        window.location.href = "/admin";
         return;
       }
 
@@ -314,9 +390,15 @@ export default function SignupPage() {
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
             {selectedPlanDetails
-              ? "Create your account, complete payment in Mercado Pago, then pair your WhatsApp phone from the admin onboarding screen."
+              ? "Complete payment in Mercado Pago first. Then add your account details and pair your WhatsApp phone from the admin onboarding screen."
               : "Create a standalone TAKU WA account, scan the QR, and send up to 100 messages per day on the free tier."}
           </p>
+          <a
+            href="/#pricing"
+            className="mt-5 inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
+          >
+            Show all plans
+          </a>
           <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm font-semibold text-emerald-900">
               {selectedPlanDetails
@@ -356,6 +438,12 @@ export default function SignupPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-950/5 md:p-6">
           {!result ? (
             <form className="grid gap-5" onSubmit={handleSubmit}>
+              {paymentStatus ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+                  {paymentStatus}
+                </div>
+              ) : null}
+
               <Field
                 id="name"
                 label="Your name"
@@ -397,25 +485,49 @@ export default function SignupPage() {
                 </div>
               ) : null}
 
-              {paymentStatus ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
-                  {paymentStatus}
+              {requiresPaymentFirst && selectedPlan ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+                  Pay for this plan before adding account details.
+                  <a
+                    href={`/payment?plan=${selectedPlan}`}
+                    className="ml-2 underline decoration-amber-700 underline-offset-4"
+                  >
+                    Open payment
+                  </a>
+                </div>
+              ) : null}
+
+              {waitsForPaymentConfirmation ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
+                  Waiting for Mercado Pago confirmation. This usually takes a
+                  few seconds after returning from payment.
                 </div>
               ) : null}
 
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={
+                  isSubmitting ||
+                  requiresPaymentFirst ||
+                  waitsForPaymentConfirmation
+                }
                 className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {isSubmitting
                   ? selectedPlan
-                    ? "Opening payment..."
+                    ? "Creating account..."
                     : "Creating account..."
                   : selectedPlanDetails
-                    ? `Pay ${selectedPlanDetails.price}`
+                    ? "Create account"
                     : "Start today"}
               </button>
+
+              <a
+                href="/#pricing"
+                className="text-center text-sm font-semibold text-slate-600 hover:text-slate-950"
+              >
+                Show all plans
+              </a>
             </form>
           ) : (
             <div className="grid gap-6">

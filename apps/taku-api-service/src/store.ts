@@ -177,6 +177,43 @@ export class TakuStore {
   }
 }
 
+export async function ensureSuperownerMember(params: {
+  filePath: string;
+  email: string;
+}): Promise<BusinessMember> {
+  const email = params.email.toLowerCase();
+
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const existing = data.members.find(
+      (member) => member.email.toLowerCase() === email,
+    );
+
+    if (existing) {
+      existing.name = existing.name || "TAKU Superowner";
+      existing.email = email;
+      existing.role = "superowner";
+      existing.active = true;
+      touch(existing);
+      await writeData(params.filePath, data);
+      return existing;
+    }
+
+    const member: BusinessMember = {
+      id: createId("member"),
+      businessId: "platform",
+      name: "TAKU Superowner",
+      email,
+      role: "superowner",
+      active: true,
+      ...timestamps(),
+    };
+    data.members.push(member);
+    await writeData(params.filePath, data);
+    return member;
+  });
+}
+
 export function createId(prefix: string): string {
   return `${prefix}_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }

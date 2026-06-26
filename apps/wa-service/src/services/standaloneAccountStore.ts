@@ -17,6 +17,7 @@ export type StandaloneAccount = {
   plan: StandalonePlan;
   passwordSalt: string;
   passwordHash: string;
+  passwordSetupRequired?: boolean;
   apiKeyHash: string;
   connectionIds: string[];
   createdAt: string;
@@ -107,12 +108,94 @@ export type StandalonePaymentMethod = {
   updatedAt: string;
 };
 
+export type StandalonePaymentIntentStatus =
+  | "pending"
+  | "paid"
+  | "attached"
+  | "cancelled";
+
+export type StandalonePaymentIntent = {
+  id: string;
+  toPlan: StandalonePlan;
+  billingCycle: StandaloneBillingCycle;
+  status: StandalonePaymentIntentStatus;
+  amountUsd: number;
+  checkoutUrl: string;
+  provider: "mercadopago";
+  providerPreferenceId: string | null;
+  providerPaymentId: string | null;
+  paidAt: string | null;
+  attachedAccountId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type StandaloneEffectiveBilling = {
   accountPlan: StandalonePlan;
   effectivePlan: StandalonePlan;
   entitlements: StandaloneEntitlements;
   subscription: StandaloneSubscription;
   billingRestricted: boolean;
+};
+
+export type StandaloneAdminAccountSummary = {
+  id: string;
+  name: string;
+  email: string;
+  projectName: string;
+  plan: StandalonePlan;
+  connectionCount: number;
+  connectionIds: string[];
+  messagesToday: number;
+  messagesThisMonth: number;
+  subscriptionStatus: StandaloneSubscriptionStatus;
+  currentPeriodEnd: string | null;
+  openInvoiceCount: number;
+  passwordSetupRequired: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StandaloneAdminBillingOverview = {
+  activeSubscriptions: number;
+  pastDueSubscriptions: number;
+  cancelledSubscriptions: number;
+  openInvoices: number;
+  paidInvoices: number;
+  revenueThisMonthUsd: number;
+  nextDue: Array<{
+    accountId: string;
+    projectName: string;
+    plan: StandalonePlan;
+    currentPeriodEnd: string;
+  }>;
+};
+
+export type StandaloneAdminUsageOverview = {
+  messagesToday: number;
+  messagesThisMonth: number;
+  topAccounts: Array<{
+    accountId: string;
+    projectName: string;
+    messagesThisMonth: number;
+  }>;
+};
+
+export type StandaloneAdminSupportOverview = {
+  passwordSetupRequired: number;
+  accountsWithoutPhones: number;
+  pendingBillingRequests: number;
+  pendingPaymentIntents: number;
+};
+
+export type StandaloneAdminOverview = {
+  totalAccounts: number;
+  totalConnections: number;
+  planCounts: Record<StandalonePlan, number>;
+  billing: StandaloneAdminBillingOverview;
+  usage: StandaloneAdminUsageOverview;
+  support: StandaloneAdminSupportOverview;
+  accounts: StandaloneAdminAccountSummary[];
 };
 
 export type StandaloneUsageDay = {
@@ -137,6 +220,7 @@ type StandaloneAccountData = {
   subscriptions: StandaloneSubscription[];
   invoices: StandaloneInvoice[];
   paymentMethods: StandalonePaymentMethod[];
+  paymentIntents: StandalonePaymentIntent[];
 };
 
 export type StandaloneEntitlements = {
@@ -156,6 +240,7 @@ function emptyData(): StandaloneAccountData {
     subscriptions: [],
     invoices: [],
     paymentMethods: [],
+    paymentIntents: [],
   };
 }
 
@@ -212,6 +297,9 @@ async function readData(filePath: string): Promise<StandaloneAccountData> {
       invoices: Array.isArray(parsed.invoices) ? parsed.invoices : [],
       paymentMethods: Array.isArray(parsed.paymentMethods)
         ? parsed.paymentMethods
+        : [],
+      paymentIntents: Array.isArray(parsed.paymentIntents)
+        ? parsed.paymentIntents
         : [],
     };
   } catch (error) {
@@ -362,6 +450,7 @@ export async function createStandaloneFreeAccount(params: {
   email: string;
   projectName: string;
   password: string;
+  paidPaymentIntentId?: string | null;
 }): Promise<{
   account: StandaloneAccount;
   apiKey: string;
@@ -375,6 +464,18 @@ export async function createStandaloneFreeAccount(params: {
       throw new Error("Email already has a TAKU WA account");
     }
 
+    const paymentIntent = params.paidPaymentIntentId
+      ? data.paymentIntents.find(
+          (intent) =>
+            intent.id === params.paidPaymentIntentId &&
+            intent.status === "paid" &&
+            intent.attachedAccountId === null,
+        )
+      : null;
+    if (params.paidPaymentIntentId && !paymentIntent) {
+      throw new Error("Paid plan confirmation is missing or already used");
+    }
+
     const now = nowIso();
     const apiKey = `taku_wa_${randomBytes(24).toString("base64url")}`;
     const connectionId = createStandaloneConnectionId();
@@ -384,18 +485,108 @@ export async function createStandaloneFreeAccount(params: {
       name: params.name,
       email,
       projectName: params.projectName,
-      plan: "free",
+      plan: paymentIntent?.toPlan ?? "free",
       passwordSalt,
       passwordHash: hashPassword(params.password, passwordSalt),
       apiKeyHash: hash(apiKey),
+      passwordSetupRequired: Boolean(paymentIntent),
       connectionIds: [connectionId],
       createdAt: now,
       updatedAt: now,
     };
 
     data.accounts.push(account);
+
+    if (paymentIntent) {
+      paymentIntent.status = "attached";
+      paymentIntent.attachedAccountId = account.id;
+      paymentIntent.updatedAt = now;
+
+      const periodStart = paymentIntent.paidAt ?? now;
+      const periodEnd = addMonths(periodStart, 1);
+      data.subscriptions.push({
+        accountId: account.id,
+        plan: paymentIntent.toPlan,
+        status: "active",
+        billingCycle: "monthly",
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        gracePeriodEnd: null,
+        provider: "mercadopago",
+        providerSubscriptionId: null,
+        cancelAtPeriodEnd: false,
+        updatedAt: now,
+      });
+
+      const plan =
+        listStandalonePlans().find(
+          (item) => item.plan === paymentIntent.toPlan,
+        ) ?? listStandalonePlans()[0];
+      data.invoices.push({
+        id: createId("inv"),
+        accountId: account.id,
+        plan: paymentIntent.toPlan,
+        amountUsd: paymentIntent.amountUsd,
+        currency: "USD",
+        status: "paid",
+        description: `TAKU WA ${plan?.name ?? paymentIntent.toPlan}`,
+        periodStart,
+        periodEnd,
+        dueDate: periodStart,
+        paidAt: paymentIntent.paidAt ?? now,
+        provider: "mercadopago",
+        providerPaymentId: paymentIntent.providerPaymentId,
+        createdAt: now,
+      });
+    }
+
     await writeData(params.filePath, data);
     return { account, apiKey, connectionId };
+  });
+}
+
+export async function ensureStandaloneSuperownerAccount(params: {
+  filePath: string;
+  email: string;
+  password: string;
+}): Promise<StandaloneAccount> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const email = params.email.toLowerCase();
+    const existing = data.accounts.find((account) => account.email === email);
+    const now = nowIso();
+    const passwordSalt = randomBytes(16).toString("hex");
+
+    if (existing) {
+      existing.name = existing.name || "TAKU Superowner";
+      existing.projectName = existing.projectName || "TAKU Platform";
+      existing.plan = "platform";
+      existing.passwordSalt = passwordSalt;
+      existing.passwordHash = hashPassword(params.password, passwordSalt);
+      existing.passwordSetupRequired = false;
+      existing.updatedAt = now;
+      await writeData(params.filePath, data);
+      return existing;
+    }
+
+    const account: StandaloneAccount = {
+      id: createId("acct"),
+      name: "TAKU Superowner",
+      email,
+      projectName: "TAKU Platform",
+      plan: "platform",
+      passwordSalt,
+      passwordHash: hashPassword(params.password, passwordSalt),
+      apiKeyHash: hash(`seed:${email}:${now}`),
+      passwordSetupRequired: false,
+      connectionIds: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    data.accounts.push(account);
+    await writeData(params.filePath, data);
+    return account;
   });
 }
 
@@ -408,6 +599,69 @@ export async function findStandaloneAccountByApiKey(params: {
   return (
     data.accounts.find((account) => account.apiKeyHash === apiKeyHash) ?? null
   );
+}
+
+export async function rotateStandaloneAccountApiKey(params: {
+  filePath: string;
+  accountId: string;
+}): Promise<{ account: StandaloneAccount; apiKey: string }> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const account = data.accounts.find((item) => item.id === params.accountId);
+    if (!account) {
+      throw new Error("Standalone account not found");
+    }
+
+    const apiKey = `taku_wa_${randomBytes(24).toString("base64url")}`;
+    account.apiKeyHash = hash(apiKey);
+    account.updatedAt = nowIso();
+
+    await writeData(params.filePath, data);
+    return { account, apiKey };
+  });
+}
+
+export async function updateStandaloneAccountProjectName(params: {
+  filePath: string;
+  accountId: string;
+  projectName: string;
+}): Promise<StandaloneAccount> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const account = data.accounts.find((item) => item.id === params.accountId);
+    if (!account) {
+      throw new Error("Standalone account not found");
+    }
+
+    account.projectName = params.projectName;
+    account.updatedAt = nowIso();
+
+    await writeData(params.filePath, data);
+    return account;
+  });
+}
+
+export async function updateStandaloneAccountPassword(params: {
+  filePath: string;
+  accountId: string;
+  password: string;
+}): Promise<StandaloneAccount> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const account = data.accounts.find((item) => item.id === params.accountId);
+    if (!account) {
+      throw new Error("Standalone account not found");
+    }
+
+    const passwordSalt = randomBytes(16).toString("hex");
+    account.passwordSalt = passwordSalt;
+    account.passwordHash = hashPassword(params.password, passwordSalt);
+    account.passwordSetupRequired = false;
+    account.updatedAt = nowIso();
+
+    await writeData(params.filePath, data);
+    return account;
+  });
 }
 
 function createSessionToken(): string {
@@ -624,6 +878,106 @@ export async function getStandaloneBillingSummary(params: {
       .filter((method) => method.accountId === params.accountId)
       .sort((left, right) => Number(right.isDefault) - Number(left.isDefault)),
   };
+}
+
+export async function createStandalonePaymentIntent(params: {
+  filePath: string;
+  toPlan: StandalonePlan;
+  amountUsd: number;
+  billingCycle?: StandaloneBillingCycle;
+}): Promise<StandalonePaymentIntent> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const plan = listStandalonePlans().find(
+      (item) => item.plan === params.toPlan,
+    );
+    if (!plan || plan.plan === "free" || plan.monthlyPriceUsd === null) {
+      throw new Error("Choose a fixed-price paid plan");
+    }
+
+    const now = nowIso();
+    const intent: StandalonePaymentIntent = {
+      id: createId("payint"),
+      toPlan: params.toPlan,
+      billingCycle: params.billingCycle ?? "monthly",
+      status: "pending",
+      amountUsd: params.amountUsd,
+      checkoutUrl: "",
+      provider: "mercadopago",
+      providerPreferenceId: null,
+      providerPaymentId: null,
+      paidAt: null,
+      attachedAccountId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    data.paymentIntents.push(intent);
+    await writeData(params.filePath, data);
+    return intent;
+  });
+}
+
+export async function updateStandalonePaymentIntentCheckout(params: {
+  filePath: string;
+  paymentIntentId: string;
+  providerPreferenceId: string;
+  checkoutUrl: string;
+}): Promise<StandalonePaymentIntent> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const intent = data.paymentIntents.find(
+      (item) => item.id === params.paymentIntentId,
+    );
+    if (!intent) {
+      throw new Error("Payment intent not found");
+    }
+
+    intent.providerPreferenceId = params.providerPreferenceId;
+    intent.checkoutUrl = params.checkoutUrl;
+    intent.updatedAt = nowIso();
+
+    await writeData(params.filePath, data);
+    return intent;
+  });
+}
+
+export async function completeStandalonePaymentIntent(params: {
+  filePath: string;
+  paymentIntentId: string;
+  providerPaymentId: string;
+  paidAt: string;
+}): Promise<StandalonePaymentIntent> {
+  return enqueueWrite(async () => {
+    const data = await readData(params.filePath);
+    const intent = data.paymentIntents.find(
+      (item) => item.id === params.paymentIntentId,
+    );
+    if (!intent) {
+      throw new Error("Payment intent not found");
+    }
+
+    if (intent.status === "pending") {
+      intent.status = "paid";
+      intent.providerPaymentId = params.providerPaymentId;
+      intent.paidAt = params.paidAt;
+      intent.updatedAt = nowIso();
+      await writeData(params.filePath, data);
+    }
+
+    return intent;
+  });
+}
+
+export async function getStandalonePaymentIntent(params: {
+  filePath: string;
+  paymentIntentId: string;
+}): Promise<StandalonePaymentIntent | null> {
+  const data = await readData(params.filePath);
+  return (
+    data.paymentIntents.find((item) => item.id === params.paymentIntentId) ??
+    null
+  );
 }
 
 export async function createStandaloneBillingRequest(params: {
@@ -982,6 +1336,183 @@ export async function getStandaloneEffectiveBilling(params: {
     entitlements: getStandaloneEntitlements(effectivePlan),
     subscription,
     billingRestricted,
+  };
+}
+
+export async function getStandaloneAdminOverview(params: {
+  filePath: string;
+}): Promise<StandaloneAdminOverview> {
+  const data = await readData(params.filePath);
+  const today = nowIso().slice(0, 10);
+  const currentMonth = today.slice(0, 7);
+  const planCounts: Record<StandalonePlan, number> = {
+    free: 0,
+    basic: 0,
+    developer: 0,
+    platform: 0,
+    enterprise: 0,
+  };
+
+  for (const account of data.accounts) {
+    planCounts[account.plan] += 1;
+  }
+
+  const subscriptionsByAccountId = new Map(
+    data.subscriptions.map((subscription) => [
+      subscription.accountId,
+      subscription,
+    ]),
+  );
+  const usageByAccountId = new Map<
+    string,
+    { messagesToday: number; messagesThisMonth: number }
+  >();
+
+  for (const usage of data.usageDays) {
+    const current = usageByAccountId.get(usage.accountId) ?? {
+      messagesToday: 0,
+      messagesThisMonth: 0,
+    };
+    if (usage.date === today) {
+      current.messagesToday += usage.messagesSent;
+    }
+    if (usage.date.startsWith(currentMonth)) {
+      current.messagesThisMonth += usage.messagesSent;
+    }
+    usageByAccountId.set(usage.accountId, current);
+  }
+
+  const invoicesByAccountId = new Map<string, StandaloneInvoice[]>();
+  for (const invoice of data.invoices) {
+    const invoices = invoicesByAccountId.get(invoice.accountId) ?? [];
+    invoices.push(invoice);
+    invoicesByAccountId.set(invoice.accountId, invoices);
+  }
+
+  const activeSubscriptions = data.subscriptions.filter(
+    (subscription) => subscription.status === "active",
+  ).length;
+  const pastDueSubscriptions = data.subscriptions.filter(
+    (subscription) => subscription.status === "past_due",
+  ).length;
+  const cancelledSubscriptions = data.subscriptions.filter(
+    (subscription) => subscription.status === "cancelled",
+  ).length;
+  const openInvoices = data.invoices.filter(
+    (invoice) => invoice.status === "open",
+  ).length;
+  const paidInvoices = data.invoices.filter(
+    (invoice) => invoice.status === "paid",
+  ).length;
+  const revenueThisMonthUsd = data.invoices
+    .filter(
+      (invoice) =>
+        invoice.status === "paid" && invoice.paidAt?.startsWith(currentMonth),
+    )
+    .reduce((total, invoice) => total + invoice.amountUsd, 0);
+
+  const nextDue = data.accounts
+    .map((account) => {
+      const subscription = subscriptionsByAccountId.get(account.id);
+      if (!subscription?.currentPeriodEnd) {
+        return null;
+      }
+      return {
+        accountId: account.id,
+        projectName: account.projectName,
+        plan: subscription.plan,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((left, right) =>
+      left.currentPeriodEnd.localeCompare(right.currentPeriodEnd),
+    )
+    .slice(0, 5);
+
+  const accountSummaries = data.accounts
+    .map((account) => {
+      const usage = usageByAccountId.get(account.id) ?? {
+        messagesToday: 0,
+        messagesThisMonth: 0,
+      };
+      const subscription = subscriptionsByAccountId.get(account.id);
+      const invoices = invoicesByAccountId.get(account.id) ?? [];
+
+      return {
+        id: account.id,
+        name: account.name,
+        email: account.email,
+        projectName: account.projectName,
+        plan: account.plan,
+        connectionCount: account.connectionIds.length,
+        connectionIds: account.connectionIds,
+        messagesToday: usage.messagesToday,
+        messagesThisMonth: usage.messagesThisMonth,
+        subscriptionStatus:
+          subscription?.status ?? (account.plan === "free" ? "free" : "active"),
+        currentPeriodEnd: subscription?.currentPeriodEnd ?? null,
+        openInvoiceCount: invoices.filter(
+          (invoice) => invoice.status === "open",
+        ).length,
+        passwordSetupRequired:
+          account.passwordSetupRequired ?? account.plan !== "free",
+        createdAt: account.createdAt,
+        updatedAt: account.updatedAt,
+      };
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  return {
+    totalAccounts: data.accounts.length,
+    totalConnections: data.accounts.reduce(
+      (total, account) => total + account.connectionIds.length,
+      0,
+    ),
+    planCounts,
+    billing: {
+      activeSubscriptions,
+      pastDueSubscriptions,
+      cancelledSubscriptions,
+      openInvoices,
+      paidInvoices,
+      revenueThisMonthUsd,
+      nextDue,
+    },
+    usage: {
+      messagesToday: Array.from(usageByAccountId.values()).reduce(
+        (total, usage) => total + usage.messagesToday,
+        0,
+      ),
+      messagesThisMonth: Array.from(usageByAccountId.values()).reduce(
+        (total, usage) => total + usage.messagesThisMonth,
+        0,
+      ),
+      topAccounts: accountSummaries
+        .filter((account) => account.messagesThisMonth > 0)
+        .sort((left, right) => right.messagesThisMonth - left.messagesThisMonth)
+        .slice(0, 5)
+        .map((account) => ({
+          accountId: account.id,
+          projectName: account.projectName,
+          messagesThisMonth: account.messagesThisMonth,
+        })),
+    },
+    support: {
+      passwordSetupRequired: data.accounts.filter(
+        (account) => account.passwordSetupRequired ?? account.plan !== "free",
+      ).length,
+      accountsWithoutPhones: data.accounts.filter(
+        (account) => account.connectionIds.length === 0,
+      ).length,
+      pendingBillingRequests: data.billingRequests.filter(
+        (request) => request.status === "pending",
+      ).length,
+      pendingPaymentIntents: data.paymentIntents.filter(
+        (intent) => intent.status === "pending" || intent.status === "paid",
+      ).length,
+    },
+    accounts: accountSummaries,
   };
 }
 

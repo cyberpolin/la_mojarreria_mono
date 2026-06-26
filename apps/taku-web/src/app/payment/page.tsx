@@ -46,9 +46,90 @@ type PreferenceResponse = {
   };
 };
 
+type CardPaymentFormData = {
+  token: string;
+  payment_method_id: string;
+  issuer_id?: string | number;
+  installments?: string | number;
+  payer: {
+    email: string;
+    identification?: {
+      type?: string;
+      number?: string;
+    };
+  };
+};
+
+type MercadoPagoBrickController = {
+  unmount: () => void;
+};
+
+type MercadoPagoBricksBuilder = {
+  create: (
+    type: "cardPayment",
+    target: string,
+    settings: {
+      initialization: { amount: number };
+      callbacks: {
+        onReady: () => void;
+        onSubmit: (formData: CardPaymentFormData) => Promise<void>;
+        onError: (error: unknown) => void;
+      };
+    },
+  ) => Promise<MercadoPagoBrickController>;
+};
+
+type MercadoPagoInstance = {
+  bricks: () => MercadoPagoBricksBuilder;
+};
+
+declare global {
+  interface Window {
+    MercadoPago?: new (
+      publicKey: string,
+      options?: { locale?: string },
+    ) => MercadoPagoInstance;
+    takuCardPaymentBrickController?: MercadoPagoBrickController;
+  }
+}
+
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_API_BASE_URL ?? "http://localhost:3010";
 const apiKey = process.env.NEXT_PUBLIC_TAKU_API_KEY ?? "";
+const mercadoPagoPublicKey =
+  process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? "";
+
+function loadMercadoPagoSdk(): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.resolve();
+  }
+
+  if (window.MercadoPago) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://sdk.mercadopago.com/js/v2"]',
+    );
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener(
+        "error",
+        () => reject(new Error("Could not load Mercado Pago SDK")),
+        { once: true },
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://sdk.mercadopago.com/js/v2";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load Mercado Pago SDK"));
+    document.head.appendChild(script);
+  });
+}
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -93,6 +174,8 @@ export default function PaymentPage() {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paid, setPaid] = useState<PaymentResponse | null>(null);
+  const [cardReady, setCardReady] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
 
   const query = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -171,6 +254,100 @@ export default function PaymentPage() {
 
     void confirmPayment();
   }, [confirming, paid, paymentId, selectedBusiness]);
+
+  useEffect(() => {
+    if (!selectedBusiness || paid || !mercadoPagoPublicKey) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function renderCardPaymentBrick() {
+      setCardReady(false);
+      setCardError(null);
+
+      try {
+        await loadMercadoPagoSdk();
+        if (cancelled || !window.MercadoPago) {
+          return;
+        }
+
+        window.takuCardPaymentBrickController?.unmount();
+        const mercadoPago = new window.MercadoPago(mercadoPagoPublicKey, {
+          locale: "es-MX",
+        });
+        const bricksBuilder = mercadoPago.bricks();
+        const controller = await bricksBuilder.create(
+          "cardPayment",
+          "taku-card-payment-brick",
+          {
+            initialization: {
+              amount: 99,
+            },
+            callbacks: {
+              onReady: () => {
+                if (!cancelled) {
+                  setCardReady(true);
+                }
+              },
+              onSubmit: async (formData) => {
+                if (!selectedBusiness) {
+                  throw new Error("Business is required");
+                }
+
+                setSaving(true);
+                setError(null);
+
+                try {
+                  const body = await apiRequest<PaymentResponse>(
+                    "/v1/billing/mercadopago/card-payment",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({
+                        businessId: selectedBusiness.id,
+                        ...formData,
+                      }),
+                    },
+                  );
+                  setPaid(body);
+                } catch (nextError) {
+                  const message =
+                    nextError instanceof Error
+                      ? nextError.message
+                      : "Unable to process card payment";
+                  setError(message);
+                } finally {
+                  setSaving(false);
+                }
+              },
+              onError: (brickError) => {
+                console.error(brickError);
+                setCardError("Mercado Pago card form could not be loaded.");
+              },
+            },
+          },
+        );
+
+        window.takuCardPaymentBrickController = controller;
+      } catch (nextError) {
+        if (!cancelled) {
+          setCardError(
+            nextError instanceof Error
+              ? nextError.message
+              : "Could not load Mercado Pago card form",
+          );
+        }
+      }
+    }
+
+    void renderCardPaymentBrick();
+
+    return () => {
+      cancelled = true;
+      window.takuCardPaymentBrickController?.unmount();
+      window.takuCardPaymentBrickController = undefined;
+    };
+  }, [paid, selectedBusiness]);
 
   async function startMercadoPagoCheckout() {
     if (!selectedBusiness) return;
@@ -288,21 +465,34 @@ export default function PaymentPage() {
               <div className="space-y-4">
                 <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
                   <p className="text-sm font-semibold text-slate-50">
-                    Mercado Pago Checkout Pro
+                    Pay by card
                   </p>
                   <p className="mt-2 text-sm leading-6 text-slate-400">
-                    Continue to Mercado Pago to complete the payment. TAKU will
-                    confirm the returned payment before activating the account.
+                    Card fields are rendered by Mercado Pago. TAKU receives the
+                    tokenized payment result and activates the account when the
+                    charge is approved.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void startMercadoPagoCheckout()}
-                  disabled={loading || saving || !selectedBusiness}
-                  className="min-h-11 w-full rounded-lg bg-slate-100 px-4 text-sm font-medium text-slate-950 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving ? "Creating checkout..." : "Pay with Mercado Pago"}
-                </button>
+                {!mercadoPagoPublicKey ? (
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-sm text-slate-300">
+                    Mercado Pago public key is not configured.
+                  </div>
+                ) : null}
+                {cardError ? (
+                  <div className="rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100">
+                    {cardError}
+                  </div>
+                ) : null}
+                {mercadoPagoPublicKey ? (
+                  <div className="rounded-lg border border-slate-800 bg-white p-3 text-slate-950">
+                    {!cardReady ? (
+                      <div className="p-4 text-sm text-slate-600">
+                        Loading secure card form...
+                      </div>
+                    ) : null}
+                    <div id="taku-card-payment-brick" />
+                  </div>
+                ) : null}
                 {process.env.NODE_ENV === "development" ? (
                   <button
                     type="button"
@@ -344,8 +534,8 @@ export default function PaymentPage() {
             </div>
           </section>
           <section className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs leading-5 text-slate-400">
-            Mercado Pago card details are handled on Mercado Pago checkout. The
-            development mock button is only shown locally.
+            Mercado Pago renders and tokenizes card details. TAKU does not store
+            card numbers or security codes.
           </section>
         </aside>
       </div>

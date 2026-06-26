@@ -78,19 +78,6 @@ type Invoice = {
   createdAt: string;
 };
 
-type PaymentMethod = {
-  id: string;
-  accountId: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
-  holderName: string;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
 type BillingResponse =
   | {
       ok: true;
@@ -99,7 +86,6 @@ type BillingResponse =
       currentPlan: PlanCatalogItem;
       subscription: Subscription;
       invoices: Invoice[];
-      paymentMethods: PaymentMethod[];
       billingRequests: BillingRequest[];
     }
   | { ok: false; error: string };
@@ -112,12 +98,130 @@ type CheckoutResponse =
     }
   | { ok: false; error: string };
 
+type CardPaymentResponse =
+  | {
+      ok: true;
+      billingRequest: BillingRequest;
+      subscription: Subscription;
+      invoice: Invoice;
+      paymentStatus?: string;
+    }
+  | {
+      ok: false;
+      error: string;
+      paymentStatus?: string;
+      paymentStatusDetail?: string | null;
+      providerStatus?: number;
+      providerError?: string | null;
+      providerCauses?: Array<{
+        code: string | null;
+        description: string | null;
+        data: string | null;
+      }>;
+    };
+
 type SessionStorageValue = {
   sessionToken?: string;
 };
 
+type CardPaymentFormData = {
+  token: string;
+  payment_method_id: string;
+  issuer_id?: string | number;
+  installments?: string | number;
+  payer: {
+    email: string;
+    identification?: {
+      type?: string;
+      number?: string;
+    };
+  };
+};
+
+type MercadoPagoCardFormData = {
+  token: string;
+  paymentMethodId: string;
+  issuerId?: string;
+  installments?: string;
+  cardholderEmail: string;
+  identificationType?: string;
+  identificationNumber?: string;
+};
+
+type MercadoPagoCardForm = {
+  getCardFormData: () => MercadoPagoCardFormData;
+};
+
+type MercadoPagoInstance = {
+  cardForm: (settings: {
+    amount: string;
+    iframe: boolean;
+    form: {
+      id: string;
+      cardNumber: { id: string; placeholder: string };
+      expirationDate: { id: string; placeholder: string };
+      securityCode: { id: string; placeholder: string };
+      cardholderName: { id: string; placeholder: string };
+      issuer: { id: string; placeholder: string };
+      installments: { id: string; placeholder: string };
+      identificationType?: { id: string; placeholder: string };
+      identificationNumber?: { id: string; placeholder: string };
+      cardholderEmail: { id: string; placeholder: string };
+    };
+    callbacks: {
+      onFormMounted: (error?: unknown) => void;
+      onSubmit: (event: Event) => void;
+      onFetching: () => () => void;
+    };
+  }) => MercadoPagoCardForm;
+};
+
+declare global {
+  interface Window {
+    MercadoPago?: new (
+      publicKey: string,
+      options?: { locale?: string },
+    ) => MercadoPagoInstance;
+    takuWaBillingCardForm?: MercadoPagoCardForm;
+  }
+}
+
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
+const mercadoPagoPublicKey =
+  process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? "";
+
+function loadMercadoPagoSdk(): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.resolve();
+  }
+
+  if (window.MercadoPago) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src="https://sdk.mercadopago.com/js/v2"]',
+    );
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(), { once: true });
+      existingScript.addEventListener(
+        "error",
+        () => reject(new Error("Could not load Mercado Pago SDK")),
+        { once: true },
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://sdk.mercadopago.com/js/v2";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load Mercado Pago SDK"));
+    document.head.appendChild(script);
+  });
+}
 
 function loadSessionToken(): string | null {
   try {
@@ -164,18 +268,28 @@ export default function BillingPage() {
   const [currentPlan, setCurrentPlan] = useState<PlanCatalogItem | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [billingRequests, setBillingRequests] = useState<BillingRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [submittingPlan, setSubmittingPlan] = useState<StandalonePlan | null>(
     null,
   );
+  const [cardRequest, setCardRequest] = useState<BillingRequest | null>(null);
+  const [cardReady, setCardReady] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [installmentsReady, setInstallmentsReady] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const latestRequest = useMemo(
     () => billingRequests.find((request) => request.status === "pending"),
     [billingRequests],
+  );
+  const cardPlan = useMemo(
+    () =>
+      cardRequest
+        ? (plans.find((plan) => plan.plan === cardRequest.toPlan) ?? null)
+        : null,
+    [cardRequest, plans],
   );
 
   const apiFetch = useCallback(async function apiFetch<T>(
@@ -216,7 +330,6 @@ export default function BillingPage() {
       setCurrentPlan(payload.currentPlan);
       setSubscription(payload.subscription);
       setInvoices(payload.invoices);
-      setPaymentMethods(payload.paymentMethods);
       setBillingRequests(payload.billingRequests);
     },
     [apiFetch],
@@ -268,10 +381,8 @@ export default function BillingPage() {
             (request) => request.id !== payload.billingRequest.id,
           ),
         ]);
-        setNotice(
-          "Mercado Pago subscription checkout created. Continue to activate.",
-        );
-        window.location.href = payload.checkoutUrl;
+        setCardRequest(payload.billingRequest);
+        setNotice("Enter card details to submit the subscription payment.");
       })
       .catch((requestError) => {
         setError(
@@ -282,6 +393,235 @@ export default function BillingPage() {
       })
       .finally(() => setSubmittingPlan(null));
   }
+
+  const processCardPayment = useCallback(
+    async function processCardPayment(formData: CardPaymentFormData) {
+      if (!sessionToken || !cardRequest) {
+        return;
+      }
+
+      setSubmittingPlan(cardRequest.toPlan);
+      setError(null);
+      setNotice(null);
+
+      try {
+        const payload = await apiFetch<CardPaymentResponse>(
+          "/v1/account/billing/card-payment",
+          sessionToken,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              billingRequestId: cardRequest.id,
+              plan: cardRequest.toPlan,
+              ...formData,
+            }),
+          },
+        );
+
+        if (!payload.ok) {
+          throw new Error(
+            [
+              payload.error,
+              payload.paymentStatusDetail
+                ? `Detail: ${payload.paymentStatusDetail}`
+                : null,
+              payload.providerCauses?.length
+                ? payload.providerCauses
+                    .map((cause) => cause.description ?? cause.code)
+                    .filter(Boolean)
+                    .join(", ")
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" - "),
+          );
+        }
+
+        setSubscription(payload.subscription);
+        setInvoices((current) => [
+          payload.invoice,
+          ...current.filter((invoice) => invoice.id !== payload.invoice.id),
+        ]);
+        setBillingRequests((current) =>
+          current.map((request) =>
+            request.id === payload.billingRequest.id
+              ? payload.billingRequest
+              : request,
+          ),
+        );
+        setCardRequest(null);
+        setNotice("Payment approved. Subscription is active.");
+        await loadBilling(sessionToken);
+      } catch (requestError) {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Could not process card payment",
+        );
+      } finally {
+        setSubmittingPlan(null);
+      }
+    },
+    [apiFetch, cardRequest, loadBilling, sessionToken],
+  );
+
+  useEffect(() => {
+    if (!cardRequest) {
+      return;
+    }
+
+    const activeCardRequest = cardRequest;
+    const selectedPlan = plans.find(
+      (plan) => plan.plan === activeCardRequest.toPlan,
+    );
+    if (!selectedPlan?.monthlyPriceUsd) {
+      return;
+    }
+    const selectedAmount = selectedPlan.monthlyPriceUsd;
+    const selectedRequestPlan = activeCardRequest.toPlan;
+
+    let cancelled = false;
+    let installmentsTimer: number | null = null;
+
+    function checkInstallmentsReady() {
+      const select = document.getElementById(
+        "taku-wa-billing-card-installments",
+      ) as HTMLSelectElement | null;
+      if (!select) {
+        return;
+      }
+
+      const hasRealOption = Array.from(select.options).some(
+        (option) =>
+          option.value.trim().length > 0 &&
+          option.textContent?.trim().length !== 0,
+      );
+      setInstallmentsReady(hasRealOption);
+    }
+
+    async function renderCardForm() {
+      setCardReady(false);
+      setCardError(null);
+      setInstallmentsReady(false);
+
+      try {
+        if (!mercadoPagoPublicKey) {
+          throw new Error("Mercado Pago public key is not configured.");
+        }
+
+        await loadMercadoPagoSdk();
+        if (cancelled || !window.MercadoPago) {
+          return;
+        }
+
+        const mercadoPago = new window.MercadoPago(mercadoPagoPublicKey, {
+          locale: "es-MX",
+        });
+        let cardForm: MercadoPagoCardForm | null = null;
+        cardForm = mercadoPago.cardForm({
+          amount: String(selectedAmount),
+          iframe: true,
+          form: {
+            id: "taku-wa-billing-card-form",
+            cardNumber: {
+              id: "taku-wa-billing-card-number",
+              placeholder: "Card number",
+            },
+            expirationDate: {
+              id: "taku-wa-billing-card-expiration",
+              placeholder: "MM/YY",
+            },
+            securityCode: {
+              id: "taku-wa-billing-card-security-code",
+              placeholder: "CVV",
+            },
+            cardholderName: {
+              id: "taku-wa-billing-cardholder-name",
+              placeholder: "Name on card",
+            },
+            issuer: {
+              id: "taku-wa-billing-card-issuer",
+              placeholder: "Issuer",
+            },
+            installments: {
+              id: "taku-wa-billing-card-installments",
+              placeholder: "Installments",
+            },
+            cardholderEmail: {
+              id: "taku-wa-billing-cardholder-email",
+              placeholder: "Email",
+            },
+          },
+          callbacks: {
+            onFormMounted: (formError) => {
+              if (cancelled) {
+                return;
+              }
+
+              if (formError) {
+                console.error(formError);
+                setCardError("Mercado Pago card form could not be loaded.");
+                return;
+              }
+
+              setCardReady(true);
+              installmentsTimer = window.setInterval(
+                checkInstallmentsReady,
+                300,
+              );
+            },
+            onSubmit: (event) => {
+              event.preventDefault();
+              if (!cardForm) {
+                return;
+              }
+
+              const data = cardForm.getCardFormData();
+              void processCardPayment({
+                token: data.token,
+                payment_method_id: data.paymentMethodId,
+                issuer_id: data.issuerId,
+                installments: data.installments || "1",
+                payer: {
+                  email: data.cardholderEmail,
+                  identification:
+                    data.identificationType && data.identificationNumber
+                      ? {
+                          type: data.identificationType,
+                          number: data.identificationNumber,
+                        }
+                      : undefined,
+                },
+              });
+            },
+            onFetching: () => {
+              setSubmittingPlan(selectedRequestPlan);
+              return () => setSubmittingPlan(null);
+            },
+          },
+        });
+
+        window.takuWaBillingCardForm = cardForm;
+      } catch (requestError) {
+        if (!cancelled) {
+          setCardError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not load Mercado Pago card form",
+          );
+        }
+      }
+    }
+
+    void renderCardForm();
+
+    return () => {
+      cancelled = true;
+      if (installmentsTimer !== null) {
+        window.clearInterval(installmentsTimer);
+      }
+    };
+  }, [cardRequest, plans, processCardPayment, sessionToken]);
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -341,13 +681,117 @@ export default function BillingPage() {
               You requested {latestRequest.toPlan}. Continue in Mercado Pago to
               authorize recurring billing.
             </p>
-            <a
-              href={latestRequest.checkoutUrl}
+            <button
+              type="button"
+              onClick={() => setCardRequest(latestRequest)}
               className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-amber-900 px-4 text-sm font-semibold text-white hover:bg-amber-800"
             >
               Continue Mercado Pago subscription
-            </a>
+            </button>
           </div>
+        ) : null}
+
+        {cardRequest && cardPlan ? (
+          <section className="mt-6 rounded-2xl border border-emerald-200 bg-white p-5 shadow-xl shadow-slate-950/5 md:p-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Mercado Pago
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                  Pay {formatPrice(cardPlan)}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Submit the card payment to reactivate this subscription
+                  period. Card data is handled by Mercado Pago.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCardRequest(null)}
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {cardError ? (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+                {cardError}
+              </div>
+            ) : null}
+
+            <form id="taku-wa-billing-card-form" className="mt-5 grid gap-4">
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Card number
+                <div
+                  id="taku-wa-billing-card-number"
+                  className="h-11 overflow-hidden rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none transition focus-within:border-emerald-600 focus-within:ring-4 focus-within:ring-emerald-100"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Expiration
+                  <div
+                    id="taku-wa-billing-card-expiration"
+                    className="h-11 overflow-hidden rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none transition focus-within:border-emerald-600 focus-within:ring-4 focus-within:ring-emerald-100"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  CVV
+                  <div
+                    id="taku-wa-billing-card-security-code"
+                    className="h-11 overflow-hidden rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none transition focus-within:border-emerald-600 focus-within:ring-4 focus-within:ring-emerald-100"
+                  />
+                </label>
+              </div>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Name on card
+                <input
+                  id="taku-wa-billing-cardholder-name"
+                  className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+                  type="text"
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Email
+                <input
+                  id="taku-wa-billing-cardholder-email"
+                  className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+                  type="email"
+                  defaultValue={account?.email ?? ""}
+                />
+              </label>
+              <div
+                className={
+                  installmentsReady ? "grid gap-3 sm:grid-cols-2" : "hidden"
+                }
+              >
+                <label className="hidden">
+                  <select
+                    id="taku-wa-billing-card-issuer"
+                    aria-label="Issuer"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Installments
+                  <select
+                    id="taku-wa-billing-card-installments"
+                    className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100"
+                  />
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={!cardReady || submittingPlan === cardRequest.toPlan}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {submittingPlan === cardRequest.toPlan
+                  ? "Processing..."
+                  : `Pay ${formatPrice(cardPlan)}`}
+              </button>
+            </form>
+          </section>
         ) : null}
 
         <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -367,88 +811,7 @@ export default function BillingPage() {
               {formatDate(subscription?.currentPeriodEnd ?? null)}
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Card handling
-            </p>
-            <p className="mt-3 text-lg font-semibold text-slate-950">
-              {paymentMethods.find((method) => method.isDefault)
-                ? `**** ${paymentMethods.find((method) => method.isDefault)?.last4}`
-                : "Mercado Pago"}
-            </p>
-          </div>
         </div>
-
-        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-950">
-                Payment methods
-              </h2>
-              <p className="mt-2 text-sm text-slate-600">
-                Mercado Pago collects and charges cards for subscriptions. TAKU
-                keeps only masked records and billing history.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <div className="grid gap-3">
-              {paymentMethods.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                  No synced payment methods yet. Add or update a card from the
-                  Mercado Pago subscription checkout.
-                </div>
-              ) : null}
-
-              {paymentMethods.map((method) => (
-                <article
-                  key={method.id}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-950">
-                        {method.brand} ending in {method.last4}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {method.holderName} · expires {method.expMonth}/
-                        {method.expYear}
-                      </p>
-                    </div>
-                    {method.isDefault ? (
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                        Default
-                      </span>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-semibold text-slate-950">
-                Manage cards
-              </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                To add or change a card, start the Mercado Pago subscription
-                flow for the plan you want. Card data stays with Mercado Pago.
-              </p>
-              {currentPlan && currentPlan.plan !== "free" ? (
-                <button
-                  type="button"
-                  onClick={() => requestCheckout(currentPlan.plan)}
-                  disabled={submittingPlan === currentPlan.plan}
-                  className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {submittingPlan === currentPlan.plan
-                    ? "Opening..."
-                    : "Update subscription"}
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </section>
 
         <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
           <h2 className="text-xl font-semibold text-slate-950">

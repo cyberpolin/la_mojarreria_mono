@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import QRCode from "qrcode";
 import { z } from "zod";
@@ -22,32 +23,44 @@ import {
   addStandaloneConnection,
   activateStandalonePreapprovalSubscription,
   completeStandaloneBillingRequest,
+  completeStandalonePaymentIntent,
   createStandaloneBillingRequest,
   createStandalonePaymentMethod,
   createStandaloneConnectionId,
   createStandaloneFreeAccount,
+  createStandalonePaymentIntent,
   createStandaloneSession,
   createStandaloneSessionForAccount,
   deleteStandalonePaymentMethod,
   findStandaloneAccountByApiKey,
   findStandaloneAccountBySessionToken,
   getStandaloneBillingSummary,
+  getStandaloneAdminOverview,
   getStandaloneEffectiveBilling,
   getStandaloneEntitlements,
+  getStandalonePaymentIntent,
   getStandaloneUsage,
   incrementStandaloneMessages,
   listStandalonePlans,
   listStandaloneUsageDays,
+  rotateStandaloneAccountApiKey,
   setDefaultStandalonePaymentMethod,
   updateStandaloneSubscriptionFromProvider,
   updateStandaloneBillingRequestCheckout,
+  updateStandalonePaymentIntentCheckout,
+  updateStandaloneAccountProjectName,
+  updateStandaloneAccountPassword,
   type StandalonePlan,
   type StandaloneAccount,
 } from "../services/standaloneAccountStore.js";
 import {
+  createMercadoPagoCardPayment,
+  createMercadoPagoPreference,
+  findMercadoPagoPaymentByExternalReference,
   createMercadoPagoPreapproval,
   getMercadoPagoPreapproval,
   getMercadoPagoPayment,
+  MercadoPagoRequestError,
 } from "../services/mercadoPagoClient.js";
 import { normalizePhone } from "../utils/phone.js";
 import { validateServiceRequest } from "../utils/requestAuth.js";
@@ -100,11 +113,20 @@ const standaloneSignupSchema = z.object({
   email: z.string().trim().email().max(254),
   projectName: z.string().trim().min(1).max(160),
   password: z.string().min(8).max(200),
+  paidPaymentIntentId: z.string().trim().min(1).max(80).optional(),
 });
 
 const standaloneLoginSchema = z.object({
   email: z.string().trim().email().max(254),
   password: z.string().min(1).max(200),
+});
+
+const standaloneAccountUpdateSchema = z.object({
+  projectName: z.string().trim().min(1).max(160),
+});
+
+const standalonePasswordUpdateSchema = z.object({
+  password: z.string().min(8).max(200),
 });
 
 const standaloneCreateConnectionSchema = z.object({
@@ -121,6 +143,31 @@ const billingCheckoutSchema = z.object({
     .trim()
     .regex(/^\/[a-zA-Z0-9/_-]*$/)
     .default("/admin/billing"),
+});
+
+const publicPaymentCheckoutSchema = z.object({
+  plan: paidPlanSchema,
+});
+
+const publicCardPaymentSchema = z.object({
+  plan: paidPlanSchema,
+  token: z.string().trim().min(1),
+  payment_method_id: z.string().trim().min(1),
+  issuer_id: z.union([z.string(), z.number()]).optional(),
+  installments: z.coerce.number().int().positive().max(48).default(1),
+  payer: z.object({
+    email: z.string().trim().email(),
+    identification: z
+      .object({
+        type: z.string().trim().min(1).optional(),
+        number: z.string().trim().min(1).optional(),
+      })
+      .optional(),
+  }),
+});
+
+const billingCardPaymentSchema = publicCardPaymentSchema.extend({
+  billingRequestId: z.string().trim().min(1),
 });
 
 const paymentMethodSchema = z.object({
@@ -173,13 +220,26 @@ function parseConnectionIdParam(req: Request, res: Response): string | null {
   return connectionId;
 }
 
-function publicStandaloneAccount(account: StandaloneAccount) {
+function isStandaloneSuperowner(account: StandaloneAccount, config: AppConfig) {
+  return (
+    config.takuSuperownerEmail !== null &&
+    account.email.toLowerCase() === config.takuSuperownerEmail.toLowerCase()
+  );
+}
+
+function publicStandaloneAccount(
+  account: StandaloneAccount,
+  config: AppConfig,
+) {
   return {
     id: account.id,
     name: account.name,
     email: account.email,
     projectName: account.projectName,
     plan: account.plan,
+    isSuperowner: isStandaloneSuperowner(account, config),
+    passwordSetupRequired:
+      account.passwordSetupRequired ?? account.plan !== "free",
     connectionIds: account.connectionIds,
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
@@ -373,6 +433,27 @@ function mapPreapprovalStatus(
   return null;
 }
 
+function validateMercadoPagoReturnBaseUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      ? null
+      : "TAKU_WA_WEB_BASE_URL must be a public HTTPS URL for Mercado Pago return URLs";
+  } catch {
+    return "TAKU_WA_WEB_BASE_URL must be a valid public HTTPS URL";
+  }
+}
+
+function selectMercadoPagoCheckoutUrl(params: {
+  accessToken: string;
+  initPoint: string;
+  sandboxInitPoint: string | null;
+}): string {
+  return params.accessToken.startsWith("TEST-")
+    ? (params.sandboxInitPoint ?? params.initPoint)
+    : params.initPoint;
+}
+
 async function getEffectiveBillingForAccount(
   config: AppConfig,
   account: StandaloneAccount,
@@ -433,6 +514,7 @@ export function createV1Router(params: {
           email: parsed.data.email,
           projectName: parsed.data.projectName,
           password: parsed.data.password,
+          paidPaymentIntentId: parsed.data.paidPaymentIntentId ?? null,
         });
 
       let connection = null;
@@ -479,7 +561,7 @@ export function createV1Router(params: {
 
       res.status(201).json({
         ok: true,
-        account: publicStandaloneAccount(account),
+        account: publicStandaloneAccount(account, params.config),
         apiKey,
         apiKeyNotice: "Store this API key now. It is only returned once.",
         sessionToken: session.sessionToken,
@@ -502,6 +584,348 @@ export function createV1Router(params: {
       });
     }
   });
+
+  router.post(
+    "/public/billing/checkout",
+    async (req: Request, res: Response) => {
+      const parsed = publicPaymentCheckoutSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid payment payload",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      const selectedPlan = listStandalonePlans().find(
+        (plan) => plan.plan === parsed.data.plan,
+      );
+      if (!selectedPlan || selectedPlan.monthlyPriceUsd === null) {
+        res.status(400).json({
+          ok: false,
+          error: "Choose a fixed-price paid plan",
+        });
+        return;
+      }
+
+      try {
+        const intent = await createStandalonePaymentIntent({
+          filePath: params.config.standaloneAccountsFile,
+          toPlan: parsed.data.plan as StandalonePlan,
+          amountUsd: selectedPlan.monthlyPriceUsd,
+        });
+
+        if (!params.config.mercadoPagoAccessToken) {
+          res.status(503).json({
+            ok: false,
+            error: "Mercado Pago access token is not configured",
+          });
+          return;
+        }
+
+        const returnUrlError = validateMercadoPagoReturnBaseUrl(
+          params.config.takuWaWebBaseUrl,
+        );
+        const canUseBackUrls = returnUrlError === null;
+
+        const preference = await createMercadoPagoPreference({
+          accessToken: params.config.mercadoPagoAccessToken,
+          items: [
+            {
+              id: selectedPlan.plan,
+              title: `TAKU WA ${selectedPlan.name}`,
+              description: `${selectedPlan.name} first month`,
+              quantity: 1,
+              unit_price: selectedPlan.monthlyPriceUsd,
+              currency_id: params.config.mercadoPagoCurrencyId,
+            },
+          ],
+          externalReference: intent.id,
+          backUrls: canUseBackUrls
+            ? {
+                success: `${params.config.takuWaWebBaseUrl}/payment?plan=${selectedPlan.plan}&paymentIntent=${intent.id}&payment=success`,
+                failure: `${params.config.takuWaWebBaseUrl}/payment?plan=${selectedPlan.plan}&paymentIntent=${intent.id}&payment=failure`,
+                pending: `${params.config.takuWaWebBaseUrl}/payment?plan=${selectedPlan.plan}&paymentIntent=${intent.id}&payment=pending`,
+              }
+            : null,
+          notificationUrl: params.config.mercadoPagoNotificationUrl,
+        });
+        const checkoutUrl = selectMercadoPagoCheckoutUrl({
+          accessToken: params.config.mercadoPagoAccessToken,
+          initPoint: preference.initPoint,
+          sandboxInitPoint: preference.sandboxInitPoint,
+        });
+        const updatedIntent = await updateStandalonePaymentIntentCheckout({
+          filePath: params.config.standaloneAccountsFile,
+          paymentIntentId: intent.id,
+          providerPreferenceId: preference.id,
+          checkoutUrl,
+        });
+
+        res.status(201).json({
+          ok: true,
+          returnUrlConfigured: canUseBackUrls,
+          returnUrlWarning: canUseBackUrls ? null : returnUrlError,
+          paymentIntent: updatedIntent,
+          checkoutUrl: updatedIntent.checkoutUrl,
+        });
+      } catch (error) {
+        res.status(400).json({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Could not create payment",
+        });
+      }
+    },
+  );
+
+  router.post(
+    "/public/billing/card-payment",
+    async (req: Request, res: Response) => {
+      const parsed = publicCardPaymentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid card payment payload",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      const selectedPlan = listStandalonePlans().find(
+        (plan) => plan.plan === parsed.data.plan,
+      );
+      if (!selectedPlan || selectedPlan.monthlyPriceUsd === null) {
+        res.status(400).json({
+          ok: false,
+          error: "Choose a fixed-price paid plan",
+        });
+        return;
+      }
+
+      if (!params.config.mercadoPagoAccessToken) {
+        res.status(503).json({
+          ok: false,
+          error: "Mercado Pago access token is not configured",
+        });
+        return;
+      }
+
+      try {
+        const intent = await createStandalonePaymentIntent({
+          filePath: params.config.standaloneAccountsFile,
+          toPlan: parsed.data.plan as StandalonePlan,
+          amountUsd: selectedPlan.monthlyPriceUsd,
+        });
+        console.info("[wa billing] creating card payment", {
+          paymentIntentId: intent.id,
+          plan: selectedPlan.plan,
+          amount: selectedPlan.monthlyPriceUsd,
+          paymentMethodId: parsed.data.payment_method_id,
+          installments: parsed.data.installments,
+          issuerId: parsed.data.issuer_id ?? null,
+          payerEmail: parsed.data.payer.email,
+          hasIdentification: Boolean(parsed.data.payer.identification),
+        });
+        const payment = await createMercadoPagoCardPayment({
+          accessToken: params.config.mercadoPagoAccessToken,
+          token: parsed.data.token,
+          transactionAmount: selectedPlan.monthlyPriceUsd,
+          installments: parsed.data.installments,
+          paymentMethodId: parsed.data.payment_method_id,
+          issuerId: parsed.data.issuer_id ?? null,
+          payer: parsed.data.payer,
+          description: `TAKU WA ${selectedPlan.name}`,
+          externalReference: intent.id,
+          idempotencyKey: randomUUID(),
+        });
+        console.info("[wa billing] mercado pago payment response", {
+          paymentIntentId: intent.id,
+          providerPaymentId: payment.id,
+          status: payment.status,
+          statusDetail: payment.statusDetail,
+          paymentMethodId: payment.paymentMethodId,
+          amount: payment.transactionAmount,
+          currency: payment.currencyId,
+          dateApproved: payment.dateApproved,
+        });
+
+        if (payment.status !== "approved") {
+          res.status(402).json({
+            ok: false,
+            error: `Payment is ${payment.status}`,
+            paymentStatus: payment.status,
+            paymentStatusDetail: payment.statusDetail,
+            paymentIntent: intent,
+          });
+          return;
+        }
+
+        const completedIntent = await completeStandalonePaymentIntent({
+          filePath: params.config.standaloneAccountsFile,
+          paymentIntentId: intent.id,
+          providerPaymentId: payment.id,
+          paidAt: payment.dateApproved ?? new Date().toISOString(),
+        });
+
+        res.status(201).json({
+          ok: true,
+          paymentIntent: completedIntent,
+          paymentStatus: payment.status,
+        });
+      } catch (error) {
+        if (error instanceof MercadoPagoRequestError) {
+          console.error("[wa billing] mercado pago card payment failed", {
+            status: error.status,
+            error: error.error,
+            message: error.message,
+            causes: error.causes,
+            plan: parsed.data.plan,
+            paymentMethodId: parsed.data.payment_method_id,
+            installments: parsed.data.installments,
+            issuerId: parsed.data.issuer_id ?? null,
+            payerEmail: parsed.data.payer.email,
+            hasIdentification: Boolean(parsed.data.payer.identification),
+          });
+          res.status(400).json({
+            ok: false,
+            error: error.message,
+            providerStatus: error.status,
+            providerError: error.error,
+            providerCauses: error.causes,
+          });
+          return;
+        }
+
+        console.error("[wa billing] card payment failed", {
+          error: error instanceof Error ? error.message : String(error),
+          plan: parsed.data.plan,
+          paymentMethodId: parsed.data.payment_method_id,
+          installments: parsed.data.installments,
+          issuerId: parsed.data.issuer_id ?? null,
+          payerEmail: parsed.data.payer.email,
+          hasIdentification: Boolean(parsed.data.payer.identification),
+        });
+        res.status(400).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not process card payment",
+        });
+      }
+    },
+  );
+
+  router.get(
+    "/public/billing/intents/:paymentIntentId",
+    async (req: Request, res: Response) => {
+      const paymentIntentId = req.params.paymentIntentId?.trim();
+      if (!paymentIntentId) {
+        res.status(400).json({ ok: false, error: "Missing payment intent id" });
+        return;
+      }
+
+      const intent = await getStandalonePaymentIntent({
+        filePath: params.config.standaloneAccountsFile,
+        paymentIntentId,
+      });
+      if (!intent) {
+        res.status(404).json({ ok: false, error: "Payment intent not found" });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        paymentIntent: {
+          id: intent.id,
+          toPlan: intent.toPlan,
+          status: intent.status,
+          amountUsd: intent.amountUsd,
+          paidAt: intent.paidAt,
+        },
+      });
+    },
+  );
+
+  router.post(
+    "/public/billing/intents/:paymentIntentId/confirm",
+    async (req: Request, res: Response) => {
+      const paymentIntentId = req.params.paymentIntentId?.trim();
+      if (!paymentIntentId) {
+        res.status(400).json({ ok: false, error: "Missing payment intent id" });
+        return;
+      }
+
+      if (!params.config.mercadoPagoAccessToken) {
+        res.status(503).json({
+          ok: false,
+          error: "Mercado Pago access token is not configured",
+        });
+        return;
+      }
+
+      const intent = await getStandalonePaymentIntent({
+        filePath: params.config.standaloneAccountsFile,
+        paymentIntentId,
+      });
+      if (!intent) {
+        res.status(404).json({ ok: false, error: "Payment intent not found" });
+        return;
+      }
+
+      if (intent.status === "paid" || intent.status === "attached") {
+        res.json({ ok: true, paymentIntent: intent });
+        return;
+      }
+
+      try {
+        const payment = await findMercadoPagoPaymentByExternalReference({
+          accessToken: params.config.mercadoPagoAccessToken,
+          externalReference: paymentIntentId,
+        });
+        if (!payment) {
+          res.json({
+            ok: true,
+            paymentIntent: intent,
+            paymentStatus: "not_found",
+          });
+          return;
+        }
+
+        if (payment.status !== "approved") {
+          res.json({
+            ok: true,
+            paymentIntent: intent,
+            paymentStatus: payment.status,
+          });
+          return;
+        }
+
+        const completedIntent = await completeStandalonePaymentIntent({
+          filePath: params.config.standaloneAccountsFile,
+          paymentIntentId,
+          providerPaymentId: payment.id,
+          paidAt: payment.dateApproved ?? new Date().toISOString(),
+        });
+
+        res.json({
+          ok: true,
+          paymentIntent: completedIntent,
+          paymentStatus: payment.status,
+        });
+      } catch (error) {
+        res.status(400).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not confirm payment",
+        });
+      }
+    },
+  );
 
   router.post("/public/login", async (req: Request, res: Response) => {
     const parsed = standaloneLoginSchema.safeParse(req.body);
@@ -531,7 +955,7 @@ export function createV1Router(params: {
 
       res.json({
         ok: true,
-        account: publicStandaloneAccount(session.account),
+        account: publicStandaloneAccount(session.account, params.config),
         sessionToken: session.sessionToken,
         sessionExpiresAt: session.expiresAt,
         entitlements: billing.entitlements,
@@ -599,7 +1023,10 @@ export function createV1Router(params: {
             });
             res.json({
               ok: true,
-              account: publicStandaloneAccount(activated.account),
+              account: publicStandaloneAccount(
+                activated.account,
+                params.config,
+              ),
               billingRequest: activated.billingRequest,
               subscription: activated.subscription,
             });
@@ -655,6 +1082,17 @@ export function createV1Router(params: {
           return;
         }
 
+        if (payment.externalReference.startsWith("payint_")) {
+          const intent = await completeStandalonePaymentIntent({
+            filePath: params.config.standaloneAccountsFile,
+            paymentIntentId: payment.externalReference,
+            providerPaymentId: payment.id,
+            paidAt: payment.dateApproved ?? new Date().toISOString(),
+          });
+          res.json({ ok: true, paymentIntent: intent });
+          return;
+        }
+
         const completed = await completeStandaloneBillingRequest({
           filePath: params.config.standaloneAccountsFile,
           billingRequestId: payment.externalReference,
@@ -665,7 +1103,7 @@ export function createV1Router(params: {
 
         res.json({
           ok: true,
-          account: publicStandaloneAccount(completed.account),
+          account: publicStandaloneAccount(completed.account, params.config),
           billingRequest: completed.billingRequest,
           subscription: completed.subscription,
           invoice: completed.invoice,
@@ -696,11 +1134,100 @@ export function createV1Router(params: {
 
     res.json({
       ok: true,
-      account: publicStandaloneAccount(account),
+      account: publicStandaloneAccount(account, params.config),
       entitlements: billing.entitlements,
       effectivePlan: billing.effectivePlan,
       billingRestricted: billing.billingRestricted,
       usage,
+    });
+  });
+
+  router.patch("/account/me", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const parsed = standaloneAccountUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid account update",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const updatedAccount = await updateStandaloneAccountProjectName({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+      projectName: parsed.data.projectName,
+    });
+
+    const usage = await getStandaloneUsage({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: updatedAccount.id,
+    });
+    const billing = await getEffectiveBillingForAccount(
+      params.config,
+      updatedAccount,
+    );
+
+    res.json({
+      ok: true,
+      account: publicStandaloneAccount(updatedAccount, params.config),
+      entitlements: billing.entitlements,
+      effectivePlan: billing.effectivePlan,
+      billingRestricted: billing.billingRestricted,
+      usage,
+    });
+  });
+
+  router.patch("/account/password", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const parsed = standalonePasswordUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        error: "Invalid password update",
+        issues: parsed.error.flatten().fieldErrors,
+      });
+      return;
+    }
+
+    const updatedAccount = await updateStandaloneAccountPassword({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+      password: parsed.data.password,
+    });
+
+    res.json({
+      ok: true,
+      account: publicStandaloneAccount(updatedAccount, params.config),
+    });
+  });
+
+  router.post("/account/api-key", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    const rotated = await rotateStandaloneAccountApiKey({
+      filePath: params.config.standaloneAccountsFile,
+      accountId: account.id,
+    });
+
+    res.status(201).json({
+      ok: true,
+      account: publicStandaloneAccount(rotated.account, params.config),
+      apiKey: rotated.apiKey,
+      apiKeyNotice:
+        "Store this API key now. It is only returned once and replaces the previous key.",
     });
   });
 
@@ -773,7 +1300,7 @@ export function createV1Router(params: {
 
     res.json({
       ok: true,
-      account: publicStandaloneAccount(account),
+      account: publicStandaloneAccount(account, params.config),
       plans: listStandalonePlans(),
       currentPlan: billing.currentPlan,
       subscription: billing.subscription,
@@ -781,6 +1308,53 @@ export function createV1Router(params: {
       paymentMethods: billing.paymentMethods,
       billingRequests: billing.billingRequests,
     });
+  });
+
+  router.get("/account/admin/overview", async (req: Request, res: Response) => {
+    const account = await requireStandaloneAccount(req, res, params.config);
+    if (!account) {
+      return;
+    }
+
+    if (!isStandaloneSuperowner(account, params.config)) {
+      res.status(403).json({
+        ok: false,
+        error: "Superowner access required",
+      });
+      return;
+    }
+
+    const overview = await getStandaloneAdminOverview({
+      filePath: params.config.standaloneAccountsFile,
+    });
+    const phoneHealth = {
+      total: 0,
+      connected: 0,
+      qrPending: 0,
+      errors: 0,
+      inactive: 0,
+      unknown: 0,
+    };
+
+    for (const accountSummary of overview.accounts) {
+      for (const connectionId of accountSummary.connectionIds) {
+        phoneHealth.total += 1;
+        const snapshot = params.connectionManager.getSnapshot(connectionId);
+        if (!snapshot) {
+          phoneHealth.unknown += 1;
+        } else if (snapshot.connected) {
+          phoneHealth.connected += 1;
+        } else if (snapshot.hasQr) {
+          phoneHealth.qrPending += 1;
+        } else if (snapshot.state === "ERROR") {
+          phoneHealth.errors += 1;
+        } else {
+          phoneHealth.inactive += 1;
+        }
+      }
+    }
+
+    res.json({ ok: true, overview: { ...overview, phoneHealth } });
   });
 
   router.post(
@@ -884,14 +1458,6 @@ export function createV1Router(params: {
       }
 
       try {
-        if (!params.config.mercadoPagoAccessToken) {
-          res.status(503).json({
-            ok: false,
-            error: "Mercado Pago access token is not configured",
-          });
-          return;
-        }
-
         const selectedPlan = listStandalonePlans().find(
           (plan) => plan.plan === parsed.data.plan,
         );
@@ -909,34 +1475,11 @@ export function createV1Router(params: {
           toPlan: parsed.data.plan as StandalonePlan,
           billingCycle: parsed.data.billingCycle,
         });
-        const preapproval = await createMercadoPagoPreapproval({
-          accessToken: params.config.mercadoPagoAccessToken,
-          reason: `TAKU WA ${selectedPlan.name}`,
-          payerEmail: account.email,
-          externalReference: billingRequest.id,
-          backUrl: `${params.config.takuWaWebBaseUrl}${parsed.data.returnPath}?subscription=pending`,
-          amount: selectedPlan.monthlyPriceUsd,
-          currencyId: params.config.mercadoPagoCurrencyId,
-        });
-        if (!preapproval.initPoint) {
-          throw new Error("Mercado Pago subscription checkout is missing");
-        }
-
-        const updatedBillingRequest =
-          await updateStandaloneBillingRequestCheckout({
-            filePath: params.config.standaloneAccountsFile,
-            accountId: account.id,
-            billingRequestId: billingRequest.id,
-            provider: "mercadopago_preapproval",
-            providerPreferenceId: null,
-            providerSubscriptionId: preapproval.id,
-            checkoutUrl: preapproval.initPoint,
-          });
 
         res.status(201).json({
           ok: true,
-          billingRequest: updatedBillingRequest,
-          checkoutUrl: updatedBillingRequest.checkoutUrl,
+          billingRequest,
+          checkoutUrl: billingRequest.checkoutUrl,
         });
       } catch (error) {
         res.status(400).json({
@@ -945,6 +1488,162 @@ export function createV1Router(params: {
             error instanceof Error
               ? error.message
               : "Could not create billing request",
+        });
+      }
+    },
+  );
+
+  router.post(
+    "/account/billing/card-payment",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const parsed = billingCardPaymentSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid card payment payload",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      const selectedPlan = listStandalonePlans().find(
+        (plan) => plan.plan === parsed.data.plan,
+      );
+      if (!selectedPlan || selectedPlan.monthlyPriceUsd === null) {
+        res.status(400).json({
+          ok: false,
+          error: "Choose a fixed-price paid plan",
+        });
+        return;
+      }
+
+      if (!params.config.mercadoPagoAccessToken) {
+        res.status(503).json({
+          ok: false,
+          error: "Mercado Pago access token is not configured",
+        });
+        return;
+      }
+
+      try {
+        const billing = await getStandaloneBillingSummary({
+          filePath: params.config.standaloneAccountsFile,
+          accountId: account.id,
+        });
+        const billingRequest = billing.billingRequests.find(
+          (request) =>
+            request.id === parsed.data.billingRequestId &&
+            request.status === "pending",
+        );
+        if (!billingRequest) {
+          res.status(404).json({
+            ok: false,
+            error: "Pending billing request not found",
+          });
+          return;
+        }
+
+        console.info("[wa billing] creating authenticated card payment", {
+          billingRequestId: parsed.data.billingRequestId,
+          accountId: account.id,
+          plan: selectedPlan.plan,
+          amount: selectedPlan.monthlyPriceUsd,
+          paymentMethodId: parsed.data.payment_method_id,
+          installments: parsed.data.installments,
+          issuerId: parsed.data.issuer_id ?? null,
+          payerEmail: parsed.data.payer.email,
+          hasIdentification: Boolean(parsed.data.payer.identification),
+        });
+        const payment = await createMercadoPagoCardPayment({
+          accessToken: params.config.mercadoPagoAccessToken,
+          token: parsed.data.token,
+          transactionAmount: selectedPlan.monthlyPriceUsd,
+          installments: parsed.data.installments,
+          paymentMethodId: parsed.data.payment_method_id,
+          issuerId: parsed.data.issuer_id ?? null,
+          payer: parsed.data.payer,
+          description: `TAKU WA ${selectedPlan.name}`,
+          externalReference: parsed.data.billingRequestId,
+          idempotencyKey: randomUUID(),
+        });
+
+        console.info("[wa billing] authenticated card payment response", {
+          billingRequestId: parsed.data.billingRequestId,
+          providerPaymentId: payment.id,
+          status: payment.status,
+          statusDetail: payment.statusDetail,
+          paymentMethodId: payment.paymentMethodId,
+          amount: payment.transactionAmount,
+          currency: payment.currencyId,
+          dateApproved: payment.dateApproved,
+        });
+
+        if (payment.status !== "approved") {
+          res.status(402).json({
+            ok: false,
+            error: `Payment is ${payment.status}`,
+            paymentStatus: payment.status,
+            paymentStatusDetail: payment.statusDetail,
+          });
+          return;
+        }
+
+        const completed = await completeStandaloneBillingRequest({
+          filePath: params.config.standaloneAccountsFile,
+          billingRequestId: parsed.data.billingRequestId,
+          providerPaymentId: payment.id,
+          amountUsd: payment.transactionAmount ?? selectedPlan.monthlyPriceUsd,
+          paidAt: payment.dateApproved ?? new Date().toISOString(),
+        });
+
+        res.status(201).json({
+          ok: true,
+          account: publicStandaloneAccount(completed.account, params.config),
+          billingRequest: completed.billingRequest,
+          subscription: completed.subscription,
+          invoice: completed.invoice,
+          paymentStatus: payment.status,
+        });
+      } catch (error) {
+        if (error instanceof MercadoPagoRequestError) {
+          console.error("[wa billing] authenticated card payment failed", {
+            status: error.status,
+            error: error.error,
+            message: error.message,
+            causes: error.causes,
+            plan: parsed.data.plan,
+            paymentMethodId: parsed.data.payment_method_id,
+            installments: parsed.data.installments,
+            issuerId: parsed.data.issuer_id ?? null,
+            payerEmail: parsed.data.payer.email,
+            hasIdentification: Boolean(parsed.data.payer.identification),
+          });
+          res.status(400).json({
+            ok: false,
+            error: error.message,
+            providerStatus: error.status,
+            providerError: error.error,
+            providerCauses: error.causes,
+          });
+          return;
+        }
+
+        console.error("[wa billing] authenticated card payment failed", {
+          error: error instanceof Error ? error.message : String(error),
+          billingRequestId: parsed.data.billingRequestId,
+          plan: parsed.data.plan,
+        });
+        res.status(400).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not process card payment",
         });
       }
     },
@@ -1091,7 +1790,7 @@ export function createV1Router(params: {
 
       res.status(201).json({
         ok: true,
-        account: publicStandaloneAccount(updatedAccount),
+        account: publicStandaloneAccount(updatedAccount, params.config),
         connection,
         connectionId,
         qr,

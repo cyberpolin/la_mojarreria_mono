@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type LoginResponse =
   | {
@@ -25,11 +25,33 @@ type LoginResponse =
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
 
+function hasActiveLocalSession(): boolean {
+  try {
+    const raw = window.localStorage.getItem("TAKU_WA_SIGNUP_RESULT");
+    if (!raw) {
+      return false;
+    }
+
+    const parsed = JSON.parse(raw) as { sessionToken?: unknown };
+    return (
+      typeof parsed.sessionToken === "string" && parsed.sessionToken.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (hasActiveLocalSession()) {
+      window.location.replace("/admin");
+    }
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -128,6 +150,18 @@ export default function LoginPage() {
             >
               {isSubmitting ? "Logging in..." : "Log in"}
             </button>
+
+            <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 text-sm font-semibold sm:flex-row sm:items-center sm:justify-between">
+              <a href="/" className="text-slate-600 hover:text-slate-950">
+                Go home
+              </a>
+              <a
+                href="/signup"
+                className="text-emerald-700 hover:text-emerald-800"
+              >
+                Create account
+              </a>
+            </div>
           </form>
         </div>
       </section>
