@@ -82,6 +82,15 @@ export default function HomePage() {
                   Review how the current solution works.
                 </span>
               </Link>
+              <Link
+                href="/status"
+                className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300"
+              >
+                <span className="block text-base font-semibold">Status</span>
+                <span className="mt-2 block text-sm text-slate-400">
+                  Check env values and API health.
+                </span>
+              </Link>
             </>
           ) : (
             <>
@@ -112,6 +121,15 @@ export default function HomePage() {
                 <span className="block text-base font-semibold">Read Docs</span>
                 <span className="mt-2 block text-sm text-slate-400">
                   Review what is hooked, what is mocked, and next steps.
+                </span>
+              </Link>
+              <Link
+                href="/status"
+                className="rounded-lg border border-slate-800 bg-slate-900 p-5 text-slate-100 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300"
+              >
+                <span className="block text-base font-semibold">Status</span>
+                <span className="mt-2 block text-sm text-slate-400">
+                  Check env values and API health.
                 </span>
               </Link>
             </>
