@@ -19,6 +19,14 @@ type RuntimeVariable = {
   required: boolean;
 };
 
+type WebVariable = {
+  name: string;
+  value: string;
+  required: boolean;
+  sensitive?: boolean;
+  purpose: string;
+};
+
 type RuntimeStatus = {
   state: HealthState;
   message: string | null;
@@ -41,6 +49,29 @@ const apiBaseUrl =
 const apiKey = process.env.NEXT_PUBLIC_TAKU_API_KEY ?? "";
 const mercadoPagoPublicKey =
   process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? "";
+
+const webVariables: WebVariable[] = [
+  {
+    name: "NEXT_PUBLIC_TAKU_API_BASE_URL",
+    value: apiBaseUrl,
+    required: true,
+    purpose: "Browser API target used by TAKU Web.",
+  },
+  {
+    name: "NEXT_PUBLIC_TAKU_API_KEY",
+    value: apiKey,
+    required: true,
+    sensitive: true,
+    purpose: "Public service key sent by TAKU Web to TAKU API.",
+  },
+  {
+    name: "NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY",
+    value: mercadoPagoPublicKey,
+    required: true,
+    sensitive: true,
+    purpose: "Mercado Pago browser SDK public key for card payment UI.",
+  },
+];
 
 function maskValue(value: string) {
   if (!value) return "Missing";
@@ -143,6 +174,27 @@ function VariableRow({ variable }: { variable: RuntimeVariable }) {
           : variable.required
             ? "Missing"
             : "Optional"}
+      </StatusBadge>
+    </div>
+  );
+}
+
+function WebVariableRow({ variable }: { variable: WebVariable }) {
+  const configured = Boolean(variable.value);
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-sm font-semibold text-slate-100">{variable.name}</p>
+        <p className="mt-1 break-all text-sm text-slate-400">
+          {variable.sensitive
+            ? maskValue(variable.value)
+            : variable.value || "Missing"}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">{variable.purpose}</p>
+      </div>
+      <StatusBadge state={configured || !variable.required ? "ok" : "warn"}>
+        {configured ? "OK" : variable.required ? "Missing" : "Optional"}
       </StatusBadge>
     </div>
   );
@@ -271,6 +323,12 @@ export default function StatusPage() {
       : runtimeStatus.state === "checking"
         ? "checking"
         : "warn";
+  const configuredWebVariables = webVariables.filter((variable) =>
+    Boolean(variable.value),
+  ).length;
+  const missingRequiredWebVariables = webVariables.filter(
+    (variable) => variable.required && !variable.value,
+  ).length;
 
   return (
     <main className="min-h-screen bg-slate-950">
@@ -433,25 +491,38 @@ export default function StatusPage() {
           </Panel>
         ) : null}
 
-        <Panel title="Browser Environment">
+        <Panel title="TAKU Web Env Vars">
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Configured
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-100">
+                {configuredWebVariables} / {webVariables.length}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Missing Required
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-100">
+                {missingRequiredWebVariables}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Build Target
+              </p>
+              <p className="mt-2 break-all text-sm font-semibold text-slate-100">
+                {apiBaseUrl}
+              </p>
+            </div>
+          </div>
+
           <div className="space-y-3">
-            <EnvRow
-              label="NEXT_PUBLIC_TAKU_API_BASE_URL"
-              value={apiBaseUrl}
-              required
-            />
-            <EnvRow
-              label="NEXT_PUBLIC_TAKU_API_KEY"
-              value={apiKey}
-              required
-              sensitive
-            />
-            <EnvRow
-              label="NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY"
-              value={mercadoPagoPublicKey}
-              required
-              sensitive
-            />
+            {webVariables.map((variable) => (
+              <WebVariableRow key={variable.name} variable={variable} />
+            ))}
           </div>
         </Panel>
 
