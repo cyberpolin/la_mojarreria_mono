@@ -13,6 +13,29 @@ type HealthResult = {
   checkedAt: string | null;
 };
 
+type RuntimeVariable = {
+  name: string;
+  configured: boolean;
+  required: boolean;
+};
+
+type RuntimeStatus = {
+  state: HealthState;
+  message: string | null;
+  checkedAt: string | null;
+  runtime: {
+    host: string;
+    port: number;
+    dataFile: string;
+    allowedOrigins: string[];
+    waServiceBaseUrl: string;
+    waServiceClientDomain: string;
+    takuWebBaseUrl: string;
+    mercadoPagoUseSandbox: boolean;
+  } | null;
+  variables: RuntimeVariable[];
+};
+
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_API_BASE_URL ?? "http://localhost:3010";
 const apiKey = process.env.NEXT_PUBLIC_TAKU_API_KEY ?? "";
@@ -99,6 +122,32 @@ function EnvRow({
   );
 }
 
+function VariableRow({ variable }: { variable: RuntimeVariable }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-sm font-semibold text-slate-100">{variable.name}</p>
+        <p className="mt-1 text-sm text-slate-400">
+          {variable.configured
+            ? "Configured on TAKU API"
+            : variable.required
+              ? "Missing on TAKU API"
+              : "Not configured"}
+        </p>
+      </div>
+      <StatusBadge
+        state={variable.configured || !variable.required ? "ok" : "warn"}
+      >
+        {variable.configured
+          ? "OK"
+          : variable.required
+            ? "Missing"
+            : "Optional"}
+      </StatusBadge>
+    </div>
+  );
+}
+
 export default function StatusPage() {
   const [health, setHealth] = useState<HealthResult>({
     state: "checking",
@@ -107,9 +156,20 @@ export default function StatusPage() {
     message: null,
     checkedAt: null,
   });
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({
+    state: "checking",
+    message: null,
+    checkedAt: null,
+    runtime: null,
+    variables: [],
+  });
 
   const apiHealthUrl = useMemo(
     () => `${apiBaseUrl.replace(/\/+$/, "")}/health`,
+    [],
+  );
+  const runtimeStatusUrl = useMemo(
+    () => `${apiBaseUrl.replace(/\/+$/, "")}/v1/runtime/status`,
     [],
   );
 
@@ -149,14 +209,66 @@ export default function StatusPage() {
     }
   }, [apiHealthUrl]);
 
+  const checkRuntimeStatus = useCallback(async () => {
+    setRuntimeStatus((current) => ({
+      ...current,
+      state: "checking",
+      message: null,
+    }));
+
+    try {
+      const response = await fetch(runtimeStatusUrl, {
+        cache: "no-store",
+        headers: {
+          ...(apiKey ? { "x-api-key": apiKey } : {}),
+        },
+      });
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        runtime?: RuntimeStatus["runtime"];
+        variables?: RuntimeVariable[];
+        error?: string;
+      } | null;
+
+      setRuntimeStatus({
+        state: response.ok && body?.ok ? "online" : "offline",
+        message:
+          response.ok && body?.ok
+            ? null
+            : (body?.error ?? `Runtime status returned ${response.status}`),
+        checkedAt: new Date().toLocaleString(),
+        runtime: body?.runtime ?? null,
+        variables: body?.variables ?? [],
+      });
+    } catch (error) {
+      setRuntimeStatus({
+        state: "offline",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Unable to load TAKU API runtime status",
+        checkedAt: new Date().toLocaleString(),
+        runtime: null,
+        variables: [],
+      });
+    }
+  }, [runtimeStatusUrl]);
+
   useEffect(() => {
     void checkHealth();
-  }, [checkHealth]);
+    void checkRuntimeStatus();
+  }, [checkHealth, checkRuntimeStatus]);
 
   const apiState =
     health.state === "online"
       ? "ok"
       : health.state === "checking"
+        ? "checking"
+        : "warn";
+  const runtimeState =
+    runtimeStatus.state === "online"
+      ? "ok"
+      : runtimeStatus.state === "checking"
         ? "checking"
         : "warn";
 
@@ -221,14 +333,105 @@ export default function StatusPage() {
             </div>
             <button
               type="button"
-              onClick={() => void checkHealth()}
-              disabled={health.state === "checking"}
+              onClick={() => {
+                void checkHealth();
+                void checkRuntimeStatus();
+              }}
+              disabled={
+                health.state === "checking" ||
+                runtimeStatus.state === "checking"
+              }
               className="min-h-11 rounded-lg bg-slate-100 px-4 text-sm font-medium text-slate-950 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Refresh
             </button>
           </div>
         </Panel>
+
+        <Panel title="TAKU API Variables">
+          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-slate-100">
+                  Runtime status endpoint
+                </p>
+                <StatusBadge state={runtimeState}>
+                  {runtimeStatus.state === "checking"
+                    ? "Checking"
+                    : runtimeStatus.state === "online"
+                      ? "Loaded"
+                      : "Unavailable"}
+                </StatusBadge>
+              </div>
+              <p className="mt-2 break-all text-sm text-slate-400">
+                {runtimeStatusUrl}
+              </p>
+              {runtimeStatus.checkedAt ? (
+                <p className="mt-2 text-sm text-slate-500">
+                  Checked {runtimeStatus.checkedAt}
+                </p>
+              ) : null}
+              {runtimeStatus.message ? (
+                <p className="mt-2 text-sm text-slate-300">
+                  {runtimeStatus.message}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {runtimeStatus.variables.length ? (
+            <div className="space-y-3">
+              {runtimeStatus.variables.map((variable) => (
+                <VariableRow key={variable.name} variable={variable} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950 p-4 text-sm text-slate-400">
+              Runtime variables are not loaded yet.
+            </div>
+          )}
+        </Panel>
+
+        {runtimeStatus.runtime ? (
+          <Panel title="TAKU API Runtime Values">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                [
+                  "API bind",
+                  `${runtimeStatus.runtime.host}:${runtimeStatus.runtime.port}`,
+                ],
+                ["TAKU Web URL", runtimeStatus.runtime.takuWebBaseUrl],
+                ["WA Service URL", runtimeStatus.runtime.waServiceBaseUrl],
+                [
+                  "WA client domain",
+                  runtimeStatus.runtime.waServiceClientDomain,
+                ],
+                [
+                  "Mercado Pago mode",
+                  runtimeStatus.runtime.mercadoPagoUseSandbox
+                    ? "Sandbox"
+                    : "Production",
+                ],
+                [
+                  "Allowed origins",
+                  runtimeStatus.runtime.allowedOrigins.join(", ") || "None",
+                ],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-lg border border-slate-800 bg-slate-950 p-4"
+                >
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                    {label}
+                  </p>
+                  <p className="mt-2 break-all text-sm font-semibold text-slate-100">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        ) : null}
 
         <Panel title="Browser Environment">
           <div className="space-y-3">

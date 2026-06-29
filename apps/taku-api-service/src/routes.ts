@@ -648,6 +648,83 @@ export function createV1Router(params: {
     });
   });
 
+  router.get("/runtime/status", (_req, res) => {
+    const configured = (value: string | null | undefined) => Boolean(value);
+
+    res.json({
+      ok: true,
+      service: "taku-api-service",
+      checkedAt: new Date().toISOString(),
+      runtime: {
+        host: params.config.host,
+        port: params.config.port,
+        dataFile: params.config.dataFile,
+        allowedOrigins: params.config.allowedOrigins,
+        waServiceBaseUrl: params.config.waServiceBaseUrl,
+        waServiceClientDomain: params.config.waServiceClientDomain,
+        takuWebBaseUrl: params.config.takuWebBaseUrl,
+        mercadoPagoUseSandbox: params.config.mercadoPagoUseSandbox,
+      },
+      variables: [
+        {
+          name: "TAKU_API_KEY",
+          configured: configured(params.config.apiKey),
+          required: true,
+        },
+        {
+          name: "TAKU_SESSION_SECRET",
+          configured: configured(params.config.sessionSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_SUPEROWNER_EMAIL",
+          configured: configured(params.config.superownerEmail),
+          required: true,
+        },
+        {
+          name: "TAKU_SUPEROWNER_PASSWORD",
+          configured: configured(params.config.superownerPassword),
+          required: true,
+        },
+        {
+          name: "TAKU_CLIENT_PASSWORD",
+          configured: configured(params.config.clientPassword),
+          required: true,
+        },
+        {
+          name: "WA_SERVICE_BASE_URL",
+          configured: configured(params.config.waServiceBaseUrl),
+          required: true,
+        },
+        {
+          name: "WA_SERVICE_API_KEY",
+          configured: configured(params.config.waServiceApiKey),
+          required: true,
+        },
+        {
+          name: "WA_SERVICE_CLIENT_DOMAIN",
+          configured: configured(params.config.waServiceClientDomain),
+          required: true,
+        },
+        {
+          name: "TAKU_WEB_BASE_URL",
+          configured: configured(params.config.takuWebBaseUrl),
+          required: true,
+        },
+        {
+          name: "MERCADOPAGO_ACCESS_TOKEN",
+          configured: configured(params.config.mercadoPagoAccessToken),
+          required: true,
+        },
+        {
+          name: "MERCADOPAGO_WEBHOOK_SECRET",
+          configured: configured(params.config.mercadoPagoWebhookSecret),
+          required: true,
+        },
+      ],
+    });
+  });
+
   router.get("/businesses", async (req, res) => {
     const data = await params.store.list();
     const context = getRequestContext(req, params.config);
