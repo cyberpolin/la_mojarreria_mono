@@ -430,6 +430,41 @@ export default function StatusPage() {
           </Panel>
         ) : null}
 
+        <Panel title="TAKU Web Env Vars">
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Configured
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-100">
+                {configuredWebVariables} / {webVariables.length}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Missing Required
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-100">
+                {missingRequiredWebVariables}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                Build Target
+              </p>
+              <p className="mt-2 break-all text-sm font-semibold text-slate-100">
+                {apiBaseUrl}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {webVariables.map((variable) => (
+              <WebVariableRow key={variable.name} variable={variable} />
+            ))}
+          </div>
+        </Panel>
+
         {accessGranted ? (
           <>
             <Panel title="Live Checks">
@@ -564,41 +599,6 @@ export default function StatusPage() {
                 </div>
               </Panel>
             ) : null}
-
-            <Panel title="TAKU Web Env Vars">
-              <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Configured
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-slate-100">
-                    {configuredWebVariables} / {webVariables.length}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Missing Required
-                  </p>
-                  <p className="mt-2 text-lg font-semibold text-slate-100">
-                    {missingRequiredWebVariables}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-800 bg-slate-950 p-4">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
-                    Build Target
-                  </p>
-                  <p className="mt-2 break-all text-sm font-semibold text-slate-100">
-                    {apiBaseUrl}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {webVariables.map((variable) => (
-                  <WebVariableRow key={variable.name} variable={variable} />
-                ))}
-              </div>
-            </Panel>
 
             <Panel title="Expected Production Domains">
               <div className="grid gap-3 sm:grid-cols-2">

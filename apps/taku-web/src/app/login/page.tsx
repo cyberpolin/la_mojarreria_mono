@@ -7,6 +7,7 @@ import { storeSession, type TakuSession } from "../session";
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_API_BASE_URL ?? "http://localhost:3010";
 const apiKey = process.env.NEXT_PUBLIC_TAKU_API_KEY ?? "";
+const showDeveloperLoginNotes = process.env.NODE_ENV !== "production";
 
 type LoginResponse = {
   ok: true;
@@ -111,10 +112,12 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs leading-5 text-slate-400">
-          <p>Client users are created from onboarding.</p>
-          <p>Superowner uses the configured TAKU superowner credentials.</p>
-        </div>
+        {showDeveloperLoginNotes ? (
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs leading-5 text-slate-400">
+            <p>Client users are created from onboarding.</p>
+            <p>Superowner uses the configured TAKU superowner credentials.</p>
+          </div>
+        ) : null}
 
         <Link
           href="/"
