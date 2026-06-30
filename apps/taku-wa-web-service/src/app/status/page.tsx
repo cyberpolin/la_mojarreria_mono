@@ -17,6 +17,8 @@ type WebVariable = {
   required: boolean;
   sensitive?: boolean;
   purpose: string;
+  valid?: boolean;
+  warning?: string;
 };
 
 const apiBaseUrl =
@@ -26,18 +28,24 @@ const healthUrl =
   `${apiBaseUrl.replace(/\/+$/, "")}/v1/health`;
 const mercadoPagoPublicKey =
   process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? "";
+const apiBaseUrlTargetsWaService = /\/\/api\.wa\./.test(apiBaseUrl);
+const healthUrlTargetsWaService = /\/\/api\.wa\./.test(healthUrl);
 
 const webVariables: WebVariable[] = [
   {
     name: "NEXT_PUBLIC_TAKU_WA_API_BASE_URL",
     value: apiBaseUrl,
     required: true,
+    valid: apiBaseUrlTargetsWaService,
+    warning: "Production WA Web should point to the WA API domain.",
     purpose: "Browser API target used by TAKU WA Web.",
   },
   {
     name: "NEXT_PUBLIC_TAKU_WA_HEALTH_URL",
     value: healthUrl,
     required: true,
+    valid: healthUrlTargetsWaService,
+    warning: "Health checks should hit the WA API health endpoint.",
     purpose: "Public health endpoint checked by this status page.",
   },
   {
@@ -113,6 +121,8 @@ function maskValue(value: string) {
 
 function WebVariableRow({ variable }: { variable: WebVariable }) {
   const configured = Boolean(variable.value);
+  const valid = variable.valid ?? true;
+  const ok = (configured || !variable.required) && valid;
 
   return (
     <div className="grid gap-3 border-t border-slate-200 px-5 py-4 md:grid-cols-[1fr_auto] md:items-center">
@@ -124,15 +134,28 @@ function WebVariableRow({ variable }: { variable: WebVariable }) {
             : variable.value || "Missing"}
         </p>
         <p className="mt-1 text-xs text-slate-500">{variable.purpose}</p>
+        {configured && !valid && variable.warning ? (
+          <p className="mt-2 text-xs font-semibold text-amber-700">
+            {variable.warning}
+          </p>
+        ) : null}
       </div>
       <span
         className={`inline-flex min-h-8 items-center justify-center rounded-full border px-3 text-xs font-semibold ${
-          configured || !variable.required
+          ok
             ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-            : "border-red-300 bg-red-50 text-red-700"
+            : configured
+              ? "border-amber-300 bg-amber-50 text-amber-700"
+              : "border-red-300 bg-red-50 text-red-700"
         }`}
       >
-        {configured ? "OK" : variable.required ? "Missing" : "Optional"}
+        {ok
+          ? "OK"
+          : configured
+            ? "Check target"
+            : variable.required
+              ? "Missing"
+              : "Optional"}
       </span>
     </div>
   );
@@ -158,6 +181,9 @@ export default function StatusPage() {
   ).length;
   const missingRequiredWebVariables = webVariables.filter(
     (variable) => variable.required && !variable.value,
+  ).length;
+  const invalidWebVariables = webVariables.filter(
+    (variable) => variable.value && variable.valid === false,
   ).length;
 
   const runCheck = async () => {
@@ -339,9 +365,9 @@ export default function StatusPage() {
                 </p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-xs text-slate-500">Build target</p>
-                <p className="mt-2 break-all text-sm font-semibold text-slate-950">
-                  {apiBaseUrl}
+                <p className="text-xs text-slate-500">Target warnings</p>
+                <p className="mt-2 text-xl font-semibold text-slate-950">
+                  {invalidWebVariables}
                 </p>
               </div>
             </div>
