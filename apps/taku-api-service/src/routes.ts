@@ -648,7 +648,16 @@ export function createV1Router(params: {
     });
   });
 
-  router.get("/runtime/status", (_req, res) => {
+  router.get("/runtime/status", (req, res) => {
+    const statusPassword = req.header("x-taku-status-password") ?? "";
+    if (statusPassword !== params.config.superownerPassword) {
+      res.status(403).json({
+        ok: false,
+        error: "TAKU superowner password required",
+      });
+      return;
+    }
+
     const configured = (value: string | null | undefined) => Boolean(value);
 
     res.json({

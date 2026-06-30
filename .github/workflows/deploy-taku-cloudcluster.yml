@@ -1,4 +1,4 @@
-name: Deploy TAKU to CloudCluster
+name: Deploy Taku-api to Cloudcluster
 
 on:
   workflow_dispatch:

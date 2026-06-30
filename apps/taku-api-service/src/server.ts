@@ -28,7 +28,7 @@ export function createServer(params: {
       res.header("access-control-allow-methods", "GET,POST,PATCH,OPTIONS");
       res.header(
         "access-control-allow-headers",
-        "authorization,content-type,x-api-key,x-taku-role,x-taku-business-id",
+        "authorization,content-type,x-api-key,x-taku-role,x-taku-business-id,x-taku-status-password",
       );
     }
 
