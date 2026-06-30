@@ -25,11 +25,12 @@ const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
 const healthUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_HEALTH_URL ??
-  `${apiBaseUrl.replace(/\/+$/, "")}/v1/health`;
+  `${apiBaseUrl.replace(/\/+$/, "")}/health`;
 const mercadoPagoPublicKey =
   process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? "";
 const apiBaseUrlTargetsWaService = /\/\/api\.wa\./.test(apiBaseUrl);
 const healthUrlTargetsWaService = /\/\/api\.wa\./.test(healthUrl);
+const healthUrlUsesPublicEndpoint = /\/health\/?$/.test(healthUrl);
 
 const webVariables: WebVariable[] = [
   {
@@ -44,8 +45,8 @@ const webVariables: WebVariable[] = [
     name: "NEXT_PUBLIC_TAKU_WA_HEALTH_URL",
     value: healthUrl,
     required: true,
-    valid: healthUrlTargetsWaService,
-    warning: "Health checks should hit the WA API health endpoint.",
+    valid: healthUrlTargetsWaService && healthUrlUsesPublicEndpoint,
+    warning: "Health checks should hit the public WA API /health endpoint.",
     purpose: "Public health endpoint checked by this status page.",
   },
   {

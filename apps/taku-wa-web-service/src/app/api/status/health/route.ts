@@ -4,7 +4,8 @@ const apiBaseUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
 const healthUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_HEALTH_URL ??
-  `${apiBaseUrl.replace(/\/+$/, "")}/v1/health`;
+  `${apiBaseUrl.replace(/\/+$/, "")}/health`;
+const effectiveHealthUrl = healthUrl.replace(/\/v1\/health\/?$/, "/health");
 
 export async function GET(request: Request) {
   const expectedPassword = process.env.TAKU_SUPEROWNER_PASSWORD ?? "";
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const response = await fetch(healthUrl, { cache: "no-store" });
+    const response = await fetch(effectiveHealthUrl, { cache: "no-store" });
     const payload = (await response.json().catch(() => null)) as {
       ok?: boolean;
     } | null;
@@ -35,7 +36,8 @@ export async function GET(request: Request) {
       healthOk: response.ok && Boolean(payload?.ok),
       status: response.status,
       statusText: response.statusText,
-      healthUrl,
+      healthUrl: effectiveHealthUrl,
+      configuredHealthUrl: healthUrl,
       payload,
     });
   } catch (error) {
@@ -44,7 +46,8 @@ export async function GET(request: Request) {
       healthOk: false,
       status: null,
       statusText: "unreachable",
-      healthUrl,
+      healthUrl: effectiveHealthUrl,
+      configuredHealthUrl: healthUrl,
       error:
         error instanceof Error
           ? error.message
