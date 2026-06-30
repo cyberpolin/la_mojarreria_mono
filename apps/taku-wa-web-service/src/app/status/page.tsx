@@ -11,9 +11,43 @@ type CheckRecord = {
   label: string;
 };
 
+type WebVariable = {
+  name: string;
+  value: string;
+  required: boolean;
+  sensitive?: boolean;
+  purpose: string;
+};
+
+const apiBaseUrl =
+  process.env.NEXT_PUBLIC_TAKU_WA_API_BASE_URL ?? "http://localhost:3001";
 const healthUrl =
   process.env.NEXT_PUBLIC_TAKU_WA_HEALTH_URL ??
-  "https://api.wa.taku.lat/v1/health";
+  `${apiBaseUrl.replace(/\/+$/, "")}/v1/health`;
+const mercadoPagoPublicKey =
+  process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY ?? "";
+
+const webVariables: WebVariable[] = [
+  {
+    name: "NEXT_PUBLIC_TAKU_WA_API_BASE_URL",
+    value: apiBaseUrl,
+    required: true,
+    purpose: "Browser API target used by TAKU WA Web.",
+  },
+  {
+    name: "NEXT_PUBLIC_TAKU_WA_HEALTH_URL",
+    value: healthUrl,
+    required: true,
+    purpose: "Public health endpoint checked by this status page.",
+  },
+  {
+    name: "NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY",
+    value: mercadoPagoPublicKey,
+    required: true,
+    sensitive: true,
+    purpose: "Mercado Pago browser SDK public key for payment UI.",
+  },
+];
 
 const stateCopy: Record<
   HealthState,
@@ -71,6 +105,39 @@ function StatusOrb({ state }: { state: HealthState }) {
   );
 }
 
+function maskValue(value: string) {
+  if (!value) return "Missing";
+  if (value.length <= 8) return `${value.length} chars configured`;
+  return `${value.slice(0, 4)}...${value.slice(-4)} (${value.length} chars)`;
+}
+
+function WebVariableRow({ variable }: { variable: WebVariable }) {
+  const configured = Boolean(variable.value);
+
+  return (
+    <div className="grid gap-3 border-t border-slate-200 px-5 py-4 md:grid-cols-[1fr_auto] md:items-center">
+      <div>
+        <p className="text-sm font-semibold text-slate-950">{variable.name}</p>
+        <p className="mt-1 break-all text-sm text-slate-600">
+          {variable.sensitive
+            ? maskValue(variable.value)
+            : variable.value || "Missing"}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">{variable.purpose}</p>
+      </div>
+      <span
+        className={`inline-flex min-h-8 items-center justify-center rounded-full border px-3 text-xs font-semibold ${
+          configured || !variable.required
+            ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+            : "border-red-300 bg-red-50 text-red-700"
+        }`}
+      >
+        {configured ? "OK" : variable.required ? "Missing" : "Optional"}
+      </span>
+    </div>
+  );
+}
+
 export default function StatusPage() {
   const [state, setState] = useState<HealthState>("checking");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
@@ -86,6 +153,12 @@ export default function StatusPage() {
     ).length;
     return `${Math.round((healthy / records.length) * 100)}%`;
   }, [records]);
+  const configuredWebVariables = webVariables.filter((variable) =>
+    Boolean(variable.value),
+  ).length;
+  const missingRequiredWebVariables = webVariables.filter(
+    (variable) => variable.required && !variable.value,
+  ).length;
 
   const runCheck = async () => {
     setState("checking");
@@ -237,6 +310,47 @@ export default function StatusPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-slate-200 bg-slate-50 py-16">
+        <div className="mx-auto w-full max-w-7xl px-4 md:px-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-700">
+                Environment
+              </p>
+              <h2 className="mt-3 text-3xl font-semibold text-slate-950">
+                TAKU WA Web variables
+              </h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-xs text-slate-500">Configured</p>
+                <p className="mt-2 text-xl font-semibold text-slate-950">
+                  {configuredWebVariables} / {webVariables.length}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-xs text-slate-500">Missing required</p>
+                <p className="mt-2 text-xl font-semibold text-slate-950">
+                  {missingRequiredWebVariables}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-xs text-slate-500">Build target</p>
+                <p className="mt-2 break-all text-sm font-semibold text-slate-950">
+                  {apiBaseUrl}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            {webVariables.map((variable) => (
+              <WebVariableRow key={variable.name} variable={variable} />
+            ))}
           </div>
         </div>
       </section>
