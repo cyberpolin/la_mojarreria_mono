@@ -303,16 +303,17 @@ export default function SignupPage() {
     setPaymentStatus(null);
 
     try {
+      const signupPayload = {
+        name,
+        email,
+        projectName,
+        password,
+        ...(paymentIntentId ? { paidPaymentIntentId: paymentIntentId } : {}),
+      };
       const response = await fetch(`${apiBaseUrl}/v1/public/signup`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name,
-          email,
-          projectName,
-          password,
-          paidPaymentIntentId: paymentIntentId,
-        }),
+        body: JSON.stringify(signupPayload),
       });
       const payload = (await response.json()) as SignupResult | SignupError;
 
