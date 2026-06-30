@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 
 type HealthState = "checking" | "online" | "degraded" | "offline";
 
@@ -162,10 +162,12 @@ function WebVariableRow({ variable }: { variable: WebVariable }) {
 }
 
 export default function StatusPage() {
-  const [state, setState] = useState<HealthState>("checking");
+  const [state, setState] = useState<HealthState>("offline");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [records, setRecords] = useState<CheckRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [statusPassword, setStatusPassword] = useState("");
+  const [accessGranted, setAccessGranted] = useState(false);
 
   const copy = stateCopy[state];
   const lastChecked = records[0]?.checkedAt ?? null;
@@ -186,38 +188,55 @@ export default function StatusPage() {
     (variable) => variable.value && variable.valid === false,
   ).length;
 
-  const runCheck = async () => {
+  const runCheck = async (password: string) => {
     setState("checking");
     setError(null);
     const startedAt = performance.now();
 
     try {
-      const response = await fetch(healthUrl, {
+      const response = await fetch("/api/status/health", {
         cache: "no-store",
+        headers: {
+          "x-taku-status-password": password,
+        },
       });
       const elapsed = Math.round(performance.now() - startedAt);
       const payload = (await response.json().catch(() => null)) as {
         ok?: boolean;
-        version?: string;
+        healthOk?: boolean;
+        error?: string;
+        statusText?: string;
+        payload?: {
+          ok?: boolean;
+          version?: string;
+        };
       } | null;
       const nextState: CheckRecord["state"] =
-        response.ok && payload?.ok ? "online" : "degraded";
+        response.ok && payload?.ok && payload.healthOk ? "online" : "degraded";
 
       setState(nextState);
       setLatencyMs(elapsed);
+      setAccessGranted(response.ok && payload?.ok === true);
       setRecords((current) =>
         [
           {
             checkedAt: new Date().toISOString(),
             latencyMs: elapsed,
             state: nextState,
-            label: payload?.version
-              ? `v${payload.version}`
-              : response.statusText,
+            label: payload?.payload?.version
+              ? `v${payload.payload.version}`
+              : (payload?.statusText ?? response.statusText),
           } satisfies CheckRecord,
           ...current,
         ].slice(0, 5),
       );
+      if (!response.ok || !payload?.ok || !payload.healthOk) {
+        setError(
+          payload?.error ??
+            payload?.statusText ??
+            `Health check returned ${response.status}`,
+        );
+      }
     } catch (checkError) {
       setState("offline");
       setLatencyMs(null);
@@ -240,13 +259,16 @@ export default function StatusPage() {
     }
   };
 
-  useEffect(() => {
-    void runCheck();
-    const interval = window.setInterval(() => {
-      void runCheck();
-    }, 30_000);
-    return () => window.clearInterval(interval);
-  }, []);
+  const submitStatusPassword = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const password = statusPassword.trim();
+    if (!password) {
+      setError("Enter the TAKU superowner password.");
+      return;
+    }
+
+    void runCheck(password);
+  };
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -278,19 +300,33 @@ export default function StatusPage() {
             bridge availability from your browser.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => void runCheck()}
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700"
+            <form
+              onSubmit={submitStatusPassword}
+              className="grid w-full max-w-xl gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-950/5"
             >
-              Run check
-            </button>
-            <a
-              href={healthUrl}
-              className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 px-6 text-sm font-semibold text-slate-800 hover:border-slate-950"
-            >
-              Open endpoint
-            </a>
+              <label className="grid gap-2">
+                <span className="text-sm font-semibold text-slate-800">
+                  TAKU superowner password
+                </span>
+                <input
+                  type="password"
+                  value={statusPassword}
+                  onChange={(event) => setStatusPassword(event.target.value)}
+                  className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm text-slate-950 outline-none hover:border-slate-400 focus:border-slate-950"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={state === "checking" || !statusPassword.trim()}
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {state === "checking"
+                  ? "Checking"
+                  : accessGranted
+                    ? "Run check"
+                    : "Unlock status"}
+              </button>
+            </form>
           </div>
         </div>
 
@@ -392,7 +428,9 @@ export default function StatusPage() {
                 Browser health history
               </h2>
             </div>
-            <p className="text-sm text-slate-500">Auto-refreshes every 30s.</p>
+            <p className="text-sm text-slate-500">
+              Checks run only after password unlock.
+            </p>
           </div>
           <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
             {records.length === 0 ? (
