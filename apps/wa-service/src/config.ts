@@ -23,6 +23,9 @@ const envSchema = z.object({
     .string()
     .min(1, "MAIN_BACKEND_WEBHOOK_SECRET is required"),
   WA_SERVICE_AUTO_START: z.enum(["true", "false", "1", "0"]).default("false"),
+  WA_BROWSER_NAME: z.string().trim().min(1).default("TAKU"),
+  WA_BROWSER_PLATFORM: z.string().trim().min(1).default("Chrome"),
+  WA_BROWSER_VERSION: z.string().trim().min(1).default("1.0.0"),
   WHATSAPP_AUTH_DIR: z.string().min(1).default("./auth"),
   WHATSAPP_AUTH_ROOT: z.string().min(1).default("./data/auth"),
   CONNECTION_STORE_FILE: z.string().min(1).default("./data/connections.json"),
@@ -81,6 +84,11 @@ export const config = {
   mainBackendWebhookSecret: env.MAIN_BACKEND_WEBHOOK_SECRET,
   waServiceAutoStart:
     env.WA_SERVICE_AUTO_START === "true" || env.WA_SERVICE_AUTO_START === "1",
+  waBrowser: [
+    env.WA_BROWSER_NAME,
+    env.WA_BROWSER_PLATFORM,
+    env.WA_BROWSER_VERSION,
+  ] as [string, string, string],
   whatsappAuthDir: resolveServicePath(env.WHATSAPP_AUTH_DIR),
   whatsappAuthRoot: resolveServicePath(env.WHATSAPP_AUTH_ROOT),
   connectionStoreFile: resolveServicePath(env.CONNECTION_STORE_FILE),

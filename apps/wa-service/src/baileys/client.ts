@@ -226,6 +226,7 @@ export class WhatsAppClient {
 
       socket = makeWASocket({
         version,
+        browser: this.config.waBrowser,
         auth: {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
