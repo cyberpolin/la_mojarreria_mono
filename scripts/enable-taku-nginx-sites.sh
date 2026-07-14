@@ -10,12 +10,14 @@ NGINX_TEST="${NGINX_TEST:-true}"
 NGINX_RELOAD="${NGINX_RELOAD:-true}"
 DEBUG="${DEBUG:-true}"
 
-site_files=(
-  "TAKU_API_SERVICE_SITE.conf"
-  "TAKU_WA_SERVICE_SITE.conf"
-  "TAKU_BOT_SERVICE_SITE.conf"
-  "TAKU_WEB_SERVICE_SITE.conf"
-)
+# shellcheck source=scripts/taku-service-helpers.sh
+. "$ROOT_DIR/scripts/taku-service-helpers.sh"
+taku_load_service_ports "$ROOT_DIR"
+
+site_files=()
+for service in "${TAKU_SERVICE_NAMES[@]}"; do
+  site_files+=("$(taku_service_site_file "$service")")
+done
 
 if [ "$(id -u)" -eq 0 ]; then
   SUDO=()

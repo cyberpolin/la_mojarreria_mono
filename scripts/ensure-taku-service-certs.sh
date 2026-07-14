@@ -17,17 +17,9 @@ if [ ! -f "$PORTS_FILE" ]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-. "$PORTS_FILE"
-set +a
-
-services=(
-  "TAKU_API_SERVICE"
-  "TAKU_WA_SERVICE"
-  "TAKU_BOT_SERVICE"
-  "TAKU_WEB_SERVICE"
-)
+# shellcheck source=scripts/taku-service-helpers.sh
+. "$ROOT_DIR/scripts/taku-service-helpers.sh"
+taku_load_service_ports "$ROOT_DIR"
 
 certbot_args=(certonly --webroot -w "$CERTBOT_WEBROOT")
 
@@ -121,7 +113,7 @@ print_domain_debug() {
 
 missing_count=0
 
-for service in "${services[@]}"; do
+for service in "${TAKU_SERVICE_NAMES[@]}"; do
   domain_var="${service}_DOMAIN"
   port_var="${service}_PORT"
   domain="${!domain_var:-}"

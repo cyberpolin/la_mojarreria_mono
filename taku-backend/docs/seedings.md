@@ -1,0 +1,73 @@
+# TAKU Backend Seedings
+
+Este documento define el comportamiento de seed inicial para `taku-backend`.
+
+## 1. Superusuario obligatorio
+
+Cada vez que el store se lee por primera vez, el backend valida que exista el usuario:
+
+```txt
+Email: cyberpolin@gmail.com
+Password inicial: changeme
+```
+
+Si no existe, se crea automaticamente.
+
+El superusuario se representa como usuario interno en `admin_users`:
+
+- `role`: `super_owner`
+- `status`: `active`
+- `requires2fa`: `false` en desarrollo inicial
+- no tiene membership de cliente por defecto
+
+Si el usuario ya existe, el seed no sobreescribe su password.
+
+## 2. Datos ficticios en development y TEST
+
+Si el ambiente es `development` o `TEST`, el backend crea datos ficticios de todo el sistema:
+
+```bash
+TAKU_BACKEND_ENV=development
+```
+
+Tambien funciona:
+
+```bash
+TAKU_BACKEND_ENV=TEST
+```
+
+Y se reconoce:
+
+```bash
+NODE_ENV=test
+```
+
+El dataset de prueba incluye:
+
+- workspace demo
+- usuarios owner/admin/agent
+- memberships
+- cuentas de WhatsApp conectada y desconectada
+- contactos
+- conversaciones
+- mensajes
+- horarios de negocio
+- configuracion de bot
+- reglas de automatizacion
+- preferencias
+
+Credenciales test:
+
+```txt
+owner@owner.com / owner
+admin@admin.com / admin
+agent@agent.com / agent
+```
+
+## Pendientes recomendados
+
+- Definir un rol global real `super_admin` separado de los roles por workspace.
+- Mover `changeme` a variables de entorno antes de produccion.
+- Forzar cambio de password en el primer login del superusuario.
+- Activar 2FA obligatorio para `super_owner` antes de produccion.
+- Cuando PostgreSQL reemplace el JSON store, convertir este seed en migracion/idempotent script.

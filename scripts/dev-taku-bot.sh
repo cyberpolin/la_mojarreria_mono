@@ -44,9 +44,9 @@ cd "$ROOT_DIR"
 ) &
 
 (
-  cd "$ROOT_DIR/apps/taku-web-bot"
+  cd "$ROOT_DIR/apps/taku-bot-web"
   load_env_file "$ROOT_DIR/.env"
-  load_env_file "$ROOT_DIR/apps/taku-web-bot/.env"
+  load_env_file "$ROOT_DIR/apps/taku-bot-web/.env"
   warn_if_empty "TAKU_BOT_API_KEY"
   pnpm dev
 ) &

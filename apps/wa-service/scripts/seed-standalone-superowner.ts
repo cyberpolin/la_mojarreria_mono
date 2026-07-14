@@ -8,7 +8,7 @@ const repoRoot = resolve(serviceRoot, "..", "..");
 
 for (const envFile of [
   resolve(repoRoot, ".env"),
-  resolve(repoRoot, "apps", "taku-wa-web-service", ".env"),
+  resolve(repoRoot, "apps", "taku-wa-web", ".env"),
   resolve(serviceRoot, ".env"),
 ]) {
   loadDotenv({ path: envFile, override: true });

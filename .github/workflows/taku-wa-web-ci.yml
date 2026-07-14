@@ -1,0 +1,62 @@
+name: TAKU WA Web CI
+
+on:
+  pull_request:
+    paths:
+      - "apps/taku-wa-web/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/taku-wa-web-ci.yml"
+  push:
+    branches:
+      - main
+      - taku-deployment
+    paths:
+      - "apps/taku-wa-web/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/taku-wa-web-ci.yml"
+
+jobs:
+  typecheck-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check service changes
+        id: changes
+        env:
+          CHECK_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CHECK_HEAD_SHA: ${{ github.sha }}
+        run: scripts/check-service-changes.sh apps/taku-wa-web
+
+      - name: Setup pnpm
+        if: steps.changes.outputs.changed == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - name: Setup Node
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Install dependencies
+        if: steps.changes.outputs.changed == 'true'
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        if: steps.changes.outputs.changed == 'true'
+        run: pnpm --filter @taku/wa-web typecheck
+
+      - name: Build
+        if: steps.changes.outputs.changed == 'true'
+        run: pnpm --filter @taku/wa-web build

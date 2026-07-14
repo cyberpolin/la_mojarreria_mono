@@ -108,7 +108,7 @@ curl 'http://localhost:3002/v1/usage/events?limit=50' \
 
 ### `GET /v1/admin/overview`
 
-Returns the superadmin platform overview used by `taku-web-bot`, including
+Returns the superadmin platform overview used by `taku-bot-web`, including
 billing accounts, tier counts, payment intent totals, provider cost, charge
 estimate, and estimated margin. This endpoint is internal and should only be
 called by trusted server-side web routes.

@@ -11,14 +11,21 @@ on:
     branches:
       - taku-deployment
     paths:
-      - "apps/taku-api-service/**"
-      - "apps/taku-web/**"
+      - "taku-backend/**"
+      - "apps/taku-site/**"
+      - "apps/taku-wa-web/**"
+      - "apps/taku-bot-web/**"
       - "apps/wa-service/**"
       - "apps/bot-service/**"
       - "apps/service-ports.conf"
+      - "apps/*_SITE.conf"
       - "scripts/enable-taku-nginx-sites.sh"
       - "scripts/ensure-taku-service-certs.sh"
+      - "scripts/taku-service-helpers.sh"
+      - "scripts/list-taku-services.sh"
+      - "scripts/check-taku-service-config.sh"
       - "scripts/dev-taku.sh"
+      - "scripts/dev-taku-main.sh"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
@@ -127,8 +134,10 @@ jobs:
 
       - name: Write service env files
         env:
-          TAKU_API_SERVICE_ENV_FILE: ${{ secrets.TAKU_API_SERVICE_ENV_FILE }}
+          TAKU_BACKEND_ENV_FILE: ${{ secrets.TAKU_BACKEND_ENV_FILE }}
           TAKU_WEB_ENV_FILE: ${{ secrets.TAKU_WEB_ENV_FILE }}
+          TAKU_WA_WEB_ENV_FILE: ${{ secrets.TAKU_WA_WEB_ENV_FILE }}
+          TAKU_BOT_WEB_ENV_FILE: ${{ secrets.TAKU_BOT_WEB_ENV_FILE }}
           WA_SERVICE_ENV_FILE: ${{ secrets.WA_SERVICE_ENV_FILE }}
           BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
         run: |
@@ -148,20 +157,26 @@ jobs:
             echo "$name wrote $path ($(wc -c < "$path") bytes)"
           }
 
-          write_env TAKU_API_SERVICE_ENV_FILE apps/taku-api-service/.env "${TAKU_API_SERVICE_ENV_FILE:-}"
-          write_env TAKU_WEB_ENV_FILE apps/taku-web/.env "${TAKU_WEB_ENV_FILE:-}"
+          write_env TAKU_BACKEND_ENV_FILE taku-backend/.env "${TAKU_BACKEND_ENV_FILE:-}"
+          write_env TAKU_WEB_ENV_FILE apps/taku-site/.env "${TAKU_WEB_ENV_FILE:-}"
+          write_env TAKU_WA_WEB_ENV_FILE apps/taku-wa-web/.env "${TAKU_WA_WEB_ENV_FILE:-}"
+          write_env TAKU_BOT_WEB_ENV_FILE apps/taku-bot-web/.env "${TAKU_BOT_WEB_ENV_FILE:-}"
           write_env WA_SERVICE_ENV_FILE apps/wa-service/.env "${WA_SERVICE_ENV_FILE:-}"
           write_env BOT_SERVICE_ENV_FILE apps/bot-service/.env "${BOT_SERVICE_ENV_FILE:-}"
 
       - name: Typecheck and build
         run: |
           set -eux
-          pnpm --filter @taku/api-service typecheck
-          pnpm --filter @taku/web typecheck
+          pnpm --filter @taku/backend typecheck
+          pnpm --filter @taku/site typecheck
+          pnpm --filter @taku/wa-web typecheck
+          pnpm --filter @taku/bot-web typecheck
           pnpm --filter @mojarreria/wa-service typecheck
           pnpm --filter @mojarreria/bot-service typecheck
-          pnpm --filter @taku/api-service build
-          pnpm --filter @taku/web build
+          pnpm --filter @taku/backend build
+          pnpm --filter @taku/site build
+          pnpm --filter @taku/wa-web build
+          pnpm --filter @taku/bot-web build
           pnpm --filter @mojarreria/wa-service build
           pnpm --filter @mojarreria/bot-service build
 
@@ -172,7 +187,7 @@ jobs:
           rsync -a \
             --exclude ".git" \
             --exclude "node_modules" \
-            --exclude "apps/taku-api-service/data" \
+            --exclude "taku-backend/data" \
             --exclude "apps/wa-service/auth" \
             --exclude "apps/wa-service/data" \
             --exclude "apps/bot-service/data" \
@@ -267,7 +282,7 @@ jobs:
               tar -xzf /tmp/taku-release.tar.gz -C "$DEPLOY_PATH" --strip-components=1
               cd "$DEPLOY_PATH"
 
-              mkdir -p apps/taku-api-service/data
+              mkdir -p taku-backend/data
               mkdir -p apps/wa-service/auth
               mkdir -p apps/wa-service/data
               mkdir -p apps/bot-service/data
@@ -282,7 +297,7 @@ jobs:
               . apps/service-ports.conf
               set +a
 
-              for name in TAKU_API_SERVICE_PORT TAKU_WA_SERVICE_PORT TAKU_BOT_SERVICE_PORT TAKU_WEB_SERVICE_PORT; do
+              for name in TAKU_WEB_PORT TAKU_BACKEND_PORT TAKU_WA_WEB_PORT TAKU_WA_SERVICE_PORT TAKU_BOT_SERVICE_PORT TAKU_BOT_WEB_PORT; do
                 value="$(eval "printf '%s' \"\${$name:-}\"")"
                 case "$value" in
                   ''|*[!0-9]*)
@@ -295,7 +310,11 @@ jobs:
                   esac
               done
 
-              chmod +x scripts/ensure-taku-service-certs.sh scripts/enable-taku-nginx-sites.sh
+              chmod +x scripts/ensure-taku-service-certs.sh scripts/enable-taku-nginx-sites.sh scripts/list-taku-services.sh scripts/check-taku-service-config.sh
+              echo "Checking TAKU service config"
+              scripts/check-taku-service-config.sh
+              echo "Listing TAKU services"
+              scripts/list-taku-services.sh
               echo "Checking passwordless sudo for nginx/certbot operations"
               run_sudo true
               echo "Starting TAKU certificate check"
@@ -305,7 +324,7 @@ jobs:
               run_sudo env DEBUG=true scripts/enable-taku-nginx-sites.sh
               echo "Finished TAKU nginx site enable"
               echo "Verifying /etc/nginx TAKU site files from workflow"
-              for site_file in TAKU_API_SERVICE_SITE.conf TAKU_WA_SERVICE_SITE.conf TAKU_BOT_SERVICE_SITE.conf TAKU_WEB_SERVICE_SITE.conf; do
+              for site_file in TAKU_WEB_SITE.conf TAKU_BACKEND_SITE.conf TAKU_WA_WEB_SITE.conf TAKU_WA_SERVICE_SITE.conf TAKU_BOT_SERVICE_SITE.conf TAKU_BOT_WEB_SITE.conf; do
                 run_sudo test -f "/etc/nginx/sites-available/$site_file"
                 run_sudo test -L "/etc/nginx/sites-enabled/$site_file"
                 run_sudo ls -la "/etc/nginx/sites-available/$site_file" "/etc/nginx/sites-enabled/$site_file"
@@ -327,8 +346,10 @@ jobs:
                 pnpm install --prod=false --no-frozen-lockfile
               fi
 
-              pnpm --filter @taku/api-service build
-              pnpm --filter @taku/web build
+              pnpm --filter @taku/backend build
+              pnpm --filter @taku/site build
+              pnpm --filter @taku/wa-web build
+              pnpm --filter @taku/bot-web build
               pnpm --filter @mojarreria/wa-service build
               pnpm --filter @mojarreria/bot-service build
 
@@ -347,21 +368,35 @@ jobs:
                 fi
               }
 
-              $PM2 delete taku-api-service || true
-              $PM2 delete taku-web || true
+              $PM2 delete taku-backend || true
+              $PM2 delete taku-site || true
+              $PM2 delete taku-wa-web || true
+              $PM2 delete taku-bot-web || true
               $PM2 delete mojarreria-bot-service || true
               $PM2 delete mojarreria-wa-service || true
 
-              TAKU_API_PORT="$TAKU_API_SERVICE_PORT" \
+              PORT="$TAKU_BACKEND_PORT" \
               WA_SERVICE_BASE_URL="http://127.0.0.1:$TAKU_WA_SERVICE_PORT" \
-              $PM2 start "$ROOT/apps/taku-api-service/dist/index.js" \
-                --name taku-api-service \
-                --cwd "$ROOT/apps/taku-api-service" \
+              $PM2 start "$ROOT/taku-backend/dist/index.js" \
+                --name taku-backend \
+                --cwd "$ROOT/taku-backend" \
                 --update-env
-              PORT="$TAKU_WEB_SERVICE_PORT" \
+              PORT="$TAKU_WEB_PORT" \
               $PM2 start pnpm \
-                --name taku-web \
-                --cwd "$ROOT/apps/taku-web" \
+                --name taku-site \
+                --cwd "$ROOT/apps/taku-site" \
+                --update-env \
+                -- start
+              PORT="$TAKU_WA_WEB_PORT" \
+              $PM2 start pnpm \
+                --name taku-wa-web \
+                --cwd "$ROOT/apps/taku-wa-web" \
+                --update-env \
+                -- start
+              PORT="$TAKU_BOT_WEB_PORT" \
+              $PM2 start pnpm \
+                --name taku-bot-web \
+                --cwd "$ROOT/apps/taku-bot-web" \
                 --update-env \
                 -- start
               (
@@ -376,8 +411,10 @@ jobs:
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
 
-              assert_pm2_online taku-api-service
-              assert_pm2_online taku-web
+              assert_pm2_online taku-backend
+              assert_pm2_online taku-site
+              assert_pm2_online taku-wa-web
+              assert_pm2_online taku-bot-web
               assert_pm2_online mojarreria-bot-service
               assert_pm2_online mojarreria-wa-service
               $PM2 save

@@ -37,16 +37,16 @@ cd "$ROOT_DIR"
 (
   cd "$ROOT_DIR/apps/wa-service"
   load_env_file "$ROOT_DIR/.env"
-  load_env_file "$ROOT_DIR/apps/taku-wa-web-service/.env"
+  load_env_file "$ROOT_DIR/apps/taku-wa-web/.env"
   load_env_file "$ROOT_DIR/apps/wa-service/.env"
   warn_if_empty "MERCADOPAGO_ACCESS_TOKEN"
   pnpm dev
 ) &
 
 (
-  cd "$ROOT_DIR/apps/taku-wa-web-service"
+  cd "$ROOT_DIR/apps/taku-wa-web"
   load_env_file "$ROOT_DIR/.env"
-  load_env_file "$ROOT_DIR/apps/taku-wa-web-service/.env"
+  load_env_file "$ROOT_DIR/apps/taku-wa-web/.env"
   pnpm dev
 ) &
 

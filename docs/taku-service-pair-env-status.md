@@ -5,8 +5,8 @@ the web app and a protected runtime status endpoint from the backing service.
 
 Current service pairs:
 
-- WA solution: `wa-service` + `taku-wa-web-service`
-- BOT solution: `bot-service` + `taku-web-bot`
+- WA solution: `wa-service` + `taku-wa-web`
+- BOT solution: `bot-service` + `taku-bot-web`
 
 ## Required Web Route
 
@@ -44,9 +44,9 @@ GET /api/<service>/health
 
 Examples:
 
-- `taku-wa-web-service`: `/api/taku/runtime`, `/api/wa/health`, or existing
+- `taku-wa-web`: `/api/taku/runtime`, `/api/wa/health`, or existing
   equivalent routes.
-- `taku-web-bot`: `/api/status/env`, `/api/bot/runtime`, `/api/bot/health`.
+- `taku-bot-web`: `/api/status/env`, `/api/bot/runtime`, `/api/bot/health`.
 
 The web runtime proxy must send the service API key from server-side env. The
 browser must not receive service API keys.
@@ -86,7 +86,7 @@ tokens, and secrets.
 
 ## Minimum WA Solution Variables
 
-`taku-wa-web-service` should track:
+`taku-wa-web` should track:
 
 - `NEXT_PUBLIC_TAKU_WA_API_BASE_URL`
 - `NEXT_PUBLIC_TAKU_WA_HEALTH_URL`
@@ -108,7 +108,7 @@ tokens, and secrets.
 
 ## Minimum BOT Solution Variables
 
-`taku-web-bot` should track:
+`taku-bot-web` should track:
 
 - `TAKU_BOT_API_BASE_URL`
 - `TAKU_BOT_API_KEY`
