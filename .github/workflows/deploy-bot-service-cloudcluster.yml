@@ -159,6 +159,7 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: SSH preflight
+        id: ssh_preflight
         env:
           SSH_HOST: ${{ steps.cloudcluster.outputs.host }}
           SSH_USER: ${{ steps.cloudcluster.outputs.user }}
@@ -470,7 +471,7 @@ jobs:
             exit "$DEPLOY_STATUS"
 
       - name: Fetch remote deploy log
-        if: always()
+        if: always() && steps.ssh_preflight.outcome == 'success'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
