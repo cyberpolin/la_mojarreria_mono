@@ -87,6 +87,7 @@ jobs:
           DEPLOY_PATH="$(read_push_value CLOUDCLUSTER_BOT_SERVICE_DEPLOY_PATH)"
           DEPLOY_PATH="${DEPLOY_PATH:-/var/www/bot-service}"
           PORT="${PORT:-22}"
+          PORT="$(printf '%s' "$PORT" | tr -d '\r' | xargs)"
 
           echo "Resolved CloudCluster connection source:"
           if [ -n "${CLOUDCLUSTER_HOST:-}" ]; then echo "HOST source: direct secret"; else echo "HOST source: BOT_PUSH_ENV_FILE"; fi
@@ -121,6 +122,14 @@ jobs:
               echo "$name is configured (length: ${#value})"
             fi
           done
+
+          case "$PORT" in
+            ''|*[!0-9]*)
+              echo "::error::CLOUDCLUSTER_SSH_PORT must be numeric. Check the direct secret first, then BOT_PUSH_ENV_FILE fallback."
+              echo "Resolved port length: ${#PORT}"
+              exit 1
+              ;;
+          esac
 
           echo "PORT is configured: $PORT"
 
