@@ -15,7 +15,7 @@ record_failure() {
   failures=$((failures + 1))
 }
 
-for service in "${TAKU_SERVICE_NAMES[@]}"; do
+while IFS= read -r service; do
   domain="$(taku_service_value "$service" "DOMAIN")"
   port="$(taku_service_value "$service" "PORT")"
   service_path="$(taku_service_value "$service" "PATH")"
@@ -53,7 +53,7 @@ for service in "${TAKU_SERVICE_NAMES[@]}"; do
   if [ -n "$port" ] && ! grep -Eq "proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:$port;" "$site_path"; then
     record_failure "$site_file does not proxy to port $port"
   fi
-done
+done < <(taku_selected_services)
 
 if [ "$failures" -ne 0 ]; then
   echo "TAKU service config check failed with $failures issue(s)." >&2

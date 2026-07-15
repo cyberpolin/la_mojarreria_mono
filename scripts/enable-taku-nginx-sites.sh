@@ -15,9 +15,9 @@ DEBUG="${DEBUG:-true}"
 taku_load_service_ports "$ROOT_DIR"
 
 site_files=()
-for service in "${TAKU_SERVICE_NAMES[@]}"; do
+while IFS= read -r service; do
   site_files+=("$(taku_service_site_file "$service")")
-done
+done < <(taku_selected_services)
 
 if [ "$(id -u)" -eq 0 ]; then
   SUDO=()

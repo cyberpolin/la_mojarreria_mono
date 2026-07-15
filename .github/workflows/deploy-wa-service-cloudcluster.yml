@@ -6,12 +6,19 @@ on:
       ref:
         description: "Branch, tag, or commit SHA to deploy"
         required: true
-        default: "main"
+        default: "taku-deployment"
   push:
     branches:
-      - main
+      - taku-deployment
     paths:
       - "apps/wa-service/**"
+      - "apps/service-ports.conf"
+      - "apps/TAKU_WA_SERVICE_SITE.conf"
+      - "scripts/taku-service-helpers.sh"
+      - "scripts/list-taku-services.sh"
+      - "scripts/check-taku-service-config.sh"
+      - "scripts/ensure-taku-service-certs.sh"
+      - "scripts/enable-taku-nginx-sites.sh"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
@@ -211,6 +218,21 @@ jobs:
           tar -czf mojarreria-wa-service.tar.gz -C /tmp mojarreria-wa-service
           ls -lh mojarreria-wa-service.tar.gz
 
+      - name: Prepare nginx bundle
+        run: |
+          set -eux
+          mkdir -p /tmp/taku-wa-service-infra/apps /tmp/taku-wa-service-infra/scripts
+          cp apps/service-ports.conf /tmp/taku-wa-service-infra/apps/service-ports.conf
+          cp apps/TAKU_WA_SERVICE_SITE.conf /tmp/taku-wa-service-infra/apps/TAKU_WA_SERVICE_SITE.conf
+          cp scripts/taku-service-helpers.sh /tmp/taku-wa-service-infra/scripts/taku-service-helpers.sh
+          cp scripts/list-taku-services.sh /tmp/taku-wa-service-infra/scripts/list-taku-services.sh
+          cp scripts/check-taku-service-config.sh /tmp/taku-wa-service-infra/scripts/check-taku-service-config.sh
+          cp scripts/ensure-taku-service-certs.sh /tmp/taku-wa-service-infra/scripts/ensure-taku-service-certs.sh
+          cp scripts/enable-taku-nginx-sites.sh /tmp/taku-wa-service-infra/scripts/enable-taku-nginx-sites.sh
+          chmod +x /tmp/taku-wa-service-infra/scripts/*.sh
+          tar -czf taku-wa-service-infra.tar.gz -C /tmp taku-wa-service-infra
+          ls -lh taku-wa-service-infra.tar.gz
+
       - name: Upload release bundle
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -219,6 +241,17 @@ jobs:
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
           source: mojarreria-wa-service.tar.gz
+          target: /tmp
+          debug: true
+
+      - name: Upload nginx bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          source: taku-wa-service-infra.tar.gz
           target: /tmp
           debug: true
 
@@ -246,12 +279,14 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
+          SUDO_PASSWORD: ${{ secrets.CLOUDCLUSTER_SUDO_PASSWORD }}
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,CERTBOT_EMAIL,SUDO_PASSWORD
           timeout: 60s
           command_timeout: 15m
           request_pty: true
@@ -265,6 +300,16 @@ jobs:
 
             : "${DEPLOY_PATH:?CLOUDCLUSTER_DEPLOY_PATH is required}"
 
+            run_sudo() {
+              if [ "$(id -u)" -eq 0 ]; then
+                "$@"
+              elif [ -n "${SUDO_PASSWORD:-}" ]; then
+                printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+              else
+                sudo "$@"
+              fi
+            }
+
             export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
             [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
 
@@ -275,6 +320,26 @@ jobs:
             df -h .
             free -h || true
             ls -lh /tmp/mojarreria-wa-service.tar.gz
+            ls -lh /tmp/taku-wa-service-infra.tar.gz
+
+            echo "Installing nginx/certbot dependencies if needed"
+            if command -v apt-get >/dev/null 2>&1; then
+              run_sudo apt-get update
+              run_sudo apt-get install -y nginx certbot python3-certbot-nginx
+            fi
+
+            rm -rf /tmp/taku-wa-service-infra
+            tar -xzf /tmp/taku-wa-service-infra.tar.gz -C /tmp
+            (
+              cd /tmp/taku-wa-service-infra
+              echo "Checking standalone wa-service nginx config"
+              TAKU_SERVICES="TAKU_WA_SERVICE" scripts/check-taku-service-config.sh
+              TAKU_SERVICES="TAKU_WA_SERVICE" scripts/list-taku-services.sh
+              echo "Ensuring standalone wa-service certificate"
+              run_sudo env TAKU_SERVICES="TAKU_WA_SERVICE" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+              echo "Enabling standalone wa-service nginx site"
+              run_sudo env TAKU_SERVICES="TAKU_WA_SERVICE" DEBUG=true scripts/enable-taku-nginx-sites.sh
+            )
 
             mkdir -p "$DEPLOY_PATH"
             tar -xzf /tmp/mojarreria-wa-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
@@ -348,7 +413,7 @@ jobs:
 
               pnpm exec pm2 delete mojarreria-wa-service || true
               wait_for_wa_lock_release
-              pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
+              PORT=3130 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               pnpm exec pm2 save
               pnpm exec pm2 describe mojarreria-wa-service
               pnpm exec pm2 status

@@ -9,6 +9,21 @@ TAKU_SERVICE_NAMES=(
   "TAKU_BOT_WEB"
 )
 
+taku_selected_services() {
+  local service
+
+  if [ -n "${TAKU_SERVICES:-}" ]; then
+    for service in $TAKU_SERVICES; do
+      printf '%s\n' "$service"
+    done
+    return
+  fi
+
+  for service in "${TAKU_SERVICE_NAMES[@]}"; do
+    printf '%s\n' "$service"
+  done
+}
+
 taku_repo_root() {
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 }

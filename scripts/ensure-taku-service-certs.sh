@@ -113,7 +113,7 @@ print_domain_debug() {
 
 missing_count=0
 
-for service in "${TAKU_SERVICE_NAMES[@]}"; do
+while IFS= read -r service; do
   domain_var="${service}_DOMAIN"
   port_var="${service}_PORT"
   domain="${!domain_var:-}"
@@ -145,7 +145,7 @@ for service in "${TAKU_SERVICE_NAMES[@]}"; do
   reload_nginx
   print_domain_debug "$domain"
   "$CERTBOT_BIN" "${certbot_args[@]}" -d "$domain"
-done
+done < <(taku_selected_services)
 
 if [ "$missing_count" -eq 0 ]; then
   echo "All TAKU service certificates already exist."

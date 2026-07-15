@@ -11,10 +11,10 @@ taku_load_service_ports "$ROOT_DIR"
 printf '%-18s %-24s %-8s %s\n' "SERVICE" "DOMAIN" "PORT" "PATH"
 printf '%-18s %-24s %-8s %s\n' "-------" "------" "----" "----"
 
-for service in "${TAKU_SERVICE_NAMES[@]}"; do
+while IFS= read -r service; do
   printf '%-18s %-24s %-8s %s\n' \
     "$service" \
     "$(taku_service_value "$service" "DOMAIN")" \
     "$(taku_service_value "$service" "PORT")" \
     "$(taku_service_value "$service" "PATH")"
-done
+done < <(taku_selected_services)
