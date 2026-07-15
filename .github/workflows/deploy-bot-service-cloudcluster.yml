@@ -158,6 +158,41 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: SSH preflight
+        env:
+          SSH_HOST: ${{ steps.cloudcluster.outputs.host }}
+          SSH_USER: ${{ steps.cloudcluster.outputs.user }}
+          SSH_PORT: ${{ steps.cloudcluster.outputs.port }}
+          SSH_KEY: ${{ steps.cloudcluster.outputs.ssh_key }}
+        run: |
+          set -eu
+
+          KEY_FILE="$RUNNER_TEMP/cloudcluster-preflight-key"
+          printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+
+          echo "SSH preflight target: $SSH_USER@$SSH_HOST:$SSH_PORT"
+          echo "SSH preflight key length: ${#SSH_KEY}"
+          ssh-keygen -y -f "$KEY_FILE" | ssh-keygen -lf - | sed 's/^/SSH preflight public fingerprint: /'
+
+          set +e
+          ssh -vvv \
+            -i "$KEY_FILE" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "$SSH_USER@$SSH_HOST" \
+            "echo ssh-preflight-ok" 2>&1
+          SSH_STATUS="$?"
+          set -e
+
+          if [ "$SSH_STATUS" -ne 0 ]; then
+            echo "::error::SSH preflight failed. The private key is valid locally in CI, but the server did not accept it for this user/host/port."
+            exit "$SSH_STATUS"
+          fi
+
       - name: Typecheck
         run: pnpm --filter @mojarreria/bot-service typecheck
 
