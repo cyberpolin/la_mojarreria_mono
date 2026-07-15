@@ -88,6 +88,29 @@ jobs:
           DEPLOY_PATH="${DEPLOY_PATH:-/var/www/bot-service}"
           PORT="${PORT:-22}"
 
+          echo "Resolved CloudCluster connection source:"
+          if [ -n "${CLOUDCLUSTER_HOST:-}" ]; then echo "HOST source: direct secret"; else echo "HOST source: BOT_PUSH_ENV_FILE"; fi
+          if [ -n "${CLOUDCLUSTER_USER:-}" ]; then echo "USER source: direct secret"; else echo "USER source: BOT_PUSH_ENV_FILE"; fi
+          if [ -n "${CLOUDCLUSTER_SSH_PORT:-}" ]; then echo "PORT source: direct secret"; else echo "PORT source: BOT_PUSH_ENV_FILE/default"; fi
+          if [ -n "${CLOUDCLUSTER_SSH_KEY:-}" ]; then echo "SSH_KEY source: direct secret"; else echo "SSH_KEY source: BOT_PUSH_ENV_FILE"; fi
+          echo "HOST resolved: $HOST"
+          echo "USER resolved: $USER"
+          echo "PORT resolved: $PORT"
+          echo "DEPLOY_PATH resolved: $DEPLOY_PATH"
+          echo "SSH_KEY length: ${#SSH_KEY}"
+          if [ -n "$SSH_KEY" ]; then
+            SSH_KEY_FILE="$RUNNER_TEMP/cloudcluster-key-check"
+            printf '%s\n' "$SSH_KEY" > "$SSH_KEY_FILE"
+            chmod 600 "$SSH_KEY_FILE"
+            if ssh-keygen -y -f "$SSH_KEY_FILE" >/dev/null 2>&1; then
+              echo "SSH_KEY parse: ok"
+              ssh-keygen -y -f "$SSH_KEY_FILE" | ssh-keygen -lf - | sed 's/^/SSH_KEY public fingerprint: /'
+            else
+              echo "::error::SSH_KEY parse failed; CLOUDCLUSTER_SSH_KEY is not a valid private key or is malformed"
+              exit 1
+            fi
+          fi
+
           missing=0
           for name in BOT_SERVICE_ENV_FILE HOST USER SSH_KEY DEPLOY_PATH; do
             value="$(eval "printf '%s' \"\${$name:-}\"")"
