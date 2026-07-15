@@ -265,7 +265,7 @@ jobs:
               tar -xzf /tmp/taku-backend-infra.tar.gz -C /tmp
               (
                 cd /tmp/taku-backend-infra
-                TAKU_SERVICES="TAKU_BACKEND" scripts/check-taku-service-config.sh
+                TAKU_SERVICES="TAKU_BACKEND" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
                 TAKU_SERVICES="TAKU_BACKEND" scripts/list-taku-services.sh
                 run_sudo env TAKU_SERVICES="TAKU_BACKEND" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
                 run_sudo env TAKU_SERVICES="TAKU_BACKEND" DEBUG=true scripts/enable-taku-nginx-sites.sh

@@ -38,7 +38,12 @@ while IFS= read -r service; do
   if [ -z "$service_path" ]; then
     record_failure "$service PATH is missing"
   elif [ ! -d "$repo_path" ]; then
-    record_failure "$service path does not exist: $service_path"
+    if [ "${TAKU_CREATE_MISSING_SERVICE_PATHS:-false}" = "true" ]; then
+      echo "Creating missing $service path for config check: $service_path"
+      mkdir -p "$repo_path"
+    else
+      record_failure "$service path does not exist: $service_path"
+    fi
   fi
 
   if [ ! -f "$site_path" ]; then

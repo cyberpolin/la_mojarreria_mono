@@ -342,7 +342,7 @@ jobs:
             (
               cd /tmp/taku-wa-service-infra
               echo "Checking standalone wa-service nginx config"
-              TAKU_SERVICES="TAKU_WA_SERVICE" scripts/check-taku-service-config.sh
+              TAKU_SERVICES="TAKU_WA_SERVICE" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
               TAKU_SERVICES="TAKU_WA_SERVICE" scripts/list-taku-services.sh
               echo "Ensuring standalone wa-service certificate"
               run_sudo env TAKU_SERVICES="TAKU_WA_SERVICE" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
