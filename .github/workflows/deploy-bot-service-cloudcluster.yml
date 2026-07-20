@@ -89,6 +89,14 @@ jobs:
           PORT="${PORT:-22}"
           PORT="$(printf '%s' "$PORT" | tr -d '\r' | xargs)"
 
+          print_debug_value() {
+            label="$1"
+            value="$2"
+            printf '%s debug chars: ' "$label"
+            printf '%s' "$value" | sed 's/./& /g'
+            printf '\n'
+          }
+
           echo "Resolved CloudCluster connection source:"
           if [ -n "${CLOUDCLUSTER_HOST:-}" ]; then echo "HOST source: direct secret"; else echo "HOST source: BOT_PUSH_ENV_FILE"; fi
           if [ -n "${CLOUDCLUSTER_USER:-}" ]; then echo "USER source: direct secret"; else echo "USER source: BOT_PUSH_ENV_FILE"; fi
@@ -98,6 +106,10 @@ jobs:
           echo "USER resolved: $USER"
           echo "PORT resolved: $PORT"
           echo "DEPLOY_PATH resolved: $DEPLOY_PATH"
+          print_debug_value "HOST" "$HOST"
+          print_debug_value "USER" "$USER"
+          print_debug_value "PORT" "$PORT"
+          print_debug_value "DEPLOY_PATH" "$DEPLOY_PATH"
           echo "SSH_KEY length: ${#SSH_KEY}"
           if [ -n "$SSH_KEY" ]; then
             SSH_KEY_FILE="$RUNNER_TEMP/cloudcluster-key-check"
@@ -172,10 +184,22 @@ jobs:
           printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
           chmod 600 "$KEY_FILE"
 
+          print_debug_value() {
+            label="$1"
+            value="$2"
+            printf '%s debug chars: ' "$label"
+            printf '%s' "$value" | sed 's/./& /g'
+            printf '\n'
+          }
+
           echo "SSH preflight target: $SSH_USER@$SSH_HOST:$SSH_PORT"
+          print_debug_value "SSH_HOST" "$SSH_HOST"
+          print_debug_value "SSH_USER" "$SSH_USER"
+          print_debug_value "SSH_PORT" "$SSH_PORT"
           echo "SSH preflight key length: ${#SSH_KEY}"
           ssh-keygen -y -f "$KEY_FILE" | ssh-keygen -lf - | sed 's/^/SSH preflight public fingerprint: /'
 
+          SSH_OUTPUT="$RUNNER_TEMP/ssh-preflight-output.log"
           set +e
           ssh -vvv \
             -i "$KEY_FILE" \
@@ -185,12 +209,18 @@ jobs:
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             "$SSH_USER@$SSH_HOST" \
-            "echo ssh-preflight-ok" 2>&1
-          SSH_STATUS="$?"
+            "echo ssh-preflight-ok" 2>&1 | tee "$SSH_OUTPUT"
+          SSH_STATUS="${PIPESTATUS[0]}"
           set -e
 
           if [ "$SSH_STATUS" -ne 0 ]; then
-            echo "::error::SSH preflight failed. The private key is valid locally in CI, but the server did not accept it for this user/host/port."
+            if grep -qi "Connection timed out" "$SSH_OUTPUT"; then
+              echo "::error::SSH preflight failed: connection timed out. Host/port is unreachable from GitHub Actions."
+            elif grep -qi "Permission denied" "$SSH_OUTPUT"; then
+              echo "::error::SSH preflight failed: permission denied. The server rejected the key for this user."
+            else
+              echo "::error::SSH preflight failed. Check the ssh -vvv output above."
+            fi
             exit "$SSH_STATUS"
           fi
 
