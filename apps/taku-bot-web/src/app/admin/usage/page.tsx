@@ -67,19 +67,23 @@ function readSessionState() {
   try {
     const rawSession = window.localStorage.getItem("TAKU_BOT_SESSION");
     if (!rawSession) {
-      return { isSuperAdmin: false, clientId: null };
+      return { isSuperAdmin: false, clientId: null, clientToken: null };
     }
 
     const session = JSON.parse(rawSession) as {
-      account?: { id?: unknown; role?: unknown };
+      account?: { id?: unknown; role?: unknown; clientToken?: unknown };
     };
     return {
       isSuperAdmin: session.account?.role === "superadmin",
       clientId:
         typeof session.account?.id === "string" ? session.account.id : null,
+      clientToken:
+        typeof session.account?.clientToken === "string"
+          ? session.account.clientToken
+          : null,
     };
   } catch {
-    return { isSuperAdmin: false, clientId: null };
+    return { isSuperAdmin: false, clientId: null, clientToken: null };
   }
 }
 
@@ -104,10 +108,14 @@ export default function UsagePage() {
   const [status, setStatus] = useState("Loading usage");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [sessionClientId, setSessionClientId] = useState<string | null>(null);
+  const [sessionClientToken, setSessionClientToken] = useState<string | null>(
+    null,
+  );
 
   async function loadUsage(
     superAdmin = isSuperAdmin,
     accountClientId = sessionClientId,
+    accountClientToken = sessionClientToken,
   ) {
     setStatus("Loading usage");
     const params = new URLSearchParams();
@@ -116,6 +124,9 @@ export default function UsagePage() {
     const roleHeaders: HeadersInit = {
       ...(superAdmin ? { "x-taku-role": "superadmin" } : {}),
       ...(accountClientId ? { "x-taku-client-id": accountClientId } : {}),
+      ...(accountClientToken
+        ? { "x-taku-client-token": accountClientToken }
+        : {}),
     };
 
     const [summaryResponse, eventsResponse] = await Promise.all([
@@ -166,8 +177,9 @@ export default function UsagePage() {
     const session = readSessionState();
     setIsSuperAdmin(session.isSuperAdmin);
     setSessionClientId(session.clientId);
+    setSessionClientToken(session.clientToken);
     setClientId(session.isSuperAdmin ? "" : (session.clientId ?? ""));
-    void loadUsage(session.isSuperAdmin, session.clientId);
+    void loadUsage(session.isSuperAdmin, session.clientId, session.clientToken);
   }, []);
 
   return (

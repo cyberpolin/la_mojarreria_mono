@@ -51,9 +51,11 @@ import {
 import {
   creditPrepaidBillingAccount,
   debitBillingAccount,
+  getBillingAccount,
   getBillingAllowance,
   getOrCreateBillingAccount,
   listBillingAccounts,
+  verifyClientToken,
   type BotBillingAccount,
   type BotBillingRules,
 } from "./billingAccountStore.js";
@@ -180,6 +182,10 @@ type CardPaymentPayload = {
   };
 };
 
+type ClientAuthResult =
+  | { ok: true; clientId: string; internal: boolean }
+  | { ok: false; status: number; message: string; code: string };
+
 function isAuthorized(req: IncomingMessage, config: AppConfig): boolean {
   const apiKey = req.headers["x-api-key"];
   if (apiKey === config.apiKey) {
@@ -195,12 +201,38 @@ function getClientId(req: IncomingMessage): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function getClientToken(req: IncomingMessage): string | null {
+  const value = req.headers["x-taku-client-token"];
+  if (typeof value === "string" && value.trim()) return value.trim();
+
+  const authorization = req.headers.authorization;
+  const prefix = "Bearer ";
+  if (
+    typeof authorization === "string" &&
+    authorization.startsWith(prefix) &&
+    authorization.slice(prefix.length).startsWith("taku_bot_")
+  ) {
+    return authorization.slice(prefix.length).trim();
+  }
+
+  return null;
+}
+
 function getBodyClientId(body: unknown): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return null;
   }
 
   const value = (body as Record<string, unknown>).client_id;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getBodyClientToken(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return null;
+  }
+
+  const value = (body as Record<string, unknown>).client_token;
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
@@ -556,6 +588,55 @@ function buildUnauthorizedResponse(): JsonResponse {
   };
 }
 
+async function authenticateClientRequest(params: {
+  req: IncomingMessage;
+  body?: unknown;
+  config: AppConfig;
+  rules: BotBillingRules;
+}): Promise<ClientAuthResult> {
+  const clientId = getClientId(params.req) ?? getBodyClientId(params.body);
+  if (!clientId) {
+    return {
+      ok: false,
+      status: 400,
+      message: "client_id or x-taku-client-id is required",
+      code: "CLIENT_ID_REQUIRED",
+    };
+  }
+
+  if (isAuthorized(params.req, params.config)) {
+    return { ok: true, clientId, internal: true };
+  }
+
+  const clientToken =
+    getClientToken(params.req) ?? getBodyClientToken(params.body);
+  if (!clientToken) {
+    return {
+      ok: false,
+      status: 401,
+      message: "client_token or x-taku-client-token is required",
+      code: "CLIENT_TOKEN_REQUIRED",
+    };
+  }
+
+  const account = await getBillingAccount({
+    filePath: params.config.billingAccountsFile,
+    clientId,
+    rules: params.rules,
+  });
+
+  if (!account || !verifyClientToken(account, clientToken)) {
+    return {
+      ok: false,
+      status: 401,
+      message: "Invalid client credentials",
+      code: "INVALID_CLIENT_CREDENTIALS",
+    };
+  }
+
+  return { ok: true, clientId, internal: false };
+}
+
 function masked(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -592,8 +673,20 @@ async function completeApprovedPaymentIntent(params: {
           rules: getBillingRules(params.config),
         })
       : null;
+  const tokenResult = paymentIntent.attachedAccountId
+    ? await getOrCreateBillingAccount({
+        filePath: params.config.billingAccountsFile,
+        clientId: paymentIntent.attachedAccountId,
+        rules: getBillingRules(params.config),
+        ensureClientToken: true,
+      })
+    : null;
 
-  return { paymentIntent, billingAccount };
+  return {
+    paymentIntent,
+    billingAccount: billingAccount ?? tokenResult?.account ?? null,
+    clientToken: tokenResult?.clientToken ?? null,
+  };
 }
 
 async function buildAdminOverview(config: AppConfig) {
@@ -972,6 +1065,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   ok: true,
                   paymentIntent: completed.paymentIntent,
                   billingAccount: completed.billingAccount,
+                  clientToken: completed.clientToken,
                   paymentStatus: payment.status,
                 },
               };
@@ -1001,6 +1095,35 @@ export function createBotServer(config: AppConfig, logger: Logger) {
               };
             }
           }
+        }
+      } else if (method === "POST" && path === "/v1/public/accounts") {
+        const body = await readRequestJson(req);
+        const clientId = getBodyClientId(body);
+        if (!clientId) {
+          response = {
+            status: 400,
+            body: {
+              ok: false,
+              error: "client_id is required",
+              code: "CLIENT_ID_REQUIRED",
+            },
+          };
+        } else {
+          const created = await getOrCreateBillingAccount({
+            filePath: config.billingAccountsFile,
+            clientId,
+            rules: getBillingRules(config),
+            ensureClientToken: true,
+          });
+          response = {
+            status: 201,
+            body: {
+              ok: true,
+              billing: buildBillingStatus(created.account, config),
+              clientToken: created.clientToken,
+              tokenShownOnce: Boolean(created.clientToken),
+            },
+          };
         }
       } else if (
         method === "GET" &&
@@ -1075,6 +1198,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                 ok: true,
                 paymentIntent: completed.paymentIntent,
                 billingAccount: completed.billingAccount,
+                clientToken: completed.clientToken,
                 paymentStatus: payment.status,
               },
             };
@@ -1143,8 +1267,27 @@ export function createBotServer(config: AppConfig, logger: Logger) {
           }
         }
       } else if (method === "GET" && path === "/v1/models") {
-        if (!isAuthorized(req, config)) {
-          response = buildUnauthorizedResponse();
+        const auth = isAuthorized(req, config)
+          ? { ok: true as const, clientId: "", internal: true }
+          : await authenticateClientRequest({
+              req,
+              config,
+              rules: getBillingRules(config),
+            });
+        if (!auth.ok) {
+          response = {
+            status: auth.status,
+            body: {
+              error: {
+                message: auth.message,
+                type:
+                  auth.status === 401
+                    ? "authentication_error"
+                    : "invalid_request_error",
+                code: auth.code,
+              },
+            },
+          };
         } else {
           response = {
             status: 200,
@@ -1211,64 +1354,70 @@ export function createBotServer(config: AppConfig, logger: Logger) {
           };
         }
       } else if (method === "GET" && path === "/v1/billing/account") {
-        if (!isAuthorized(req, config)) {
-          response = buildUnauthorizedResponse();
+        const auth = await authenticateClientRequest({
+          req,
+          config,
+          rules: getBillingRules(config),
+        });
+        if (!auth.ok) {
+          response = {
+            status: auth.status,
+            body: { ok: false, error: auth.message, code: auth.code },
+          };
         } else {
-          const clientId = getClientId(req);
-          if (!clientId) {
-            response = {
-              status: 400,
-              body: { ok: false, error: "x-taku-client-id is required" },
-            };
-          } else {
-            const account = await getOrCreateBillingAccount({
-              filePath: config.billingAccountsFile,
-              clientId,
-              rules: getBillingRules(config),
-            });
-            response = {
-              status: 200,
-              body: {
-                ok: true,
-                billing: buildBillingStatus(account, config),
-              },
-            };
-          }
+          const account = await getOrCreateBillingAccount({
+            filePath: config.billingAccountsFile,
+            clientId: auth.clientId,
+            rules: getBillingRules(config),
+          });
+          response = {
+            status: 200,
+            body: {
+              ok: true,
+              billing: buildBillingStatus(account.account, config),
+            },
+          };
         }
       } else if (method === "GET" && path === "/v1/assistants") {
-        if (!isAuthorized(req, config)) {
-          response = buildUnauthorizedResponse();
+        const auth = await authenticateClientRequest({
+          req,
+          config,
+          rules: getBillingRules(config),
+        });
+        if (!auth.ok) {
+          response = {
+            status: auth.status,
+            body: { ok: false, error: auth.message, code: auth.code },
+          };
         } else {
-          const clientId = getClientId(req);
-          response = clientId
-            ? {
-                status: 200,
-                body: {
-                  ok: true,
-                  object: "list",
-                  assistants: await listAssistants(
-                    config.assistantsFile,
-                    clientId,
-                  ),
-                },
-              }
-            : {
-                status: 400,
-                body: { ok: false, error: "x-taku-client-id is required" },
-              };
+          response = {
+            status: 200,
+            body: {
+              ok: true,
+              object: "list",
+              assistants: await listAssistants(
+                config.assistantsFile,
+                auth.clientId,
+              ),
+            },
+          };
         }
       } else if (method === "POST" && path === "/v1/assistants") {
-        if (!isAuthorized(req, config)) {
-          response = buildUnauthorizedResponse();
+        const body = await readRequestJson(req);
+        const auth = await authenticateClientRequest({
+          req,
+          body,
+          config,
+          rules: getBillingRules(config),
+        });
+        if (!auth.ok) {
+          response = {
+            status: auth.status,
+            body: { ok: false, error: auth.message, code: auth.code },
+          };
         } else {
-          const clientId = getClientId(req);
-          const payload = parseAssistantBody(await readRequestJson(req));
-          if (!clientId) {
-            response = {
-              status: 400,
-              body: { ok: false, error: "x-taku-client-id is required" },
-            };
-          } else if (!payload) {
+          const payload = parseAssistantBody(body);
+          if (!payload) {
             response = {
               status: 400,
               body: {
@@ -1283,7 +1432,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                 ok: true,
                 assistant: await createAssistant({
                   filePath: config.assistantsFile,
-                  clientId,
+                  clientId: auth.clientId,
                   name: payload.name,
                   instructions: payload.instructions,
                 }),
@@ -1333,11 +1482,19 @@ export function createBotServer(config: AppConfig, logger: Logger) {
         const requestId = `chatcmpl_${randomUUID()}`;
         const startedAt = Date.now();
         const body = await readRequestJson(req);
-        const clientId = getClientId(req) ?? getBodyClientId(body);
         const billingRules = getBillingRules(config);
         const payload = parseChatCompletionBody(body, config);
         const pricing = getUsagePricing(config);
-        if (!isAuthorized(req, config)) {
+        const auth = await authenticateClientRequest({
+          req,
+          body,
+          config,
+          rules: billingRules,
+        });
+        const clientId = auth.ok
+          ? auth.clientId
+          : (getClientId(req) ?? getBodyClientId(body));
+        if (!auth.ok && auth.status === 401) {
           await recordUsageEvent({
             filePath: config.usageFile,
             requestId,
@@ -1349,10 +1506,19 @@ export function createBotServer(config: AppConfig, logger: Logger) {
             latencyMs: Date.now() - startedAt,
             errorCode: "UNAUTHORIZED",
             errorType: "authentication_error",
-            errorMessage: "Unauthorized",
-            httpStatus: 401,
+            errorMessage: auth.message,
+            httpStatus: auth.status,
           });
-          response = buildUnauthorizedResponse();
+          response = {
+            status: auth.status,
+            body: {
+              error: {
+                message: auth.message,
+                type: "authentication_error",
+                code: auth.code,
+              },
+            },
+          };
         } else {
           if (!payload) {
             await recordUsageEvent({
@@ -1378,7 +1544,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                 },
               },
             };
-          } else if (!clientId) {
+          } else if (!auth.ok) {
             await recordUsageEvent({
               filePath: config.usageFile,
               requestId,
@@ -1390,16 +1556,16 @@ export function createBotServer(config: AppConfig, logger: Logger) {
               latencyMs: Date.now() - startedAt,
               errorCode: "CLIENT_ID_REQUIRED",
               errorType: "invalid_request_error",
-              errorMessage: "client_id or x-taku-client-id is required",
-              httpStatus: 400,
+              errorMessage: auth.message,
+              httpStatus: auth.status,
             });
             response = {
-              status: 400,
+              status: auth.status,
               body: {
                 error: {
-                  message: "client_id or x-taku-client-id is required",
+                  message: auth.message,
                   type: "invalid_request_error",
-                  code: "CLIENT_ID_REQUIRED",
+                  code: auth.code,
                 },
               },
             };
@@ -1429,12 +1595,14 @@ export function createBotServer(config: AppConfig, logger: Logger) {
               },
             };
           } else {
+            const authedClientId = auth.ok ? auth.clientId : "";
             try {
-              const billingAccount = await getOrCreateBillingAccount({
+              const billingAccountResult = await getOrCreateBillingAccount({
                 filePath: config.billingAccountsFile,
-                clientId,
+                clientId: authedClientId,
                 rules: billingRules,
               });
+              const billingAccount = billingAccountResult.account;
               const accountPricing = getUsagePricing(config, billingAccount);
               const billingStatus = buildBillingStatus(billingAccount, config);
               const balanceBlocked =
@@ -1444,7 +1612,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                 await recordUsageEvent({
                   filePath: config.usageFile,
                   requestId,
-                  clientId,
+                  clientId: authedClientId,
                   assistantId: payload.assistantId ?? null,
                   billingTier: billingAccount.tier,
                   model: payload.model,
@@ -1484,14 +1652,14 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   ? await getAssistant({
                       filePath: config.assistantsFile,
                       assistantId: payload.assistantId,
-                      clientId,
+                      clientId: authedClientId,
                     })
                   : null;
                 if (payload.assistantId && !assistant) {
                   await recordUsageEvent({
                     filePath: config.usageFile,
                     requestId,
-                    clientId,
+                    clientId: authedClientId,
                     assistantId: payload.assistantId,
                     billingTier: billingAccount.tier,
                     model: payload.model,
@@ -1533,7 +1701,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   const usageEvent = await recordUsageEvent({
                     filePath: config.usageFile,
                     requestId,
-                    clientId,
+                    clientId: authedClientId,
                     assistantId: assistant?.id ?? null,
                     billingTier: billingAccount.tier,
                     model: payload.model,
@@ -1544,7 +1712,7 @@ export function createBotServer(config: AppConfig, logger: Logger) {
                   });
                   const updatedBillingAccount = await debitBillingAccount({
                     filePath: config.billingAccountsFile,
-                    clientId,
+                    clientId: authedClientId,
                     chargeUsd: usageEvent.estimatedChargeUsd ?? 0,
                     rules: billingRules,
                   });

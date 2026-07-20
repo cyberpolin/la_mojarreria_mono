@@ -41,6 +41,7 @@ export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const isSuperadmin = request.headers.get("x-taku-role") === "superadmin";
   const clientId = request.headers.get("x-taku-client-id");
+  const clientToken = request.headers.get("x-taku-client-token");
   if (!isSuperadmin && !clientId) {
     return NextResponse.json(
       { ok: false, error: "x-taku-client-id is required" },
@@ -74,6 +75,7 @@ export async function GET(request: Request) {
     headers: {
       authorization: `Bearer ${botApiKey}`,
       "x-api-key": botApiKey,
+      ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
     },
   });
   const payload = (await response.json().catch(() => null)) as unknown;

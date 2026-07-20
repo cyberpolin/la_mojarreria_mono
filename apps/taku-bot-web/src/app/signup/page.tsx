@@ -24,11 +24,12 @@ export default function SignupPage() {
   const [botName, setBotName] = useState("Customer assistant");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedPlan = useMemo(() => plans[plan], [plan]);
   const paidPlanNeedsPayment = plan !== "free";
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
@@ -52,25 +53,52 @@ export default function SignupPage() {
       return;
     }
 
-    window.localStorage.setItem(
-      "TAKU_BOT_SESSION",
-      JSON.stringify({
-        account: {
-          id: `bot_account_${Date.now()}`,
-          name,
-          email,
-          projectName,
-          plan,
-          role: "client_user",
-        },
-        bot: {
-          id: `bot_${Date.now()}`,
-          name: botName,
-        },
-        createdAt: new Date().toISOString(),
-      }),
-    );
-    window.location.href = "/admin";
+    setIsSubmitting(true);
+    try {
+      const clientId = `bot_account_${Date.now()}`;
+      const response = await fetch("/api/bot/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_id: clientId }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        clientToken?: string | null;
+        error?: string;
+      } | null;
+      if (!response.ok || !payload?.ok || !payload.clientToken) {
+        throw new Error(payload?.error ?? "Could not create client token.");
+      }
+
+      window.localStorage.setItem(
+        "TAKU_BOT_SESSION",
+        JSON.stringify({
+          account: {
+            id: clientId,
+            clientToken: payload.clientToken,
+            name,
+            email,
+            projectName,
+            plan,
+            role: "client_user",
+          },
+          bot: {
+            id: `bot_${Date.now()}`,
+            name: botName,
+          },
+          createdAt: new Date().toISOString(),
+        }),
+      );
+      window.location.href = "/admin";
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not create bot account.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -152,9 +180,14 @@ export default function SignupPage() {
 
           <button
             type="submit"
+            disabled={isSubmitting}
             className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-6 text-sm font-semibold text-white hover:bg-emerald-700"
           >
-            {paidPlanNeedsPayment ? "Continue to payment" : "Create bot"}
+            {isSubmitting
+              ? "Creating..."
+              : paidPlanNeedsPayment
+                ? "Continue to payment"
+                : "Create bot"}
           </button>
         </form>
       </section>

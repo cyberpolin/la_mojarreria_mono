@@ -6,11 +6,13 @@ const botApiKey = process.env.TAKU_BOT_API_KEY ?? "";
 
 function botHeaders(request: Request) {
   const clientId = request.headers.get("x-taku-client-id");
+  const clientToken = request.headers.get("x-taku-client-token");
   return {
     "content-type": "application/json",
     authorization: `Bearer ${botApiKey}`,
     "x-api-key": botApiKey,
     ...(clientId ? { "x-taku-client-id": clientId } : {}),
+    ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
   };
 }
 

@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   }
 
   const clientId = request.headers.get("x-taku-client-id");
+  const clientToken = request.headers.get("x-taku-client-token");
   if (!clientId) {
     return NextResponse.json(
       { ok: false, error: "x-taku-client-id is required" },
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
         authorization: `Bearer ${botApiKey}`,
         "x-api-key": botApiKey,
         "x-taku-client-id": clientId,
+        ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
       },
     },
   );

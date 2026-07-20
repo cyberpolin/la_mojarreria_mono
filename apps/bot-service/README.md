@@ -43,18 +43,29 @@ internal margin data and should only be visible to superadmin users.
 
 ## Client API
 
-Clients should use the `/v1` API. All `/v1` endpoints except `/v1/health`
-require:
+Clients should use the `/v1` API. All client-scoped `/v1` endpoints require a
+`client_id` plus that client's token:
 
 ```http
-x-api-key: BOT_SERVICE_API_KEY
+x-taku-client-id: CLIENT_ID
+authorization: Bearer CLIENT_TOKEN
 ```
 
-They also accept DeepSeek/OpenAI-style bearer auth:
+The token may also be sent with:
 
 ```http
-authorization: Bearer BOT_SERVICE_API_KEY
+x-taku-client-token: CLIENT_TOKEN
 ```
+
+`BOT_SERVICE_API_KEY` remains available only for trusted internal services and
+backward-compatible server-side integrations.
+
+### Credential flow
+
+1. Create a client account with `POST /v1/public/accounts` or complete a paid
+   onboarding/payment flow.
+2. Store the returned `clientToken` immediately. It is shown only once.
+3. Send `CLIENT_ID` and `CLIENT_TOKEN` on every client-scoped request.
 
 ### `GET /health`
 
@@ -76,46 +87,8 @@ models will be added later.
 
 ```bash
 curl http://localhost:3002/v1/models \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY"
-```
-
-### `GET /v1/usage/summary`
-
-Returns system usage totals plus grouped usage by client and assistant,
-including estimated provider cost and estimated TAKU charge. Optional filters:
-
-- `client_id`
-- `assistant_id`
-
-```bash
-curl http://localhost:3002/v1/usage/summary \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY"
-```
-
-### `GET /v1/usage/events`
-
-Returns recent usage events with token counts, estimated provider cost, and
-estimated TAKU charge. Optional filters:
-
-- `client_id`
-- `assistant_id`
-- `limit`
-
-```bash
-curl 'http://localhost:3002/v1/usage/events?limit=50' \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY"
-```
-
-### `GET /v1/admin/overview`
-
-Returns the superadmin platform overview used by `taku-bot-web`, including
-billing accounts, tier counts, payment intent totals, provider cost, charge
-estimate, and estimated margin. This endpoint is internal and should only be
-called by trusted server-side web routes.
-
-```bash
-curl http://localhost:3002/v1/admin/overview \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY"
+  -H "authorization: Bearer CLIENT_TOKEN" \
+  -H "x-taku-client-id: CLIENT_ID"
 ```
 
 ### `POST /v1/public/billing/card-payment`
@@ -141,6 +114,21 @@ curl -X POST http://localhost:3002/v1/public/billing/card-payment \
   }'
 ```
 
+Approved payments return the credited billing account and, when the account did
+not already have a token, a one-time `clientToken` value.
+
+### `POST /v1/public/accounts`
+
+Creates or loads a free billing account for a client and returns a one-time
+client token when the account does not already have one. Store this token when
+it is returned; existing tokens are not shown again.
+
+```bash
+curl -X POST http://localhost:3002/v1/public/accounts \
+  -H "content-type: application/json" \
+  -d '{ "client_id": "bot_account_abc123" }'
+```
+
 ### `GET /v1/public/billing/intents/:paymentIntentId`
 
 Returns a BOT payment intent status.
@@ -162,7 +150,7 @@ a human-friendly `name`, and reusable `instructions`.
 
 ```bash
 curl http://localhost:3002/v1/assistants \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY" \
+  -H "authorization: Bearer CLIENT_TOKEN" \
   -H "x-taku-client-id: CLIENT_ID"
 ```
 
@@ -173,7 +161,7 @@ Creates an assistant.
 ```bash
 curl -X POST http://localhost:3002/v1/assistants \
   -H "content-type: application/json" \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY" \
+  -H "authorization: Bearer CLIENT_TOKEN" \
   -H "x-taku-client-id: CLIENT_ID" \
   -d '{
     "name": "Customer assistant",
@@ -188,7 +176,7 @@ Updates an assistant.
 ```bash
 curl -X PATCH http://localhost:3002/v1/assistants/asst_123 \
   -H "content-type: application/json" \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY" \
+  -H "authorization: Bearer CLIENT_TOKEN" \
   -H "x-taku-client-id: CLIENT_ID" \
   -d '{
     "name": "Sales assistant",
@@ -202,13 +190,13 @@ OpenAI/DeepSeek-compatible chat completions endpoint. It proxies to the
 configured DeepSeek provider. When `assistant_id` is present, bot-service
 loads that assistant and prepends its instructions before the request messages.
 `history` is optional and is inserted before `messages`. Requests must include
-either `x-taku-client-id` or `client_id` through the TAKU web proxy so
-bot-service can enforce tier billing.
+`x-taku-client-id` or `client_id`, plus that client's token, so bot-service can
+enforce tier billing.
 
 ```bash
 curl -X POST http://localhost:3002/v1/chat/completions \
   -H "content-type: application/json" \
-  -H "authorization: Bearer BOT_SERVICE_API_KEY" \
+  -H "authorization: Bearer CLIENT_TOKEN" \
   -H "x-taku-client-id: CLIENT_ID" \
   -d '{
     "model": "taku-cr",
@@ -250,6 +238,50 @@ Response:
     }
   ]
 }
+```
+
+## Admin / Internal v1 API
+
+These endpoints are used by trusted server-side routes in `taku-bot-web`.
+They require `BOT_SERVICE_API_KEY`; do not expose this key to browsers or
+external clients.
+
+### `GET /v1/usage/summary`
+
+Returns system usage totals plus grouped usage by client and assistant,
+including estimated provider cost and estimated TAKU charge. Optional filters:
+
+- `client_id`
+- `assistant_id`
+
+```bash
+curl http://localhost:3002/v1/usage/summary \
+  -H "authorization: Bearer BOT_SERVICE_API_KEY"
+```
+
+### `GET /v1/usage/events`
+
+Returns recent usage events with token counts, estimated provider cost, and
+estimated TAKU charge. Optional filters:
+
+- `client_id`
+- `assistant_id`
+- `limit`
+
+```bash
+curl 'http://localhost:3002/v1/usage/events?limit=50' \
+  -H "authorization: Bearer BOT_SERVICE_API_KEY"
+```
+
+### `GET /v1/admin/overview`
+
+Returns the superadmin platform overview used by `taku-bot-web`, including
+billing accounts, tier counts, payment intent totals, provider cost, charge
+estimate, and estimated margin.
+
+```bash
+curl http://localhost:3002/v1/admin/overview \
+  -H "authorization: Bearer BOT_SERVICE_API_KEY"
 ```
 
 ## Internal / Backward-Compatible Endpoints

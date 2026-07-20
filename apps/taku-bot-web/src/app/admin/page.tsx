@@ -66,21 +66,42 @@ function readSessionState() {
   try {
     const rawSession = window.localStorage.getItem("TAKU_BOT_SESSION");
     if (!rawSession) {
-      return { hasSession: false, isSuperadmin: false, clientId: null };
+      return {
+        hasSession: false,
+        isSuperadmin: false,
+        clientId: null,
+        clientToken: null,
+      };
     }
 
     const session = JSON.parse(rawSession) as {
-      account?: { id?: unknown; role?: unknown };
+      account?: { id?: unknown; role?: unknown; clientToken?: unknown };
     };
     return {
       hasSession: true,
       clientId:
         typeof session.account?.id === "string" ? session.account.id : null,
+      clientToken:
+        typeof session.account?.clientToken === "string"
+          ? session.account.clientToken
+          : null,
       isSuperadmin: session.account?.role === "superadmin",
     };
   } catch {
-    return { hasSession: false, isSuperadmin: false, clientId: null };
+    return {
+      hasSession: false,
+      isSuperadmin: false,
+      clientId: null,
+      clientToken: null,
+    };
   }
+}
+
+function clientHeaders(clientId: string | null, clientToken: string | null) {
+  return {
+    ...(clientId ? { "x-taku-client-id": clientId } : {}),
+    ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
+  };
 }
 
 export default function BotConsolePage() {
@@ -95,6 +116,7 @@ export default function BotConsolePage() {
   const [hasSession, setHasSession] = useState(false);
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [clientToken, setClientToken] = useState<string | null>(null);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [billingStatus, setBillingStatus] = useState("Loading billing");
 
@@ -123,14 +145,17 @@ export default function BotConsolePage() {
     }
   }
 
-  async function loadAssistants(sessionClientId = clientId) {
+  async function loadAssistants(
+    sessionClientId = clientId,
+    sessionClientToken = clientToken,
+  ) {
     setLoadingAssistants(true);
     setAssistantStatus(null);
 
     try {
       const response = await fetch("/api/bot/assistants", {
         cache: "no-store",
-        headers: sessionClientId ? { "x-taku-client-id": sessionClientId } : {},
+        headers: clientHeaders(sessionClientId, sessionClientToken),
       });
       const payload = (await response
         .json()
@@ -160,7 +185,10 @@ export default function BotConsolePage() {
     }
   }
 
-  async function loadBilling(sessionClientId = clientId) {
+  async function loadBilling(
+    sessionClientId = clientId,
+    sessionClientToken = clientToken,
+  ) {
     if (!sessionClientId) {
       setBillingStatus("No account session");
       return;
@@ -169,7 +197,7 @@ export default function BotConsolePage() {
     try {
       const response = await fetch("/api/bot/billing/account", {
         cache: "no-store",
-        headers: { "x-taku-client-id": sessionClientId },
+        headers: clientHeaders(sessionClientId, sessionClientToken),
       });
       const payload = (await response
         .json()
@@ -211,7 +239,7 @@ export default function BotConsolePage() {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(clientId ? { "x-taku-client-id": clientId } : {}),
+          ...clientHeaders(clientId, clientToken),
         },
         body: JSON.stringify({ name, instructions }),
       });
@@ -245,9 +273,10 @@ export default function BotConsolePage() {
     setHasSession(session.hasSession);
     setIsSuperadmin(session.isSuperadmin);
     setClientId(session.clientId);
+    setClientToken(session.clientToken);
     void checkHealth();
-    void loadBilling(session.clientId);
-    void loadAssistants(session.clientId);
+    void loadBilling(session.clientId, session.clientToken);
+    void loadAssistants(session.clientId, session.clientToken);
   }, []);
 
   function logout() {

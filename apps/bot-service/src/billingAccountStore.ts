@@ -1,10 +1,12 @@
 import { readJson, writeJson } from "./jsonStore.js";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export type BotBillingTier = "free" | "on_demand" | "high_usage";
 export type BotBillingStatus = "active" | "blocked" | "suspended";
 
 export type BotBillingAccount = {
   clientId: string;
+  clientTokenHash?: string;
   tier: BotBillingTier;
   status: BotBillingStatus;
   monthlyPeriod: string;
@@ -40,6 +42,25 @@ function currentMonthlyPeriod(now = new Date()) {
 
 function roundUsd(value: number): number {
   return Math.round(value * 1_000_000_000) / 1_000_000_000;
+}
+
+export function createClientToken(): string {
+  return `taku_bot_${randomBytes(24).toString("base64url")}`;
+}
+
+function hashClientToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function verifyClientToken(
+  account: BotBillingAccount,
+  token: string,
+): boolean {
+  if (!account.clientTokenHash || !token.trim()) return false;
+
+  const expected = Buffer.from(account.clientTokenHash, "hex");
+  const actual = Buffer.from(hashClientToken(token.trim()), "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 async function readStore(filePath: string): Promise<BillingAccountStore> {
@@ -80,10 +101,12 @@ function refreshMonthlyPeriod(
 function createFreeAccount(
   clientId: string,
   rules: BotBillingRules,
+  clientToken?: string,
 ): BotBillingAccount {
   const now = nowIso();
   return {
     clientId,
+    ...(clientToken ? { clientTokenHash: hashClientToken(clientToken) } : {}),
     tier: "free",
     status: "active",
     monthlyPeriod: currentMonthlyPeriod(),
@@ -100,17 +123,48 @@ export async function getOrCreateBillingAccount(params: {
   filePath: string;
   clientId: string;
   rules: BotBillingRules;
-}): Promise<BotBillingAccount> {
+  ensureClientToken?: boolean;
+}): Promise<{ account: BotBillingAccount; clientToken: string | null }> {
   const store = await readStore(params.filePath);
   let account =
     store.accounts.find((item) => item.clientId === params.clientId) ?? null;
 
   if (!account) {
-    account = createFreeAccount(params.clientId, params.rules);
+    const clientToken = params.ensureClientToken ? createClientToken() : null;
+    account = createFreeAccount(
+      params.clientId,
+      params.rules,
+      clientToken ?? undefined,
+    );
     store.accounts.push(account);
     await writeJson(params.filePath, store);
-    return account;
+    return { account, clientToken };
   }
+
+  const previous = JSON.stringify(account);
+  refreshMonthlyPeriod(account, params.rules);
+  let clientToken: string | null = null;
+  if (params.ensureClientToken && !account.clientTokenHash) {
+    clientToken = createClientToken();
+    account.clientTokenHash = hashClientToken(clientToken);
+  }
+  if (JSON.stringify(account) !== previous) {
+    account.updatedAt = nowIso();
+    await writeJson(params.filePath, store);
+  }
+
+  return { account, clientToken };
+}
+
+export async function getBillingAccount(params: {
+  filePath: string;
+  clientId: string;
+  rules: BotBillingRules;
+}): Promise<BotBillingAccount | null> {
+  const store = await readStore(params.filePath);
+  const account =
+    store.accounts.find((item) => item.clientId === params.clientId) ?? null;
+  if (!account) return null;
 
   const previous = JSON.stringify(account);
   refreshMonthlyPeriod(account, params.rules);

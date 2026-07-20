@@ -20,6 +20,13 @@ export async function POST(request: Request) {
         ? ((body as Record<string, unknown>).client_id as string)
         : null
       : null);
+  const clientToken =
+    request.headers.get("x-taku-client-token") ??
+    (body && typeof body === "object" && !Array.isArray(body)
+      ? typeof (body as Record<string, unknown>).client_token === "string"
+        ? ((body as Record<string, unknown>).client_token as string)
+        : null
+      : null);
   const response = await fetch(
     `${botApiBaseUrl.replace(/\/+$/, "")}/v1/chat/completions`,
     {
@@ -29,6 +36,7 @@ export async function POST(request: Request) {
         authorization: `Bearer ${botApiKey}`,
         "x-api-key": botApiKey,
         ...(clientId ? { "x-taku-client-id": clientId } : {}),
+        ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
       },
       body: JSON.stringify(body),
     },

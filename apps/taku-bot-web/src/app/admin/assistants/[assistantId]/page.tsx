@@ -70,6 +70,28 @@ function readSessionClientId() {
   }
 }
 
+function readSessionClientToken() {
+  try {
+    const rawSession = window.localStorage.getItem("TAKU_BOT_SESSION");
+    if (!rawSession) return null;
+    const session = JSON.parse(rawSession) as {
+      account?: { clientToken?: unknown };
+    };
+    return typeof session.account?.clientToken === "string"
+      ? session.account.clientToken
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function clientHeaders(clientId: string | null, clientToken: string | null) {
+  return {
+    ...(clientId ? { "x-taku-client-id": clientId } : {}),
+    ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
+  };
+}
+
 function defaultCompletionPayload(
   assistantId: string,
   clientId = "demo-client",
@@ -279,6 +301,7 @@ export default function AssistantPage({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
+  const [clientToken, setClientToken] = useState<string | null>(null);
 
   const reply = useMemo(() => {
     if (!completionResult) return null;
@@ -290,7 +313,10 @@ export default function AssistantPage({
     }
   }, [completionResult]);
 
-  async function loadAssistant(sessionClientId = clientId) {
+  async function loadAssistant(
+    sessionClientId = clientId,
+    sessionClientToken = clientToken,
+  ) {
     setStatus("Loading assistant");
 
     try {
@@ -298,9 +324,7 @@ export default function AssistantPage({
         `/api/bot/assistants/${encodeURIComponent(assistantId)}`,
         {
           cache: "no-store",
-          headers: sessionClientId
-            ? { "x-taku-client-id": sessionClientId }
-            : {},
+          headers: clientHeaders(sessionClientId, sessionClientToken),
         },
       );
       const payload = (await response
@@ -347,7 +371,7 @@ export default function AssistantPage({
           method: "PATCH",
           headers: {
             "content-type": "application/json",
-            ...(clientId ? { "x-taku-client-id": clientId } : {}),
+            ...clientHeaders(clientId, clientToken),
           },
           body: JSON.stringify({ name, instructions }),
         },
@@ -396,7 +420,10 @@ export default function AssistantPage({
     try {
       const response = await fetch("/api/bot/completions", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...clientHeaders(clientId, clientToken),
+        },
         body: JSON.stringify(parsedPayload),
       });
       const payload = (await response.json().catch(() => null)) as unknown;
@@ -422,11 +449,13 @@ export default function AssistantPage({
 
   useEffect(() => {
     const sessionClientId = readSessionClientId();
+    const sessionClientToken = readSessionClientToken();
     setClientId(sessionClientId);
+    setClientToken(sessionClientToken);
     setCompletionPayload(
       defaultCompletionPayload(assistantId, sessionClientId ?? undefined),
     );
-    void loadAssistant(sessionClientId);
+    void loadAssistant(sessionClientId, sessionClientToken);
   }, [assistantId]);
 
   return (

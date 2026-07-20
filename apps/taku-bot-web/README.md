@@ -21,7 +21,17 @@ The public client API should use only `/v1` endpoints:
 
 - `GET /v1/health`
 - `GET /v1/models`
+- `GET /v1/assistants`
+- `POST /v1/assistants`
 - `POST /v1/chat/completions`
+
+Client API requests use the client credentials created during signup or paid
+onboarding:
+
+```http
+x-taku-client-id: CLIENT_ID
+authorization: Bearer CLIENT_TOKEN
+```
 
 Legacy root endpoints are internal/backward-compatible service endpoints and
 should not be documented as client APIs.

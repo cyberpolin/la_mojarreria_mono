@@ -18,6 +18,7 @@ type CardPaymentResponse =
         tier: string;
         prepaidBalanceUsd: number;
       };
+      clientToken?: string | null;
       paymentStatus?: string;
     }
   | {
@@ -182,6 +183,7 @@ function createPaidLocalSession(params: {
   email: string;
   plan: BotPlan;
   clientId: string;
+  clientToken?: string | null;
 }) {
   const name = accountNameFromEmail(params.email);
   window.localStorage.setItem(
@@ -189,6 +191,7 @@ function createPaidLocalSession(params: {
     JSON.stringify({
       account: {
         id: params.clientId,
+        clientToken: params.clientToken,
         name,
         email: params.email,
         projectName: `${name} Workspace`,
@@ -288,6 +291,7 @@ export default function PaymentPage() {
           email: formData.payer.email,
           plan,
           clientId,
+          clientToken: payload.clientToken ?? null,
         });
       } catch (requestError) {
         setError(

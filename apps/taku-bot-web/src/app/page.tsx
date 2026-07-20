@@ -25,6 +25,7 @@ const workflow = [
 
 type EndpointKey =
   | "health"
+  | "createAccount"
   | "models"
   | "listAssistants"
   | "createAssistant"
@@ -48,13 +49,39 @@ const endpoints: Array<{
     example: `curl https://api.bot.taku.lat/v1/health`,
   },
   {
+    key: "createAccount",
+    method: "POST",
+    path: "/v1/public/accounts",
+    detail:
+      "Create a free account and receive the client token shown one time.",
+    filename: "create-account.sh",
+    example: `curl -X POST https://api.bot.taku.lat/v1/public/accounts \\
+  -H "content-type: application/json" \\
+  -d '{
+    "client_id": "bot_account_abc123"
+  }'
+
+# Expected response:
+# {
+#   "ok": true,
+#   "billing": {
+#     "client_id": "bot_account_abc123",
+#     "tier": "free",
+#     "status": "active"
+#   },
+#   "clientToken": "taku_bot_...",
+#   "tokenShownOnce": true
+# }`,
+  },
+  {
     key: "models",
     method: "GET",
     path: "/v1/models",
     detail: "List available bot models.",
     filename: "models.sh",
     example: `curl https://api.bot.taku.lat/v1/models \\
-  -H "authorization: Bearer $TAKU_BOT_API_KEY"`,
+  -H "authorization: Bearer $TAKU_CLIENT_TOKEN" \\
+  -H "x-taku-client-id: $TAKU_CLIENT_ID"`,
   },
   {
     key: "listAssistants",
@@ -63,7 +90,7 @@ const endpoints: Array<{
     detail: "List reusable assistants available to your account.",
     filename: "list-assistants.sh",
     example: `curl https://api.bot.taku.lat/v1/assistants \\
-  -H "authorization: Bearer $TAKU_BOT_API_KEY" \\
+  -H "authorization: Bearer $TAKU_CLIENT_TOKEN" \\
   -H "x-taku-client-id: $TAKU_CLIENT_ID"
 
 # Expected response:
@@ -89,7 +116,7 @@ const endpoints: Array<{
     filename: "create-assistant.sh",
     example: `curl -X POST https://api.bot.taku.lat/v1/assistants \\
   -H "content-type: application/json" \\
-  -H "authorization: Bearer $TAKU_BOT_API_KEY" \\
+  -H "authorization: Bearer $TAKU_CLIENT_TOKEN" \\
   -H "x-taku-client-id: $TAKU_CLIENT_ID" \\
   -d '{
     "name": "Customer assistant",
@@ -116,7 +143,7 @@ const endpoints: Array<{
     filename: "update-assistant.sh",
     example: `curl -X PATCH https://api.bot.taku.lat/v1/assistants/asst_123 \\
   -H "content-type: application/json" \\
-  -H "authorization: Bearer $TAKU_BOT_API_KEY" \\
+  -H "authorization: Bearer $TAKU_CLIENT_TOKEN" \\
   -H "x-taku-client-id: $TAKU_CLIENT_ID" \\
   -d '{
     "name": "Sales assistant",
@@ -144,7 +171,7 @@ const endpoints: Array<{
     filename: "chat-completion.sh",
     example: `curl -X POST https://api.bot.taku.lat/v1/chat/completions \\
   -H "content-type: application/json" \\
-  -H "authorization: Bearer $TAKU_BOT_API_KEY" \\
+  -H "authorization: Bearer $TAKU_CLIENT_TOKEN" \\
   -H "x-taku-client-id: $TAKU_CLIENT_ID" \\
   -d '{
     "model": "taku-cr",
@@ -408,6 +435,11 @@ export default function HomePage() {
             <p className="mt-4 text-sm leading-6 text-slate-600">
               TAKU Bot currently exposes one public model: `taku-cr`. More
               customer relations models will be added later.
+            </p>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Client requests use two values: `TAKU_CLIENT_ID` identifies the
+              account, and `TAKU_CLIENT_TOKEN` authorizes access. Store the
+              token when it is created because it is only shown once.
             </p>
             <div className="mt-8 grid gap-3">
               {endpoints.map((endpoint) => (
