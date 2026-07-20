@@ -490,9 +490,10 @@ jobs:
             $PNPM_CMD build
             find dist -maxdepth 2 -type f -print
             mkdir -p data
-            PORT=3140 $PNPM_CMD exec pm2 startOrReload ecosystem.config.cjs --env production --update-env
-            $PNPM_CMD exec pm2 save
-            $PNPM_CMD exec pm2 status
+            PM2_CMD="$PNPM_CMD dlx pm2@5.4.3"
+            PORT=3140 $PM2_CMD startOrReload ecosystem.config.cjs --env production --update-env
+            $PM2_CMD save
+            $PM2_CMD status
             }
 
             set +e
