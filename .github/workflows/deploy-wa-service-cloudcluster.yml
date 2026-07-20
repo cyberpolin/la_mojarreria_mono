@@ -215,11 +215,13 @@ jobs:
           set -eux
           mkdir -p /tmp/mojarreria-wa-service
           rsync -a \
-            --exclude ".git" \
-            --exclude "node_modules" \
-            --exclude "apps/wa-service/auth" \
+            --exclude ".env.example" \
             --exclude "auth" \
-            ./ /tmp/mojarreria-wa-service/
+            --exclude "data" \
+            --exclude "dist" \
+            --exclude "node_modules" \
+            --exclude ".git" \
+            apps/wa-service/ /tmp/mojarreria-wa-service/
           find /tmp/mojarreria-wa-service -maxdepth 3 -type f \
             | sed 's#^/tmp/mojarreria-wa-service/##' \
             | sort \
@@ -333,7 +335,25 @@ jobs:
 
             echo "Installing nginx/certbot dependencies if needed"
             if command -v apt-get >/dev/null 2>&1; then
+              wait_for_apt_locks() {
+                MAX_WAIT_SECONDS=120
+                waited=0
+
+                while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+                  if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+                    echo "Timed out waiting for apt/dpkg locks"
+                    return 1
+                  fi
+
+                  echo "Waiting for apt/dpkg lock (${waited}s/${MAX_WAIT_SECONDS}s)"
+                  sleep 5
+                  waited=$((waited + 5))
+                done
+              }
+
+              wait_for_apt_locks
               run_sudo apt-get update
+              wait_for_apt_locks
               run_sudo apt-get install -y nginx certbot python3-certbot-nginx
             fi
 
@@ -356,16 +376,27 @@ jobs:
             echo "Extracted directory: $(pwd)"
             ls -la
 
-            SERVICE_DIR=.
-            [ ! -f apps/wa-service/package.json ] || SERVICE_DIR=apps/wa-service
-            echo "Resolved service directory: $SERVICE_DIR"
-            ls -la "$SERVICE_DIR"
-            test -f pnpm-workspace.yaml && cat pnpm-workspace.yaml || true
-            cat "$SERVICE_DIR/package.json"
-            cat "$SERVICE_DIR/tsconfig.json"
+            cat package.json
+            cat tsconfig.json
+            if [ -f .env ]; then
+              echo "Remote .env exists"
+              wc -c .env
+              for name in SERVICE_API_KEY MAIN_BACKEND_URL MAIN_BACKEND_WEBHOOK_SECRET SERVICE_ALLOWED_DOMAINS; do
+                if grep -q "^$name=" .env; then
+                  value="$(grep "^$name=" .env | tail -1 | cut -d= -f2-)"
+                  echo "Remote $name present (length: ${#value})"
+                else
+                  echo "Remote $name missing"
+                  return 1
+                fi
+              done
+            else
+              echo "Remote .env missing"
+              return 1
+            fi
 
             if command -v nvm >/dev/null 2>&1; then
-              NODE_VERSION="$(find "$SERVICE_DIR" -maxdepth 1 -name .nvmrc -type f -exec cat {} \; -quit)"
+              NODE_VERSION="$(find . -maxdepth 1 -name .nvmrc -type f -exec cat {} \; -quit)"
               NODE_VERSION="${NODE_VERSION:-"--lts"}"
               echo "Using Node version from nvm: $NODE_VERSION"
               nvm install "$NODE_VERSION"
@@ -374,26 +405,38 @@ jobs:
 
             node --version
 
-            corepack enable
-            corepack prepare pnpm@9.15.5 --activate
-            pnpm --version
-            pnpm config get store-dir
-
-            if [ -f pnpm-lock.yaml ]; then
-              pnpm install --prod=false --frozen-lockfile
+            PNPM_CMD="pnpm"
+            if command -v pnpm >/dev/null 2>&1; then
+              echo "Using existing pnpm"
+            elif command -v corepack >/dev/null 2>&1; then
+              echo "Preparing pnpm with corepack without global enable"
+              if corepack prepare pnpm@9.15.5 --activate && corepack pnpm --version >/dev/null 2>&1; then
+                PNPM_CMD="corepack pnpm"
+              else
+                PNPM_CMD="npx pnpm@9.15.5"
+              fi
             else
-              pnpm install --prod=false --no-frozen-lockfile
+              echo "corepack not found; using npx pnpm"
+              PNPM_CMD="npx pnpm@9.15.5"
             fi
 
-            pnpm --dir "$SERVICE_DIR" exec tsc --version
-            pnpm --dir "$SERVICE_DIR" list --depth 0 || true
-            du -sh node_modules "$SERVICE_DIR/node_modules" 2>/dev/null || true
-            pnpm --dir "$SERVICE_DIR" build
-            find "$SERVICE_DIR/dist" -maxdepth 2 -type f -print
+            $PNPM_CMD --version
+            $PNPM_CMD config get store-dir
 
-            mkdir -p "$SERVICE_DIR/auth"
+            if [ -f pnpm-lock.yaml ]; then
+              $PNPM_CMD install --prod=false --frozen-lockfile
+            else
+              $PNPM_CMD install --prod=false --no-frozen-lockfile
+            fi
+
+            $PNPM_CMD exec tsc --version
+            $PNPM_CMD list --depth 0 || true
+            du -sh node_modules 2>/dev/null || true
+            $PNPM_CMD build
+            find dist -maxdepth 2 -type f -print
+
+            mkdir -p auth data
             (
-              cd "$SERVICE_DIR"
               wait_for_wa_lock_release() {
                 LOCK_FILE="/tmp/mojarreria-wa-service.lock"
                 MAX_WAIT_SECONDS=30
@@ -420,12 +463,13 @@ jobs:
                 echo "WA lock is clear"
               }
 
-              pnpm exec pm2 delete mojarreria-wa-service || true
+              PM2_CMD="$PNPM_CMD dlx pm2@5.4.3"
+              $PM2_CMD delete mojarreria-wa-service || true
               wait_for_wa_lock_release
-              PORT=3130 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
-              pnpm exec pm2 save
-              pnpm exec pm2 describe mojarreria-wa-service
-              pnpm exec pm2 status
+              PORT=3130 $PM2_CMD startOrReload ecosystem.config.cjs --env production --update-env
+              $PM2_CMD save
+              $PM2_CMD describe mojarreria-wa-service
+              $PM2_CMD status
             )
             }
 
