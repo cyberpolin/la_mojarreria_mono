@@ -527,13 +527,14 @@ jobs:
 
       - name: Fetch remote deploy log
         if: always() && steps.ssh_preflight.outcome == 'success'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          timeout: 60s
+          timeout: 120s
           command_timeout: 2m
           request_pty: true
           debug: true
