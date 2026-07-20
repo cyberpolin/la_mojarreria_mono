@@ -386,11 +386,10 @@ export default function AdminPage() {
         }
 
         setAdminOverview(overviewPayload.overview);
-        setConnections([]);
-        return;
+      } else {
+        setAdminOverview(null);
       }
 
-      setAdminOverview(null);
       const connectionsPayload = await apiFetch<ConnectionsResponse>(
         "/v1/account/connections",
       );
@@ -1013,6 +1012,161 @@ export default function AdminPage() {
               </div>
             </section>
           </div>
+
+          <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  My TAKU WA phones
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                  Superowner connections
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Pair and monitor the WhatsApp numbers owned by this superowner
+                  account.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={isAdding || isLoading}
+                onClick={() => void addPhone()}
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {isAdding ? "Adding..." : primaryPhoneAction}
+              </button>
+            </div>
+
+            {!isLoading && unpairedConnections.length > 0 ? (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">
+                  Pairing required
+                </p>
+                <p className="mt-2 text-sm leading-6 text-amber-900">
+                  Scan the QR from WhatsApp linked devices. Once paired, the
+                  phone will show as connected here.
+                </p>
+              </div>
+            ) : null}
+
+            <div className="mt-5 grid gap-4">
+              {isLoading ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  Loading superowner phones...
+                </div>
+              ) : null}
+
+              {!isLoading && connections.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  No superowner phones yet.
+                </div>
+              ) : null}
+
+              {connections.map((connection) => (
+                <article
+                  key={connection.connectionId}
+                  className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_auto]"
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="font-semibold text-slate-950">
+                        {connection.label ?? connection.connectionId}
+                      </h3>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          connection.connected
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-700"
+                        }`}
+                      >
+                        {statusLabel(connection)}
+                      </span>
+                    </div>
+                    <dl className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+                      <div>
+                        <dt className="font-medium text-slate-950">
+                          Connection ID
+                        </dt>
+                        <dd className="mt-1 font-mono text-xs">
+                          {connection.connectionId}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-slate-950">Phone</dt>
+                        <dd className="mt-1">
+                          {connection.phone ?? "Not paired"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-slate-950">State</dt>
+                        <dd className="mt-1">{connection.state}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-slate-950">Updated</dt>
+                        <dd className="mt-1">
+                          {new Date(connection.lastChangedAt).toLocaleString()}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    {!connection.connected ? (
+                      <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+                        <p className="text-sm font-semibold text-slate-950">
+                          Scan to pair
+                        </p>
+                        {qrImages[connection.connectionId] ? (
+                          <Image
+                            src={qrImages[connection.connectionId]}
+                            alt="WhatsApp pairing QR"
+                            width={320}
+                            height={320}
+                            unoptimized
+                            className="mt-4 aspect-square w-full max-w-xs rounded-xl border border-slate-200 bg-white"
+                          />
+                        ) : (
+                          <div className="mt-4 grid aspect-square w-full max-w-xs place-items-center rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-500">
+                            {loadingQrIds[connection.connectionId]
+                              ? "Generating QR..."
+                              : "QR will appear here."}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 md:flex-col">
+                    <button
+                      type="button"
+                      onClick={() => void refreshDashboard()}
+                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
+                    >
+                      Refresh
+                    </button>
+                    {!connection.connected ? (
+                      <button
+                        type="button"
+                        onClick={() => void refreshQr(connection.connectionId)}
+                        disabled={loadingQrIds[connection.connectionId]}
+                        className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {loadingQrIds[connection.connectionId]
+                          ? "Loading QR..."
+                          : "Refresh QR"}
+                      </button>
+                    ) : null}
+                    <a
+                      href={`/admin/streams/${encodeURIComponent(
+                        connection.connectionId,
+                      )}`}
+                      className="inline-flex min-h-11 items-center justify-center rounded-full bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+                    >
+                      Open stream
+                    </a>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
 
           <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 md:p-6">
             <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
