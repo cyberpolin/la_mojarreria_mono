@@ -370,7 +370,30 @@ jobs:
               run_sudo env TAKU_SERVICES="TAKU_WA_SERVICE" DEBUG=true scripts/enable-taku-nginx-sites.sh
             )
 
-            mkdir -p "$DEPLOY_PATH"
+            if [ ! -d "$DEPLOY_PATH" ]; then
+              echo "Deploy directory does not exist; creating it"
+              if mkdir -p "$DEPLOY_PATH" 2>/dev/null; then
+                echo "Deploy directory created"
+              elif command -v sudo >/dev/null 2>&1; then
+                run_sudo mkdir -p "$DEPLOY_PATH"
+                run_sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+                echo "Deploy directory created with sudo and ownership assigned"
+              else
+                echo "Cannot create $DEPLOY_PATH and sudo is unavailable"
+                return 1
+              fi
+            fi
+
+            if [ ! -w "$DEPLOY_PATH" ]; then
+              echo "Deploy directory is not writable; fixing ownership"
+              if command -v sudo >/dev/null 2>&1; then
+                run_sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+              else
+                echo "Cannot write to $DEPLOY_PATH and sudo is unavailable"
+                return 1
+              fi
+            fi
+
             tar -xzf /tmp/mojarreria-wa-service.tar.gz -C "$DEPLOY_PATH" --strip-components=1
             cd "$DEPLOY_PATH"
             echo "Extracted directory: $(pwd)"
@@ -474,7 +497,7 @@ jobs:
             }
 
             set +e
-            run_deploy > "$LOG_FILE" 2>&1
+            ( set -eu; run_deploy ) > "$LOG_FILE" 2>&1
             DEPLOY_STATUS="$?"
             set -e
 
