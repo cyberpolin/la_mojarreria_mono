@@ -176,6 +176,29 @@ export async function getBillingAccount(params: {
   return account;
 }
 
+export async function resetBillingAccountClientToken(params: {
+  filePath: string;
+  clientId: string;
+  rules: BotBillingRules;
+}): Promise<{ account: BotBillingAccount; clientToken: string }> {
+  const store = await readStore(params.filePath);
+  let account =
+    store.accounts.find((item) => item.clientId === params.clientId) ?? null;
+  const clientToken = createClientToken();
+
+  if (!account) {
+    account = createFreeAccount(params.clientId, params.rules, clientToken);
+    store.accounts.push(account);
+  } else {
+    refreshMonthlyPeriod(account, params.rules);
+    account.clientTokenHash = hashClientToken(clientToken);
+    account.updatedAt = nowIso();
+  }
+
+  await writeJson(params.filePath, store);
+  return { account, clientToken };
+}
+
 export async function listBillingAccounts(params: {
   filePath: string;
   rules: BotBillingRules;

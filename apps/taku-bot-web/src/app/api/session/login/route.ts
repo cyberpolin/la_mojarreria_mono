@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+const botApiBaseUrl =
+  process.env.TAKU_BOT_API_BASE_URL ?? "http://localhost:3002";
+
 type LoginBody = {
   email?: unknown;
   password?: unknown;
@@ -21,6 +24,23 @@ function readCredentials(body: unknown) {
 
 function accountNameFromEmail(email: string) {
   return email.split("@")[0] || "Bot user";
+}
+
+async function createClientToken(clientId: string) {
+  const response = await fetch(
+    `${botApiBaseUrl.replace(/\/+$/, "")}/v1/public/accounts`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_id: clientId }),
+    },
+  );
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    clientToken?: string | null;
+  } | null;
+
+  return response.ok && payload?.ok ? (payload.clientToken ?? null) : null;
 }
 
 export async function POST(request: Request) {
@@ -50,14 +70,17 @@ export async function POST(request: Request) {
 
   const role = isSuperadmin ? "superadmin" : "client_user";
   const accountName = accountNameFromEmail(credentials.email);
+  const accountId = `${role}_${Buffer.from(credentials.email)
+    .toString("base64url")
+    .slice(0, 16)}`;
+  const clientToken = await createClientToken(accountId);
 
   return NextResponse.json({
     ok: true,
     session: {
       account: {
-        id: `${role}_${Buffer.from(credentials.email)
-          .toString("base64url")
-          .slice(0, 16)}`,
+        id: accountId,
+        clientToken,
         name: accountName,
         email: credentials.email,
         projectName: isSuperadmin

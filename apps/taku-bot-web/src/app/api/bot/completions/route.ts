@@ -27,6 +27,19 @@ export async function POST(request: Request) {
         ? ((body as Record<string, unknown>).client_token as string)
         : null
       : null);
+  if (!clientId || !clientToken) {
+    return NextResponse.json(
+      {
+        error: {
+          message: "TAKU_CLIENT_ID and TAKU_CLIENT_TOKEN are required",
+          type: "authentication_error",
+          code: "CLIENT_CREDENTIALS_REQUIRED",
+        },
+      },
+      { status: 401 },
+    );
+  }
+
   const response = await fetch(
     `${botApiBaseUrl.replace(/\/+$/, "")}/v1/chat/completions`,
     {

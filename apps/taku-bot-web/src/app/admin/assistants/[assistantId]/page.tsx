@@ -92,6 +92,10 @@ function clientHeaders(clientId: string | null, clientToken: string | null) {
   };
 }
 
+function maskedToken(token: string | null) {
+  return token ? `${token.slice(0, 12)}...${token.slice(-6)}` : null;
+}
+
 function defaultCompletionPayload(
   assistantId: string,
   clientId = "demo-client",
@@ -302,6 +306,7 @@ export default function AssistantPage({
   const [testing, setTesting] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientToken, setClientToken] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   const reply = useMemo(() => {
     if (!completionResult) return null;
@@ -397,6 +402,20 @@ export default function AssistantPage({
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function copyText(label: string, value: string | null) {
+    if (!value) {
+      setCopyStatus(`${label} is not available.`);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyStatus(`${label} copied.`);
+    } catch {
+      setCopyStatus(`Could not copy ${label}.`);
     }
   }
 
@@ -550,13 +569,53 @@ export default function AssistantPage({
                   Completion format
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Edit and send the same JSON body clients send to
-                  `/v1/chat/completions`.
+                  Edit the JSON body and send it with the client credentials
+                  required by `/v1/chat/completions`.
                 </p>
               </div>
               <span className="inline-flex min-h-8 items-center rounded-full border border-slate-500 bg-slate-600 px-3 text-xs font-semibold text-white">
                 Editable JSON
               </span>
+            </div>
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Required headers
+                  </p>
+                  <pre className="mt-3 overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-slate-200">
+                    {`authorization: Bearer ${clientToken ? "$TAKU_CLIENT_TOKEN" : "<missing-client-token>"}
+x-taku-client-id: ${clientId ?? "<missing-client-id>"}`}
+                  </pre>
+                  <p className="mt-3 break-all text-xs text-slate-500">
+                    Current token:{" "}
+                    {maskedToken(clientToken) ?? "not stored in this browser"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void copyText("Client id", clientId)}
+                    disabled={!clientId}
+                    className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Copy id
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyText("Client token", clientToken)}
+                    disabled={!clientToken}
+                    className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Copy token
+                  </button>
+                </div>
+              </div>
+              {copyStatus ? (
+                <p className="mt-3 text-sm font-medium text-slate-600">
+                  {copyStatus}
+                </p>
+              ) : null}
             </div>
             <CodeLineEditor
               value={completionPayload}

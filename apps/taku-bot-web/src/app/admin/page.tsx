@@ -104,6 +104,25 @@ function clientHeaders(clientId: string | null, clientToken: string | null) {
   };
 }
 
+function saveClientTokenToSession(token: string) {
+  const rawSession = window.localStorage.getItem("TAKU_BOT_SESSION");
+  if (!rawSession) return;
+
+  const session = JSON.parse(rawSession) as {
+    account?: Record<string, unknown>;
+  };
+  window.localStorage.setItem(
+    "TAKU_BOT_SESSION",
+    JSON.stringify({
+      ...session,
+      account: {
+        ...session.account,
+        clientToken: token,
+      },
+    }),
+  );
+}
+
 export default function BotConsolePage() {
   const [health, setHealth] = useState<HealthState>("checking");
   const [healthMessage, setHealthMessage] = useState("Checking bot-service");
@@ -117,6 +136,9 @@ export default function BotConsolePage() {
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
   const [clientToken, setClientToken] = useState<string | null>(null);
+  const [showClientToken, setShowClientToken] = useState(false);
+  const [credentialStatus, setCredentialStatus] = useState<string | null>(null);
+  const [creatingToken, setCreatingToken] = useState(false);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [billingStatus, setBillingStatus] = useState("Loading billing");
 
@@ -265,6 +287,60 @@ export default function BotConsolePage() {
       );
     } finally {
       setSavingAssistant(false);
+    }
+  }
+
+  async function copyText(label: string, value: string | null) {
+    if (!value) {
+      setCredentialStatus(`${label} is not available.`);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCredentialStatus(`${label} copied.`);
+    } catch {
+      setCredentialStatus(`Could not copy ${label}.`);
+    }
+  }
+
+  async function generateClientToken() {
+    if (!clientId) {
+      setCredentialStatus("Client id is not available.");
+      return;
+    }
+
+    setCreatingToken(true);
+    setCredentialStatus(null);
+    try {
+      const response = await fetch("/api/bot/client-token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_id: clientId }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        clientToken?: string | null;
+        error?: string;
+      } | null;
+      if (!response.ok || !payload?.ok || !payload.clientToken) {
+        throw new Error(payload?.error ?? "Could not generate client token.");
+      }
+
+      saveClientTokenToSession(payload.clientToken);
+      setClientToken(payload.clientToken);
+      setShowClientToken(true);
+      setCredentialStatus("Client token generated. Store it now.");
+      void loadBilling(clientId, payload.clientToken);
+      void loadAssistants(clientId, payload.clientToken);
+    } catch (error) {
+      setCredentialStatus(
+        error instanceof Error
+          ? error.message
+          : "Could not generate client token.",
+      );
+    } finally {
+      setCreatingToken(false);
     }
   }
 
@@ -444,6 +520,89 @@ export default function BotConsolePage() {
               Bot replies are blocked until credit is added or the free monthly
               allowance resets.
             </div>
+          ) : null}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-slate-950/5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">
+                API credentials
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                Use both values on client API calls. The token is secret; copy
+                and store it before resetting it.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void generateClientToken()}
+              disabled={creatingToken || !clientId}
+              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {creatingToken
+                ? "Generating"
+                : clientToken
+                  ? "Reset token"
+                  : "Generate token"}
+            </button>
+          </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                TAKU_CLIENT_ID
+              </p>
+              <p className="mt-3 break-all font-mono text-sm text-slate-950">
+                {clientId ?? "-"}
+              </p>
+              <button
+                type="button"
+                onClick={() => void copyText("Client id", clientId)}
+                disabled={!clientId}
+                className="mt-4 inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Copy id
+              </button>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                TAKU_CLIENT_TOKEN
+              </p>
+              <p className="mt-3 break-all font-mono text-sm text-slate-950">
+                {clientToken
+                  ? showClientToken
+                    ? clientToken
+                    : `${clientToken.slice(0, 12)}...${clientToken.slice(-6)}`
+                  : "No token stored in this browser."}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowClientToken((value) => !value)}
+                  disabled={!clientToken}
+                  className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {showClientToken ? "Hide token" : "Show token"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void copyText("Client token", clientToken)}
+                  disabled={!clientToken}
+                  className="inline-flex min-h-10 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Copy token
+                </button>
+              </div>
+            </div>
+          </div>
+          <pre className="mt-5 overflow-auto rounded-xl border border-slate-200 bg-slate-950 p-4 text-xs leading-6 text-slate-200">
+            {`authorization: Bearer ${clientToken ? "$TAKU_CLIENT_TOKEN" : "<generate-token-first>"}
+x-taku-client-id: ${clientId ?? "<client-id>"}`}
+          </pre>
+          {credentialStatus ? (
+            <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-600">
+              {credentialStatus}
+            </p>
           ) : null}
         </section>
 

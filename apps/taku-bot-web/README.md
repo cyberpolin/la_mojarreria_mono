@@ -33,6 +33,10 @@ x-taku-client-id: CLIENT_ID
 authorization: Bearer CLIENT_TOKEN
 ```
 
+The admin console shows both values in the API credentials section. If a local
+session does not have a stored token, the console can generate a new one; doing
+that invalidates the previous client token for that account.
+
 Legacy root endpoints are internal/backward-compatible service endpoints and
 should not be documented as client APIs.
 

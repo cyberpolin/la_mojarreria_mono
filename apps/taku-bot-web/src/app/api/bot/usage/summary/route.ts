@@ -48,6 +48,12 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   }
+  if (!isSuperadmin && !clientToken) {
+    return NextResponse.json(
+      { ok: false, error: "TAKU_CLIENT_TOKEN is required" },
+      { status: 401 },
+    );
+  }
 
   const targetUrl = new URL(
     `${botApiBaseUrl.replace(/\/+$/, "")}/v1/usage/summary`,

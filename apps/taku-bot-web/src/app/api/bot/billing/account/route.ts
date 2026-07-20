@@ -20,6 +20,12 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   }
+  if (!clientToken) {
+    return NextResponse.json(
+      { ok: false, error: "TAKU_CLIENT_TOKEN is required" },
+      { status: 401 },
+    );
+  }
 
   const response = await fetch(
     `${botApiBaseUrl.replace(/\/+$/, "")}/v1/billing/account`,
@@ -29,7 +35,7 @@ export async function GET(request: Request) {
         authorization: `Bearer ${botApiKey}`,
         "x-api-key": botApiKey,
         "x-taku-client-id": clientId,
-        ...(clientToken ? { "x-taku-client-token": clientToken } : {}),
+        "x-taku-client-token": clientToken,
       },
     },
   );

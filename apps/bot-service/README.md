@@ -57,8 +57,9 @@ The token may also be sent with:
 x-taku-client-token: CLIENT_TOKEN
 ```
 
-`BOT_SERVICE_API_KEY` remains available only for trusted internal services and
-backward-compatible server-side integrations.
+`BOT_SERVICE_API_KEY` remains available only for trusted internal/admin
+endpoints. It does not bypass client token validation on client-scoped
+endpoints such as assistants, billing account, or chat completions.
 
 ### Credential flow
 
@@ -66,6 +67,13 @@ backward-compatible server-side integrations.
    onboarding/payment flow.
 2. Store the returned `clientToken` immediately. It is shown only once.
 3. Send `CLIENT_ID` and `CLIENT_TOKEN` on every client-scoped request.
+
+Bot replies are generated only when all of these are true:
+
+- the request includes a valid `CLIENT_ID`
+- the request includes the matching `CLIENT_TOKEN`
+- the billing account is `active`
+- the account has remaining free or prepaid credit
 
 ### `GET /health`
 
@@ -282,6 +290,19 @@ estimate, and estimated margin.
 ```bash
 curl http://localhost:3002/v1/admin/overview \
   -H "authorization: Bearer BOT_SERVICE_API_KEY"
+```
+
+### `POST /v1/admin/client-token`
+
+Creates a new one-time client token for a billing account. This is used by
+trusted web routes when a user needs to reveal/regenerate their API token.
+Generating a new token invalidates the previous token for that `client_id`.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/client-token \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer BOT_SERVICE_API_KEY" \
+  -d '{ "client_id": "bot_account_abc123" }'
 ```
 
 ## Internal / Backward-Compatible Endpoints

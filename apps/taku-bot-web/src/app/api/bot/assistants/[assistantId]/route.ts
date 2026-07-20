@@ -16,10 +16,26 @@ function botHeaders(request: Request) {
   };
 }
 
+function requireClientCredentials(request: Request) {
+  const clientId = request.headers.get("x-taku-client-id");
+  const clientToken = request.headers.get("x-taku-client-token");
+  if (!clientId || !clientToken) {
+    return NextResponse.json(
+      { ok: false, error: "TAKU_CLIENT_ID and TAKU_CLIENT_TOKEN are required" },
+      { status: 401 },
+    );
+  }
+
+  return null;
+}
+
 export async function GET(
   request: Request,
   context: { params: { assistantId: string } },
 ) {
+  const credentialError = requireClientCredentials(request);
+  if (credentialError) return credentialError;
+
   const { assistantId } = context.params;
   const response = await fetch(
     `${botApiBaseUrl.replace(/\/+$/, "")}/v1/assistants`,
@@ -52,6 +68,9 @@ export async function PATCH(
   request: Request,
   context: { params: { assistantId: string } },
 ) {
+  const credentialError = requireClientCredentials(request);
+  if (credentialError) return credentialError;
+
   const { assistantId } = context.params;
   const body = (await request.json().catch(() => null)) as unknown;
   const response = await fetch(
