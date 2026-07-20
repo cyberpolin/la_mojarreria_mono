@@ -133,6 +133,10 @@ const standaloneCreateConnectionSchema = z.object({
   label: z.string().trim().min(1).max(120).optional(),
 });
 
+const standaloneConnectionUpdateSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+});
+
 const paidPlanSchema = z.enum(["basic", "developer", "platform", "enterprise"]);
 
 const billingCheckoutSchema = z.object({
@@ -1807,6 +1811,61 @@ export function createV1Router(params: {
       });
     }
   });
+
+  router.patch(
+    "/account/connections/:connectionId",
+    async (req: Request, res: Response) => {
+      const account = await requireStandaloneAccount(req, res, params.config);
+      if (!account) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (
+        !connectionId ||
+        !ensureAccountConnection(account, connectionId, res)
+      ) {
+        return;
+      }
+
+      const parsed = standaloneConnectionUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          ok: false,
+          error: "Invalid connection payload",
+          issues: parsed.error.flatten().fieldErrors,
+        });
+        return;
+      }
+
+      try {
+        let connection = params.connectionManager.getSnapshot(connectionId);
+        if (!connection) {
+          connection = await params.connectionManager.createConnection({
+            connectionId,
+            businessId: account.id,
+            label: account.projectName,
+            autoStart: false,
+          });
+        }
+
+        connection = await params.connectionManager.updateLabel(
+          connection.connectionId,
+          parsed.data.label,
+        );
+
+        res.json({ ok: true, connection });
+      } catch (error) {
+        res.status(500).json({
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to update WhatsApp connection",
+        });
+      }
+    },
+  );
 
   router.get(
     "/account/connections/:connectionId/status",

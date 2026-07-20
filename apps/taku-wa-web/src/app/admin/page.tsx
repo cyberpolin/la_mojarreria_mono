@@ -74,6 +74,10 @@ type StatusResponse =
   | { ok: true; connection: Connection }
   | { ok: false; error: string };
 
+type ConnectionUpdateResponse =
+  | { ok: true; connection: Connection }
+  | { ok: false; error: string };
+
 type AddConnectionResponse =
   | {
       ok: true;
@@ -263,6 +267,13 @@ export default function AdminPage() {
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const [isSavingProjectName, setIsSavingProjectName] = useState(false);
   const [showOwnerUi, setShowOwnerUi] = useState(false);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(
+    null,
+  );
+  const [connectionLabelDraft, setConnectionLabelDraft] = useState("");
+  const [savingConnectionId, setSavingConnectionId] = useState<string | null>(
+    null,
+  );
 
   const connectionLimitText = useMemo(() => {
     if (!entitlements) {
@@ -532,6 +543,50 @@ export default function AdminPage() {
       );
     } finally {
       setIsSavingProjectName(false);
+    }
+  }
+
+  async function saveConnectionLabel(connectionId: string) {
+    const label = connectionLabelDraft.trim();
+    if (!label) {
+      setError("Phone name is required");
+      return;
+    }
+
+    setSavingConnectionId(connectionId);
+    setError(null);
+    setNotice(null);
+    try {
+      const payload = await apiFetch<ConnectionUpdateResponse>(
+        `/v1/account/connections/${encodeURIComponent(connectionId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ label }),
+        },
+      );
+
+      if (!payload.ok) {
+        throw new Error(payload.error);
+      }
+
+      setConnections((current) =>
+        current.map((connection) =>
+          connection.connectionId === payload.connection.connectionId
+            ? payload.connection
+            : connection,
+        ),
+      );
+      setEditingConnectionId(null);
+      setConnectionLabelDraft("");
+      setNotice("Phone name updated.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Could not update phone name",
+      );
+    } finally {
+      setSavingConnectionId(null);
     }
   }
 
@@ -1079,9 +1134,82 @@ export default function AdminPage() {
                 >
                   <div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="font-semibold text-slate-950">
-                        {connection.label ?? connection.connectionId}
-                      </h3>
+                      {editingConnectionId === connection.connectionId ? (
+                        <form
+                          className="flex flex-wrap items-center gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void saveConnectionLabel(connection.connectionId);
+                          }}
+                        >
+                          <input
+                            value={connectionLabelDraft}
+                            onChange={(event) =>
+                              setConnectionLabelDraft(event.target.value)
+                            }
+                            disabled={
+                              savingConnectionId === connection.connectionId
+                            }
+                            autoFocus
+                            className="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 disabled:bg-slate-100"
+                          />
+                          <button
+                            type="submit"
+                            disabled={
+                              savingConnectionId === connection.connectionId
+                            }
+                            className="inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          >
+                            {savingConnectionId === connection.connectionId
+                              ? "Saving..."
+                              : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              savingConnectionId === connection.connectionId
+                            }
+                            onClick={() => {
+                              setEditingConnectionId(null);
+                              setConnectionLabelDraft("");
+                            }}
+                            className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 px-3 text-xs font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:text-slate-400"
+                          >
+                            Cancel
+                          </button>
+                        </form>
+                      ) : (
+                        <div className="group flex items-center gap-2">
+                          <h3 className="font-semibold text-slate-950">
+                            {connection.label ?? connection.connectionId}
+                          </h3>
+                          <button
+                            type="button"
+                            aria-label="Edit phone name"
+                            onClick={() => {
+                              setEditingConnectionId(connection.connectionId);
+                              setConnectionLabelDraft(
+                                connection.label ?? connection.connectionId,
+                              );
+                            }}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 opacity-100 transition hover:border-slate-950 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-emerald-100 md:opacity-0 md:group-hover:opacity-100"
+                          >
+                            <svg
+                              aria-hidden="true"
+                              viewBox="0 0 24 24"
+                              className="h-4 w-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                            >
+                              <path d="M12 20h9" />
+                              <path d="m16.5 3.5 4 4L7 21l-4 1 1-4 12.5-14.5Z" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${
                           connection.connected
@@ -1481,9 +1609,82 @@ export default function AdminPage() {
             >
               <div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-lg font-semibold text-slate-950">
-                    {connection.label ?? connection.connectionId}
-                  </h2>
+                  {editingConnectionId === connection.connectionId ? (
+                    <form
+                      className="flex flex-wrap items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void saveConnectionLabel(connection.connectionId);
+                      }}
+                    >
+                      <input
+                        value={connectionLabelDraft}
+                        onChange={(event) =>
+                          setConnectionLabelDraft(event.target.value)
+                        }
+                        disabled={
+                          savingConnectionId === connection.connectionId
+                        }
+                        autoFocus
+                        className="min-h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100 disabled:bg-slate-100"
+                      />
+                      <button
+                        type="submit"
+                        disabled={
+                          savingConnectionId === connection.connectionId
+                        }
+                        className="inline-flex min-h-10 items-center justify-center rounded-full bg-slate-950 px-3 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {savingConnectionId === connection.connectionId
+                          ? "Saving..."
+                          : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={
+                          savingConnectionId === connection.connectionId
+                        }
+                        onClick={() => {
+                          setEditingConnectionId(null);
+                          setConnectionLabelDraft("");
+                        }}
+                        className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-300 px-3 text-xs font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="group flex items-center gap-2">
+                      <h2 className="text-lg font-semibold text-slate-950">
+                        {connection.label ?? connection.connectionId}
+                      </h2>
+                      <button
+                        type="button"
+                        aria-label="Edit phone name"
+                        onClick={() => {
+                          setEditingConnectionId(connection.connectionId);
+                          setConnectionLabelDraft(
+                            connection.label ?? connection.connectionId,
+                          );
+                        }}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 opacity-100 transition hover:border-slate-950 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-emerald-100 md:opacity-0 md:group-hover:opacity-100"
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                        >
+                          <path d="M12 20h9" />
+                          <path d="m16.5 3.5 4 4L7 21l-4 1 1-4 12.5-14.5Z" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
                       connection.connected

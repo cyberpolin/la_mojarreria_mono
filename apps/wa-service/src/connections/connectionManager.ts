@@ -128,6 +128,22 @@ export class ConnectionManager {
     return record ? this.toSnapshot(record) : null;
   }
 
+  async updateLabel(
+    connectionId: string,
+    label: string | null,
+  ): Promise<WaConnectionSnapshot> {
+    const record = this.requireConnection(connectionId);
+    await upsertConnectionRegistryRecord({
+      filePath: this.params.baseConfig.connectionStoreFile,
+      connectionId: record.connectionId,
+      businessId: record.businessId,
+      label,
+      autoStart: record.autoStart,
+    });
+    record.label = label;
+    return this.toSnapshot(record);
+  }
+
   async start(
     connectionId: string,
     reason: string,
