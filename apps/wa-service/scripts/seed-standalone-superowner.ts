@@ -21,7 +21,7 @@ const [{ config }, { ensureStandaloneSuperownerAccount }] = await Promise.all([
 
 if (!config.takuSuperownerEmail || !config.takuSuperownerPassword) {
   throw new Error(
-    "TAKU_SUPEROWNER_EMAIL and TAKU_SUPEROWNER_PASSWORD are required",
+    "TAKU_SUPEROWNER_EMAIL/TAKU_SUPEROWNER_PASSWORD or SUPERADMIN_EMAIL/SUPERADMIN_PASSWORD are required",
   );
 }
 

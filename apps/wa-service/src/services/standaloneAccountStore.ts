@@ -555,20 +555,17 @@ export async function ensureStandaloneSuperownerAccount(params: {
     const email = params.email.toLowerCase();
     const existing = data.accounts.find((account) => account.email === email);
     const now = nowIso();
-    const passwordSalt = randomBytes(16).toString("hex");
 
     if (existing) {
       existing.name = existing.name || "TAKU Superowner";
       existing.projectName = existing.projectName || "TAKU Platform";
       existing.plan = "platform";
-      existing.passwordSalt = passwordSalt;
-      existing.passwordHash = hashPassword(params.password, passwordSalt);
-      existing.passwordSetupRequired = false;
       existing.updatedAt = now;
       await writeData(params.filePath, data);
       return existing;
     }
 
+    const passwordSalt = randomBytes(16).toString("hex");
     const account: StandaloneAccount = {
       id: createId("acct"),
       name: "TAKU Superowner",

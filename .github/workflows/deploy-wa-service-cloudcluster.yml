@@ -459,6 +459,7 @@ jobs:
             find dist -maxdepth 2 -type f -print
 
             mkdir -p auth data
+            $PNPM_CMD run seed:standalone-superowner
             (
               wait_for_wa_lock_release() {
                 LOCK_FILE="/tmp/mojarreria-wa-service.lock"
