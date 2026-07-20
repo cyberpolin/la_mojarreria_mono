@@ -470,7 +470,11 @@ jobs:
               echo "Using existing pnpm"
             elif command -v corepack >/dev/null 2>&1; then
               echo "Preparing pnpm with corepack without global enable"
-              corepack prepare pnpm@9.15.5 --activate || PNPM_CMD="npx pnpm@9.15.5"
+              if corepack prepare pnpm@9.15.5 --activate && corepack pnpm --version >/dev/null 2>&1; then
+                PNPM_CMD="corepack pnpm"
+              else
+                PNPM_CMD="npx pnpm@9.15.5"
+              fi
             else
               echo "corepack not found; using npx pnpm"
               PNPM_CMD="npx pnpm@9.15.5"
