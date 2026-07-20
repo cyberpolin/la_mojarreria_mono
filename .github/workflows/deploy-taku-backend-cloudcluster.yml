@@ -166,6 +166,27 @@ jobs:
             fi
           done
 
+          has_superadmin_email=false
+          has_superadmin_password=false
+          for name in TAKU_BACKEND_SUPERADMIN_EMAIL SUPERADMIN_EMAIL; do
+            if grep -q "^$name=" taku-backend/.env; then
+              value="$(grep "^$name=" taku-backend/.env | tail -1 | cut -d= -f2-)"
+              echo "$name present (length: ${#value})"
+              has_superadmin_email=true
+            fi
+          done
+          for name in TAKU_BACKEND_SUPERADMIN_PASSWORD SUPERADMIN_PASSWORD; do
+            if grep -q "^$name=" taku-backend/.env; then
+              value="$(grep "^$name=" taku-backend/.env | tail -1 | cut -d= -f2-)"
+              echo "$name present (length: ${#value})"
+              has_superadmin_password=true
+            fi
+          done
+          if [ "$has_superadmin_email" != "true" ] || [ "$has_superadmin_password" != "true" ]; then
+            echo "::error::TAKU_BACKEND_ENV_FILE must include superadmin email/password variables"
+            exit 1
+          fi
+
       - name: Prepare release bundle
         run: |
           set -eux
@@ -257,7 +278,25 @@ jobs:
               ls -lh /tmp/taku-backend-release.tar.gz /tmp/taku-backend-infra.tar.gz
 
               if command -v apt-get >/dev/null 2>&1; then
+                wait_for_apt_locks() {
+                  MAX_WAIT_SECONDS=120
+                  waited=0
+
+                  while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+                    if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+                      echo "Timed out waiting for apt/dpkg locks"
+                      return 1
+                    fi
+
+                    echo "Waiting for apt/dpkg lock (${waited}s/${MAX_WAIT_SECONDS}s)"
+                    sleep 5
+                    waited=$((waited + 5))
+                  done
+                }
+
+                wait_for_apt_locks
                 run_sudo apt-get update
+                wait_for_apt_locks
                 run_sudo apt-get install -y nginx certbot python3-certbot-nginx
               fi
 
@@ -271,24 +310,59 @@ jobs:
                 run_sudo env TAKU_SERVICES="TAKU_BACKEND" DEBUG=true scripts/enable-taku-nginx-sites.sh
               )
 
-              mkdir -p "$DEPLOY_PATH"
+              if [ ! -d "$DEPLOY_PATH" ]; then
+                echo "Deploy directory does not exist; creating it"
+                if mkdir -p "$DEPLOY_PATH" 2>/dev/null; then
+                  echo "Deploy directory created"
+                elif command -v sudo >/dev/null 2>&1; then
+                  run_sudo mkdir -p "$DEPLOY_PATH"
+                  run_sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+                  echo "Deploy directory created with sudo and ownership assigned"
+                else
+                  echo "Cannot create $DEPLOY_PATH and sudo is unavailable"
+                  return 1
+                fi
+              fi
+
+              if [ ! -w "$DEPLOY_PATH" ]; then
+                echo "Deploy directory is not writable; fixing ownership"
+                if command -v sudo >/dev/null 2>&1; then
+                  run_sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+                else
+                  echo "Cannot write to $DEPLOY_PATH and sudo is unavailable"
+                  return 1
+                fi
+              fi
+
               tar -xzf /tmp/taku-backend-release.tar.gz -C "$DEPLOY_PATH" --strip-components=1
               cd "$DEPLOY_PATH"
               mkdir -p data
 
               node --version || true
-              if command -v corepack >/dev/null 2>&1; then
-                corepack enable
-                corepack prepare pnpm@9.15.5 --activate
+              PNPM_CMD="pnpm"
+              if command -v pnpm >/dev/null 2>&1; then
+                echo "Using existing pnpm"
+              elif command -v corepack >/dev/null 2>&1; then
+                echo "Preparing pnpm with corepack without global enable"
+                if corepack prepare pnpm@9.15.5 --activate && corepack pnpm --version >/dev/null 2>&1; then
+                  PNPM_CMD="corepack pnpm"
+                else
+                  PNPM_CMD="npx pnpm@9.15.5"
+                fi
+              else
+                echo "corepack not found; using npx pnpm"
+                PNPM_CMD="npx pnpm@9.15.5"
               fi
-              pnpm --version
-              pnpm install --prod=false --no-frozen-lockfile
-              pnpm build
-              pnpm exec pm2 delete taku-backend || true
-              PORT=3110 pnpm exec pm2 start dist/index.js --name taku-backend --update-env
-              pnpm exec pm2 save
-              pnpm exec pm2 describe taku-backend
-              pnpm exec pm2 status
+              $PNPM_CMD --version
+              $PNPM_CMD install --prod=false --no-frozen-lockfile
+              $PNPM_CMD build
+              $PNPM_CMD run seed
+              PM2_CMD="$PNPM_CMD dlx pm2@5.4.3"
+              $PM2_CMD delete taku-backend || true
+              PORT=3110 $PM2_CMD start dist/index.js --name taku-backend --update-env
+              $PM2_CMD save
+              $PM2_CMD describe taku-backend
+              $PM2_CMD status
             }
 
             set +e

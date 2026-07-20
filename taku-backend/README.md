@@ -27,7 +27,8 @@ Credenciales seed:
 
 - siempre:
 
-- `cyberpolin@gmail.com` / `changeme`
+- `TAKU_BACKEND_SUPERADMIN_EMAIL` / `TAKU_BACKEND_SUPERADMIN_PASSWORD`
+- tambien acepta `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` como alias
 
   Este usuario es interno Super Admin (`admin_users.role = super_owner`), no un usuario cliente.
 
@@ -47,6 +48,8 @@ Las variables criticas son:
 
 - `TAKU_BACKEND_JWT_SECRET`
 - `TAKU_BACKEND_REFRESH_SECRET`
+- `TAKU_BACKEND_SUPERADMIN_EMAIL`
+- `TAKU_BACKEND_SUPERADMIN_PASSWORD`
 - `TAKU_BACKEND_ALLOWED_ORIGINS`
 - `TAKU_WA_BASE_URL`
 - `TAKU_WA_API_KEY`

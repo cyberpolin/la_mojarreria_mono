@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "../auth.js";
-import { isDemoSeedEnvironment } from "../config.js";
+import { config, isDemoSeedEnvironment } from "../config.js";
 import type {
   AdminAuditLog,
   AdminUser,
@@ -31,9 +31,8 @@ export function id(prefix: string) {
 
 const superUser = {
   id: "user_superadmin",
-  email: "cyberpolin@gmail.com",
-  password: "changeme",
-} as const;
+  name: "TAKU Superadmin",
+};
 
 function createEmptyDatabase(): Database {
   return {
@@ -364,15 +363,16 @@ function ensureTestUserCredentials(database: Database) {
 function ensureSuperUser(database: Database) {
   let changed = false;
   const timestamp = now();
+  const email = config.superAdminEmail.toLowerCase();
   let adminUser = database.adminUsers.find(
-    (item) => item.email.toLowerCase() === superUser.email,
+    (item) => item.email.toLowerCase() === email || item.id === superUser.id,
   );
   if (!adminUser) {
     adminUser = {
       id: superUser.id,
-      name: "TAKU Superadmin",
-      email: superUser.email,
-      passwordHash: hashPassword(superUser.password),
+      name: superUser.name,
+      email,
+      passwordHash: hashPassword(config.superAdminPassword),
       role: "super_owner",
       status: "active",
       requires2fa: false,
@@ -384,9 +384,13 @@ function ensureSuperUser(database: Database) {
     database.adminUsers.push(adminUser);
     changed = true;
   } else if (
+    adminUser.name !== superUser.name ||
+    adminUser.email !== email ||
     adminUser.status !== "active" ||
     adminUser.role !== "super_owner"
   ) {
+    adminUser.name = superUser.name;
+    adminUser.email = email;
     adminUser.status = "active";
     adminUser.role = "super_owner";
     adminUser.updatedAt = timestamp;

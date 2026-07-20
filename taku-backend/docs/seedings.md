@@ -7,8 +7,8 @@ Este documento define el comportamiento de seed inicial para `taku-backend`.
 Cada vez que el store se lee por primera vez, el backend valida que exista el usuario:
 
 ```txt
-Email: cyberpolin@gmail.com
-Password inicial: changeme
+Email: TAKU_BACKEND_SUPERADMIN_EMAIL o SUPERADMIN_EMAIL
+Password inicial: TAKU_BACKEND_SUPERADMIN_PASSWORD o SUPERADMIN_PASSWORD
 ```
 
 Si no existe, se crea automaticamente.
@@ -21,6 +21,17 @@ El superusuario se representa como usuario interno en `admin_users`:
 - no tiene membership de cliente por defecto
 
 Si el usuario ya existe, el seed no sobreescribe su password.
+
+Variables soportadas:
+
+```env
+TAKU_BACKEND_SUPERADMIN_EMAIL=cyberpolin@gmail.com
+TAKU_BACKEND_SUPERADMIN_PASSWORD=changeme
+
+# Alias tambien soportado:
+SUPERADMIN_EMAIL=cyberpolin@gmail.com
+SUPERADMIN_PASSWORD=changeme
+```
 
 ## 2. Datos ficticios en development y TEST
 
@@ -67,7 +78,6 @@ agent@agent.com / agent
 ## Pendientes recomendados
 
 - Definir un rol global real `super_admin` separado de los roles por workspace.
-- Mover `changeme` a variables de entorno antes de produccion.
 - Forzar cambio de password en el primer login del superusuario.
 - Activar 2FA obligatorio para `super_owner` antes de produccion.
 - Cuando PostgreSQL reemplace el JSON store, convertir este seed en migracion/idempotent script.

@@ -53,6 +53,14 @@ export const config = {
     process.env.TAKU_BACKEND_REFRESH_SECRET ??
       "dev-only-change-taku-admin-refresh-secret",
   ),
+  superAdminEmail: stringValue(
+    "TAKU_BACKEND_SUPERADMIN_EMAIL",
+    process.env.SUPERADMIN_EMAIL?.trim() || "cyberpolin@gmail.com",
+  ),
+  superAdminPassword: stringValue(
+    "TAKU_BACKEND_SUPERADMIN_PASSWORD",
+    process.env.SUPERADMIN_PASSWORD?.trim() || "changeme",
+  ),
   allowedOrigins: stringList("TAKU_BACKEND_ALLOWED_ORIGINS", [
     "http://localhost:3006",
     "http://localhost:3003",
