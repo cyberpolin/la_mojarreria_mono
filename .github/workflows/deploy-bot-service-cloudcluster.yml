@@ -364,6 +364,24 @@ jobs:
               fi
             }
 
+            wait_for_apt_locks() {
+              if ! command -v fuser >/dev/null 2>&1; then
+                return 0
+              fi
+
+              attempts=0
+              while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; do
+                attempts=$((attempts + 1))
+                if [ "$attempts" -gt 60 ]; then
+                  echo "Timed out waiting for apt/dpkg locks"
+                  run_sudo fuser -v /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true
+                  return 1
+                fi
+                echo "Waiting for apt/dpkg lock to be released ($attempts/60)"
+                sleep 5
+              done
+            }
+
             echo "Remote user: $(whoami)"
             echo "Remote host: $(hostname)"
             echo "Deploy path: configured"
@@ -375,7 +393,9 @@ jobs:
 
             echo "Installing nginx/certbot dependencies if needed"
             if command -v apt-get >/dev/null 2>&1; then
+              wait_for_apt_locks
               run_sudo apt-get update
+              wait_for_apt_locks
               run_sudo apt-get install -y nginx certbot python3-certbot-nginx
             fi
 
