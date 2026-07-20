@@ -156,10 +156,49 @@ jobs:
           echo "Generated taku-backend/.env"
           wc -c taku-backend/.env
 
+          echo "TAKU_BACKEND_ENV_FILE keys:"
+          awk '
+            /^[[:space:]]*($|#)/ { next }
+            /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
+              key=$0
+              sub(/=.*/, "", key)
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+              print "- " key
+            }
+          ' taku-backend/.env
+
+          has_env_key() {
+            awk -F= -v expected="$1" '
+              /^[[:space:]]*($|#)/ { next }
+              {
+                key=$1
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                if (key == expected) found=1
+              }
+              END { exit found ? 0 : 1 }
+            ' taku-backend/.env
+          }
+
+          env_value_length() {
+            awk -F= -v expected="$1" '
+              /^[[:space:]]*($|#)/ { next }
+              {
+                key=$1
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                if (key == expected) {
+                  sub(/^[^=]*=/, "")
+                  gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+                  print length($0)
+                  exit
+                }
+              }
+            ' taku-backend/.env
+          }
+
           for name in TAKU_BACKEND_JWT_SECRET TAKU_BACKEND_REFRESH_SECRET; do
-            if grep -q "^$name=" taku-backend/.env; then
-              value="$(grep "^$name=" taku-backend/.env | tail -1 | cut -d= -f2-)"
-              echo "$name present (length: ${#value})"
+            if has_env_key "$name"; then
+              value_length="$(env_value_length "$name")"
+              echo "$name present (length: $value_length)"
             else
               echo "::error::$name is missing from TAKU_BACKEND_ENV_FILE"
               exit 1
@@ -169,16 +208,16 @@ jobs:
           has_superadmin_email=false
           has_superadmin_password=false
           for name in TAKU_BACKEND_SUPERADMIN_EMAIL SUPERADMIN_EMAIL; do
-            if grep -q "^$name=" taku-backend/.env; then
-              value="$(grep "^$name=" taku-backend/.env | tail -1 | cut -d= -f2-)"
-              echo "$name present (length: ${#value})"
+            if has_env_key "$name"; then
+              value_length="$(env_value_length "$name")"
+              echo "$name present (length: $value_length)"
               has_superadmin_email=true
             fi
           done
           for name in TAKU_BACKEND_SUPERADMIN_PASSWORD SUPERADMIN_PASSWORD; do
-            if grep -q "^$name=" taku-backend/.env; then
-              value="$(grep "^$name=" taku-backend/.env | tail -1 | cut -d= -f2-)"
-              echo "$name present (length: ${#value})"
+            if has_env_key "$name"; then
+              value_length="$(env_value_length "$name")"
+              echo "$name present (length: $value_length)"
               has_superadmin_password=true
             fi
           done
