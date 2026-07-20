@@ -262,6 +262,7 @@ export default function AdminPage() {
   const [isEditingProjectName, setIsEditingProjectName] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState("");
   const [isSavingProjectName, setIsSavingProjectName] = useState(false);
+  const [showOwnerUi, setShowOwnerUi] = useState(false);
 
   const connectionLimitText = useMemo(() => {
     if (!entitlements) {
@@ -738,20 +739,29 @@ export default function AdminPage() {
     }
   }
 
-  if (account?.isSuperowner) {
+  if (account?.isSuperowner && !showOwnerUi) {
     return (
       <main className="min-h-screen bg-slate-50 text-slate-950">
         <nav className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 md:px-6">
           <a href="/" className="text-sm font-bold tracking-[0.2em]">
             TAKU
           </a>
-          <button
-            type="button"
-            onClick={logout}
-            className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
-          >
-            Log out
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowOwnerUi(true)}
+              className="inline-flex min-h-11 items-center rounded-full bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Owner UI
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
+            >
+              Log out
+            </button>
+          </div>
         </nav>
 
         <section className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 md:px-6">
@@ -1272,13 +1282,24 @@ export default function AdminPage() {
         <a href="/" className="text-sm font-bold tracking-[0.2em]">
           TAKU
         </a>
-        <button
-          type="button"
-          onClick={logout}
-          className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
-        >
-          Log out
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {account?.isSuperowner ? (
+            <button
+              type="button"
+              onClick={() => setShowOwnerUi(false)}
+              className="inline-flex min-h-11 items-center rounded-full bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Platform dashboard
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={logout}
+            className="inline-flex min-h-11 items-center rounded-full border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:border-slate-950"
+          >
+            Log out
+          </button>
+        </div>
       </nav>
 
       <section className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6 md:px-6">
