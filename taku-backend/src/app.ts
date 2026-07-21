@@ -25,6 +25,14 @@ export function createApp(store: JsonStore, realtime: Realtime) {
     }),
   );
   app.use(express.json({ limit: "2mb" }));
+  app.get("/", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "taku-backend",
+      apiBasePath: "/api",
+      health: "/api/health",
+    });
+  });
   app.use("/api", createApiRouter(store, realtime));
   app.use(errorHandler);
 
