@@ -20,6 +20,7 @@ export function createApp(store: JsonStore, realtime: Realtime) {
         "x-workspace-id",
         "x-signature",
         "x-timestamp",
+        "x-taku-status-password",
       ],
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     }),

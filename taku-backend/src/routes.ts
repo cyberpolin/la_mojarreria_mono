@@ -343,6 +343,110 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.get("/runtime/status", (req, res) => {
+    const statusPassword = req.header("x-taku-status-password") ?? "";
+    if (statusPassword !== config.superAdminPassword) {
+      throw new ApiError({
+        status: 403,
+        code: "STATUS_PASSWORD_REQUIRED",
+        message: "TAKU superadmin password required.",
+      });
+    }
+
+    const configured = (value: string | null | undefined) => Boolean(value);
+
+    ok(res, {
+      service: "taku-backend",
+      checkedAt: now(),
+      runtime: {
+        environment: config.environment,
+        host: config.host,
+        port: config.port,
+        dataFile: config.dataFile,
+        allowedOrigins: config.allowedOrigins,
+        takuWaBaseUrl: config.takuWaBaseUrl,
+        botServiceBaseUrl: config.botServiceBaseUrl,
+      },
+      variables: [
+        {
+          name: "TAKU_BACKEND_ENV",
+          configured: configured(config.environment),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_DATA_FILE",
+          configured: configured(config.dataFile),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_JWT_SECRET",
+          configured: configured(config.jwtSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_ADMIN_JWT_SECRET",
+          configured: configured(config.adminJwtSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_REFRESH_SECRET",
+          configured: configured(config.refreshSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_ADMIN_REFRESH_SECRET",
+          configured: configured(config.adminRefreshSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_ALLOWED_ORIGINS",
+          configured: config.allowedOrigins.length > 0,
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_SUPERADMIN_EMAIL or SUPERADMIN_EMAIL",
+          configured: configured(config.superAdminEmail),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_SUPERADMIN_PASSWORD or SUPERADMIN_PASSWORD",
+          configured: configured(config.superAdminPassword),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_BASE_URL",
+          configured: configured(config.takuWaBaseUrl),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_API_KEY",
+          configured: configured(config.takuWaApiKey),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_WEBHOOK_SECRET",
+          configured: configured(config.takuWaWebhookSecret),
+          required: true,
+        },
+        {
+          name: "BOT_SERVICE_BASE_URL",
+          configured: configured(config.botServiceBaseUrl),
+          required: true,
+        },
+        {
+          name: "BOT_SERVICE_API_KEY",
+          configured: configured(config.botServiceApiKey),
+          required: true,
+        },
+        {
+          name: "BOT_SERVICE_WEBHOOK_SECRET",
+          configured: configured(config.botServiceWebhookSecret),
+          required: true,
+        },
+      ],
+    });
+  });
+
   router.post(
     "/session/login",
     rateLimit({
