@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getAdminSession, type AdminUser } from "@/lib/auth";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getWorkspaceSession, takuApi, takuList } from "@/lib/taku-api";
+import type { WorkspaceSession } from "@/lib/auth";
 
 type Role = "owner" | "admin" | "agent";
 type AdminRole =
@@ -23,6 +24,136 @@ type SectionId =
   | "onboarding"
   | "states"
   | "profile";
+
+type DashboardOverview = {
+  metrics?: Record<string, number>;
+  alerts?: Array<{ message: string; type: string }>;
+  recentActivity?: Array<{ id: string; message: string; createdAt: string }>;
+};
+
+type WhatsAppAccount = {
+  id: string;
+  displayName: string;
+  description: string | null;
+  phoneNumber: string | null;
+  status: string;
+  automationEnabled?: boolean;
+  enabled: boolean;
+  useWorkspaceBusinessHours: boolean;
+  useWorkspaceBotSettings: boolean;
+  lastConnectedAt: string | null;
+  lastDisconnectedAt: string | null;
+};
+
+type Conversation = {
+  id: string;
+  status: string;
+  contact: { id: string; name: string | null; phoneNumber: string } | null;
+  whatsappAccount: {
+    id: string;
+    displayName: string;
+    phoneNumber: string | null;
+    status: string;
+  } | null;
+  assignedUser: { id: string; name: string } | null;
+  lastMessage: {
+    body: string | null;
+    direction: string;
+    createdAt: string;
+  } | null;
+  unreadCount: number;
+  lastMessageAt: string | null;
+};
+
+type Message = {
+  id: string;
+  direction: string;
+  body: string | null;
+  status: string;
+  createdAt: string;
+};
+
+type TakuBot = {
+  id: string;
+  name: string;
+  instructions: string;
+  status: string;
+  externalAssistantId: string | null;
+  clientId: string | null;
+  hasClientToken?: boolean;
+};
+
+type BotAssignment = {
+  id: string;
+  whatsappAccountId: string;
+  botId: string;
+  enabled: boolean;
+  mode: string;
+  bot?: TakuBot | null;
+};
+
+type BotSettings = {
+  id: string;
+  enabled: boolean;
+  afterHoursEnabled: boolean;
+  afterHoursMessage: string | null;
+  rulesEnabled: boolean;
+  aiEnabled: boolean;
+};
+
+type AutomationRule = {
+  id: string;
+  keyword: string;
+  matchType: string;
+  responseText: string;
+  enabled: boolean;
+  whatsappAccountId: string | null;
+};
+
+type BusinessHoursPayload = {
+  timezone: string;
+  currentStatus?: { isOpen: boolean; label: string; nextChangeAt?: string };
+  days: Array<{
+    id: string;
+    dayOfWeek: number;
+    opensAt: string | null;
+    closesAt: string | null;
+    isClosed: boolean;
+  }>;
+};
+
+type UserRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  lastLoginAt: string | null;
+};
+
+type TakuData = {
+  overview: DashboardOverview | null;
+  accounts: WhatsAppAccount[];
+  conversations: Conversation[];
+  bots: TakuBot[];
+  assignments: BotAssignment[];
+  botSettings: BotSettings | null;
+  rules: AutomationRule[];
+  hours: BusinessHoursPayload | null;
+  users: UserRow[];
+};
+
+const emptyData: TakuData = {
+  overview: null,
+  accounts: [],
+  conversations: [],
+  bots: [],
+  assignments: [],
+  botSettings: null,
+  rules: [],
+  hours: null,
+  users: [],
+};
 
 const navItems: Array<{
   id: SectionId;
@@ -218,13 +349,21 @@ function Badge({
 function Button({
   children,
   variant = "primary",
+  type = "button",
+  disabled,
+  onClick,
 }: {
   children: React.ReactNode;
   variant?: "primary" | "secondary" | "ghost";
+  type?: "button" | "submit";
+  disabled?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <button
-      type="button"
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
       className={cx(
         "inline-flex min-h-11 items-center justify-center rounded-lg px-4 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:opacity-50",
         variant === "primary" && "bg-slate-950 text-white hover:bg-slate-800",
@@ -261,14 +400,23 @@ function Field({
 function Input({
   placeholder,
   readOnly,
+  value,
+  onChange,
+  type = "text",
 }: {
   placeholder: string;
   readOnly?: boolean;
+  value?: string;
+  onChange?: (value: string) => void;
+  type?: string;
 }) {
   return (
     <input
+      type={type}
       readOnly={readOnly}
       placeholder={placeholder}
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
       className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200 read-only:bg-slate-100"
     />
   );
@@ -277,22 +425,40 @@ function Input({
 function TextArea({
   placeholder,
   rows = 4,
+  value,
+  onChange,
 }: {
   placeholder: string;
   rows?: number;
+  value?: string;
+  onChange?: (value: string) => void;
 }) {
   return (
     <textarea
       rows={rows}
       placeholder={placeholder}
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
       className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-950 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
     />
   );
 }
 
-function Select({ children }: { children: React.ReactNode }) {
+function Select({
+  children,
+  value,
+  onChange,
+}: {
+  children: React.ReactNode;
+  value?: string;
+  onChange?: (value: string) => void;
+}) {
   return (
-    <select className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200">
+    <select
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
+      className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
+    >
       {children}
     </select>
   );
@@ -301,13 +467,21 @@ function Select({ children }: { children: React.ReactNode }) {
 function Switch({
   checked = false,
   label,
+  onChange,
 }: {
   checked?: boolean;
   label: string;
+  onChange?: (checked: boolean) => void;
 }) {
   return (
     <label className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
       <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange?.(event.target.checked)}
+        className="sr-only"
+      />
       <span
         className={cx(
           "flex h-6 w-11 items-center rounded-full p-1",
@@ -360,8 +534,137 @@ function MetricCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function HomeSection({ role }: { role: Role }) {
-  const shownMetrics = role === "agent" ? agentMetrics : metrics;
+async function optional<T>(request: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await request;
+  } catch {
+    return fallback;
+  }
+}
+
+function useTakuData(refreshKey: number) {
+  const [data, setData] = useState<TakuData>(emptyData);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const [
+          overview,
+          accounts,
+          conversationsData,
+          bots,
+          assignments,
+          botSettings,
+          rulesData,
+          hours,
+          usersData,
+        ] = await Promise.all([
+          optional(takuApi<DashboardOverview>("/dashboard/overview"), null),
+          optional(takuList<WhatsAppAccount>("/whatsapp-accounts"), []),
+          optional(takuList<Conversation>("/conversations"), []),
+          optional(takuList<TakuBot>("/bots"), []),
+          optional(takuList<BotAssignment>("/bot-assignments"), []),
+          optional(takuApi<BotSettings>("/bot-settings"), null),
+          optional(takuList<AutomationRule>("/automation-rules"), []),
+          optional(takuApi<BusinessHoursPayload>("/business-hours"), null),
+          optional(takuList<UserRow>("/users"), []),
+        ]);
+        if (!cancelled) {
+          setData({
+            overview,
+            accounts,
+            conversations: conversationsData,
+            bots,
+            assignments,
+            botSettings,
+            rules: rulesData,
+            hours,
+            users: usersData,
+          });
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "No se pudo cargar TAKU.",
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  return { data, isLoading, error };
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("es-MX", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    connected: "Conectado",
+    disconnected: "Desconectado",
+    connecting: "Conectando",
+    pending: "Pendiente",
+    qr_required: "Esperando QR",
+    failed: "Error",
+    disabled: "Deshabilitado",
+  };
+  return labels[status] ?? status;
+}
+
+function HomeSection({
+  role,
+  data,
+  onSection,
+}: {
+  role: Role;
+  data: TakuData;
+  onSection: (section: SectionId) => void;
+}) {
+  const overviewMetrics = data.overview?.metrics ?? {};
+  const shownMetrics =
+    role === "agent"
+      ? [
+          [
+            "Mis conversaciones abiertas",
+            overviewMetrics.myOpenConversations ?? 0,
+          ],
+          ["Sin asignar", overviewMetrics.unassignedConversations ?? 0],
+          ["Sin responder", overviewMetrics.unansweredMessages ?? 0],
+          ["Conversaciones", data.conversations.length],
+        ]
+      : [
+          ["Conversaciones abiertas", overviewMetrics.openConversations ?? 0],
+          ["Mensajes sin responder", overviewMetrics.unansweredMessages ?? 0],
+          [
+            "Numeros conectados",
+            overviewMetrics.connectedWhatsappAccounts ?? 0,
+          ],
+          [
+            "Automatizaciones activas",
+            overviewMetrics.activeAutomationRules ?? 0,
+          ],
+        ];
+  const disconnected = data.accounts.find(
+    (account) => account.status !== "connected",
+  );
 
   return (
     <div className="grid gap-6">
@@ -375,36 +678,48 @@ function HomeSection({ role }: { role: Role }) {
         }
         action={
           role === "agent" ? (
-            <Button>Ir a conversaciones</Button>
+            <Button onClick={() => onSection("conversations")}>
+              Ir a conversaciones
+            </Button>
           ) : (
-            <Button>Conectar numero</Button>
+            <Button onClick={() => onSection("numbers")}>
+              Conectar numero
+            </Button>
           )
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {shownMetrics.map(([label, value]) => (
-          <MetricCard key={label} label={label} value={value} />
+          <MetricCard
+            key={String(label)}
+            label={String(label)}
+            value={String(value)}
+          />
         ))}
       </div>
 
-      <div className="rounded-lg border border-slate-300 bg-white p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="font-semibold text-slate-950">
-              El numero Soporte esta desconectado.
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              No se podran enviar ni recibir mensajes hasta reconectarlo.
-            </p>
+      {disconnected ? (
+        <div className="rounded-lg border border-slate-300 bg-white p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">
+                El numero {disconnected.displayName} esta desconectado.
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                No se podran enviar ni recibir mensajes hasta reconectarlo.
+              </p>
+            </div>
+            {role === "agent" ? (
+              <Badge tone="warn">Contacta a un administrador</Badge>
+            ) : (
+              <Button variant="secondary" onClick={() => onSection("numbers")}>
+                Reconectar
+              </Button>
+            )}
           </div>
-          {role === "agent" ? (
-            <Badge tone="warn">Contacta a un administrador</Badge>
-          ) : (
-            <Button variant="secondary">Reconectar</Button>
-          )}
         </div>
-      </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-lg border border-slate-200 bg-white">
@@ -423,27 +738,44 @@ function HomeSection({ role }: { role: Role }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {phoneNumbers.map((number) => (
-                  <tr key={number.name}>
-                    <td className="px-4 py-3 text-slate-700">{number.phone}</td>
+                {data.accounts.map((number) => (
+                  <tr key={number.id}>
+                    <td className="px-4 py-3 text-slate-700">
+                      {number.phoneNumber ?? "Sin vincular"}
+                    </td>
                     <td className="px-4 py-3 font-medium text-slate-950">
-                      {number.name}
+                      {number.displayName}
                     </td>
                     <td className="px-4 py-3">
                       <Badge
-                        tone={number.status === "Conectado" ? "dark" : "warn"}
+                        tone={number.status === "connected" ? "dark" : "warn"}
                       >
-                        {number.status}
+                        {statusLabel(number.status)}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      {number.lastEvent}
+                      {formatDate(number.lastConnectedAt)}
                     </td>
                     <td className="px-4 py-3">
-                      <Button variant="ghost">Ver</Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => onSection("numbers")}
+                      >
+                        Ver
+                      </Button>
                     </td>
                   </tr>
                 ))}
+                {data.accounts.length === 0 ? (
+                  <tr>
+                    <td
+                      className="px-4 py-8 text-sm text-slate-500"
+                      colSpan={5}
+                    >
+                      No hay numeros configurados.
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -476,60 +808,94 @@ function HomeSection({ role }: { role: Role }) {
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <h2 className="font-semibold text-slate-950">Actividad reciente</h2>
             <div className="mt-4 grid gap-3 text-sm text-slate-600">
-              {[
-                "Ana respondio una conversacion.",
-                "Se conecto el numero Ventas.",
-                "Se actualizo el horario de atencion.",
-                "El bot respondio fuera de horario.",
-              ].map((item) => (
-                <p key={item}>{item}</p>
+              {(data.overview?.recentActivity ?? []).slice(0, 4).map((item) => (
+                <p key={item.id}>
+                  {item.message} · {formatDate(item.createdAt)}
+                </p>
               ))}
+              {(data.overview?.recentActivity ?? []).length === 0 ? (
+                <p>No hay actividad reciente.</p>
+              ) : null}
             </div>
           </div>
         </section>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="font-semibold text-slate-950">
-                Detalle de numero
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Vista de monitoreo para Owner/Admin.
-              </p>
-            </div>
-            <Badge tone="dark">Conectado</Badge>
-          </div>
-          <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
-            {[
-              ["Nombre del numero", "Ventas"],
-              ["Numero telefonico", "+52 993 120 4488"],
-              ["Ultima conexion", "Hoy 10:31"],
-              ["Ultima desconexion", "Ayer 18:02"],
-              ["Automatizacion asociada", "General activa"],
-              ["Horario asociado", "Horario empresa"],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                  {label}
-                </dt>
-                <dd className="mt-1 font-medium text-slate-950">{value}</dd>
+        {data.accounts[0] ? (
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-semibold text-slate-950">
+                  Detalle de numero
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Vista de monitoreo para Owner/Admin.
+                </p>
               </div>
-            ))}
-          </dl>
-          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="font-semibold text-slate-950">
-              Conversaciones recientes
-            </p>
-            <div className="mt-3 grid gap-2 text-sm text-slate-600">
-              <p>Juan Perez · Necesito una cotizacion...</p>
-              <p>Clinica Norte · horario</p>
-              <p>Maria Lopez · Gracias, manana paso.</p>
+              <Badge
+                tone={data.accounts[0].status === "connected" ? "dark" : "warn"}
+              >
+                {statusLabel(data.accounts[0].status)}
+              </Badge>
             </div>
-          </div>
-        </section>
+            <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
+              {[
+                ["Nombre del numero", data.accounts[0].displayName],
+                [
+                  "Numero telefonico",
+                  data.accounts[0].phoneNumber ?? "Sin vincular",
+                ],
+                [
+                  "Ultima conexion",
+                  formatDate(data.accounts[0].lastConnectedAt),
+                ],
+                [
+                  "Ultima desconexion",
+                  formatDate(data.accounts[0].lastDisconnectedAt),
+                ],
+                [
+                  "Automatizacion asociada",
+                  data.accounts[0].automationEnabled ? "Activa" : "Inactiva",
+                ],
+                [
+                  "Horario asociado",
+                  data.accounts[0].useWorkspaceBusinessHours
+                    ? "Horario empresa"
+                    : "Horario propio",
+                ],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    {label}
+                  </dt>
+                  <dd className="mt-1 font-medium text-slate-950">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="font-semibold text-slate-950">
+                Conversaciones recientes
+              </p>
+              <div className="mt-3 grid gap-2 text-sm text-slate-600">
+                {data.conversations
+                  .filter(
+                    (conversation) =>
+                      conversation.whatsappAccount?.id === data.accounts[0]?.id,
+                  )
+                  .slice(0, 3)
+                  .map((conversation) => (
+                    <p key={conversation.id}>
+                      {conversation.contact?.name ??
+                        conversation.contact?.phoneNumber ??
+                        "Contacto"}{" "}
+                      · {conversation.lastMessage?.body ?? "Sin mensaje"}
+                    </p>
+                  ))}
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="font-semibold text-slate-950">Editar numero</h2>
@@ -558,8 +924,79 @@ function HomeSection({ role }: { role: Role }) {
   );
 }
 
-function ConversationsSection() {
-  const [selected, setSelected] = useState(conversations[0]);
+function ConversationsSection({
+  data,
+  onRefresh,
+}: {
+  data: TakuData;
+  onRefresh: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [draft, setDraft] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const selected =
+    data.conversations.find((conversation) => conversation.id === selectedId) ??
+    data.conversations[0] ??
+    null;
+
+  useEffect(() => {
+    if (!selected && selectedId) setSelectedId(null);
+    if (!selectedId && data.conversations[0])
+      setSelectedId(data.conversations[0].id);
+  }, [data.conversations, selected, selectedId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMessages() {
+      if (!selected) {
+        setMessages([]);
+        return;
+      }
+      try {
+        const rows = await takuList<Message>(
+          `/conversations/${selected.id}/messages?pageSize=100`,
+        );
+        if (!cancelled) setMessages(rows);
+      } catch (caught) {
+        if (!cancelled)
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "No se pudieron cargar mensajes.",
+          );
+      }
+    }
+    void loadMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
+
+  async function sendMessage() {
+    if (!selected || !draft.trim()) return;
+    setIsSending(true);
+    setError(null);
+    try {
+      await takuApi(`/conversations/${selected.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ type: "text", body: draft.trim() }),
+      });
+      setDraft("");
+      onRefresh();
+      const rows = await takuList<Message>(
+        `/conversations/${selected.id}/messages?pageSize=100`,
+      );
+      setMessages(rows);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "No se pudo enviar mensaje.",
+      );
+    } finally {
+      setIsSending(false);
+    }
+  }
 
   return (
     <div className="grid gap-6">
@@ -609,57 +1046,70 @@ function ConversationsSection() {
             <h2 className="font-semibold text-slate-950">Lista</h2>
           </div>
           <div className="divide-y divide-slate-200">
-            {conversations.map((conversation) => (
+            {data.conversations.map((conversation) => (
               <button
                 type="button"
-                key={conversation.phone}
-                onClick={() => setSelected(conversation)}
+                key={conversation.id}
+                onClick={() => setSelectedId(conversation.id)}
                 className={cx(
                   "grid w-full gap-2 p-4 text-left hover:bg-slate-50",
-                  selected.phone === conversation.phone && "bg-slate-100",
+                  selected?.id === conversation.id && "bg-slate-100",
                 )}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-slate-950">
-                      {conversation.name}
+                      {conversation.contact?.name ??
+                        conversation.contact?.phoneNumber ??
+                        "Contacto"}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {conversation.phone}
+                      {conversation.contact?.phoneNumber ?? "-"}
                     </p>
                   </div>
-                  {conversation.unread ? (
-                    <Badge tone="dark">{conversation.unread}</Badge>
+                  {conversation.unreadCount ? (
+                    <Badge tone="dark">{conversation.unreadCount}</Badge>
                   ) : null}
                 </div>
                 <p className="line-clamp-2 text-sm text-slate-600">
-                  {conversation.preview}
+                  {conversation.lastMessage?.body ?? "Sin mensajes"}
                 </p>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <span>{conversation.channel}</span>
-                  <span>{conversation.time}</span>
+                  <span>
+                    {conversation.whatsappAccount?.displayName ?? "-"}
+                  </span>
+                  <span>{formatDate(conversation.lastMessageAt)}</span>
                   <Badge
-                    tone={
-                      conversation.status === "Sin responder"
-                        ? "warn"
-                        : "default"
-                    }
+                    tone={conversation.unreadCount > 0 ? "warn" : "default"}
                   >
                     {conversation.status}
                   </Badge>
-                  {conversation.bot ? <Badge>Bot</Badge> : null}
+                  {conversation.lastMessage?.direction === "bot" ? (
+                    <Badge>Bot</Badge>
+                  ) : null}
                 </div>
               </button>
             ))}
+            {data.conversations.length === 0 ? (
+              <div className="p-4 text-sm text-slate-500">
+                No hay conversaciones todavia.
+              </div>
+            ) : null}
           </div>
         </aside>
 
         <section className="flex min-h-[680px] flex-col rounded-lg border border-slate-200 bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 p-4">
             <div>
-              <h2 className="font-semibold text-slate-950">{selected.name}</h2>
+              <h2 className="font-semibold text-slate-950">
+                {selected?.contact?.name ??
+                  selected?.contact?.phoneNumber ??
+                  "Conversacion"}
+              </h2>
               <p className="text-sm text-slate-500">
-                Respondiendo desde: {selected.channel} ({selected.phone})
+                Respondiendo desde:{" "}
+                {selected?.whatsappAccount?.displayName ?? "-"} (
+                {selected?.contact?.phoneNumber ?? "-"})
               </p>
             </div>
             <div className="flex gap-2">
@@ -668,45 +1118,58 @@ function ConversationsSection() {
             </div>
           </div>
           <div className="flex-1 space-y-4 bg-slate-50 p-4">
-            <div className="max-w-[75%] rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-xs font-semibold text-slate-500">
-                Cliente · 12:34 PM
-              </p>
-              <p className="mt-2 text-sm text-slate-800">
-                Hola, tienen servicio a domicilio?
-              </p>
-            </div>
-            <div className="ml-auto max-w-[75%] rounded-lg bg-slate-950 p-3 text-white">
-              <p className="text-xs font-semibold text-slate-300">
-                Ana · 12:35 PM
-              </p>
-              <p className="mt-2 text-sm">Si, tenemos servicio a domicilio.</p>
-              <p className="mt-2 text-xs text-slate-300">Entregado</p>
-            </div>
-            <div className="mx-auto max-w-md rounded-full border border-slate-200 bg-white px-4 py-2 text-center text-xs text-slate-500">
-              Conversacion asignada a Ana.
-            </div>
-            <div className="max-w-[78%] rounded-lg border border-slate-300 bg-white p-3">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold text-slate-500">
-                  Bot · 8:15 PM
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={cx(
+                  "max-w-[78%] rounded-lg p-3",
+                  message.direction === "inbound"
+                    ? "border border-slate-200 bg-white text-slate-800"
+                    : "ml-auto bg-slate-950 text-white",
+                )}
+              >
+                <p
+                  className={cx(
+                    "text-xs font-semibold",
+                    message.direction === "inbound"
+                      ? "text-slate-500"
+                      : "text-slate-300",
+                  )}
+                >
+                  {message.direction === "inbound"
+                    ? "Cliente"
+                    : message.direction === "bot"
+                      ? "Bot"
+                      : "Equipo"}{" "}
+                  · {formatDate(message.createdAt)}
                 </p>
-                <Badge>Automatico</Badge>
+                <p className="mt-2 text-sm">{message.body}</p>
+                <p className="mt-2 text-xs opacity-70">{message.status}</p>
               </div>
-              <p className="mt-2 text-sm text-slate-800">
-                Gracias por escribir. Estamos fuera de horario. Te responderemos
-                manana a partir de las 9:00 AM.
-              </p>
-            </div>
+            ))}
+            {messages.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">
+                Selecciona una conversacion para ver mensajes.
+              </div>
+            ) : null}
           </div>
           <div className="border-t border-slate-200 p-4">
-            <div className="mb-3 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
-              No puedes responder porque el numero "Soporte" esta desconectado.
-            </div>
+            {error ? (
+              <div className="mb-3 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+                {error}
+              </div>
+            ) : null}
             <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-              <TextArea placeholder="Escribe un mensaje..." rows={2} />
+              <TextArea
+                placeholder="Escribe un mensaje..."
+                rows={2}
+                value={draft}
+                onChange={setDraft}
+              />
               <Button variant="secondary">Adjuntar</Button>
-              <Button>Enviar</Button>
+              <Button disabled={!selected || isSending} onClick={sendMessage}>
+                {isSending ? "Enviando..." : "Enviar"}
+              </Button>
             </div>
           </div>
         </section>
@@ -717,13 +1180,18 @@ function ConversationsSection() {
           </h2>
           <dl className="mt-4 grid gap-3 text-sm">
             {[
-              ["Nombre", selected.name],
-              ["Telefono", selected.phone],
-              ["Numero receptor", selected.channel],
-              ["Estado", selected.status],
-              ["Agente asignado", selected.agent],
-              ["Primera conversacion", "12 Jun 2026"],
-              ["Ultima actividad", selected.time],
+              ["Nombre", selected?.contact?.name ?? "-"],
+              ["Telefono", selected?.contact?.phoneNumber ?? "-"],
+              [
+                "Numero receptor",
+                selected?.whatsappAccount?.displayName ?? "-",
+              ],
+              ["Estado", selected?.status ?? "-"],
+              [
+                "Agente asignado",
+                selected?.assignedUser?.name ?? "Sin asignar",
+              ],
+              ["Ultima actividad", formatDate(selected?.lastMessageAt)],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -738,7 +1206,10 @@ function ConversationsSection() {
               <Input placeholder="Nombre del cliente" />
             </Field>
             <Field label="Telefono" hint="Solo lectura en MVP">
-              <Input placeholder={selected.phone} readOnly />
+              <Input
+                placeholder={selected?.contact?.phoneNumber ?? "-"}
+                readOnly
+              />
             </Field>
             <Field label="Notas internas">
               <TextArea placeholder="Notas visibles solo para el equipo" />
@@ -751,15 +1222,99 @@ function ConversationsSection() {
   );
 }
 
-function NumbersSection() {
+function NumbersSection({
+  data,
+  onRefresh,
+}: {
+  data: TakuData;
+  onRefresh: () => void;
+}) {
+  const [displayName, setDisplayName] = useState("");
+  const [description, setDescription] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [qr, setQr] = useState<{
+    payload?: string | null;
+    imageUrl?: string | null;
+  } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const selected =
+    data.accounts.find((account) => account.id === selectedId) ??
+    data.accounts[0] ??
+    null;
+
+  async function createNumber(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    await takuApi("/whatsapp-accounts", {
+      method: "POST",
+      body: JSON.stringify({
+        displayName,
+        description,
+        timezone: "America/Mexico_City",
+      }),
+    });
+    setDisplayName("");
+    setDescription("");
+    setMessage("Numero creado. Ahora puedes pedir el QR.");
+    onRefresh();
+  }
+
+  async function requestQr(accountId: string) {
+    setMessage(null);
+    const response = await takuApi<{
+      id: string;
+      status: string;
+      qr: { payload?: string | null; imageUrl?: string | null };
+    }>(`/whatsapp-accounts/${accountId}/connect`, { method: "POST" });
+    setSelectedId(accountId);
+    setQr(response.qr);
+    setMessage(
+      "QR solicitado. Si no aparece, intenta regenerarlo en unos segundos.",
+    );
+    onRefresh();
+  }
+
+  async function disconnect(accountId: string) {
+    setMessage(null);
+    await takuApi(`/whatsapp-accounts/${accountId}/disconnect`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "manual_from_taku_site" }),
+    });
+    setMessage("Numero desconectado.");
+    onRefresh();
+  }
+
+  async function updateSelected() {
+    if (!selected) return;
+    await takuApi(`/whatsapp-accounts/${selected.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        displayName: selected.displayName,
+        description: selected.description,
+        enabled: selected.enabled,
+        useWorkspaceBusinessHours: selected.useWorkspaceBusinessHours,
+        useWorkspaceBotSettings: selected.useWorkspaceBotSettings,
+      }),
+    });
+    setMessage("Cambios guardados.");
+    onRefresh();
+  }
+
   return (
     <div className="grid gap-6">
       <SectionHeader
         label="Numeros de WhatsApp"
         title="Administra conexiones y QR"
         description="Owner y Admin conectan, reconectan, editan y monitorean cada numero del workspace."
-        action={<Button>Agregar numero</Button>}
+        action={
+          <Button onClick={() => setSelectedId(null)}>Agregar numero</Button>
+        }
       />
+      {message ? (
+        <div className="rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
+          {message}
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="overflow-x-auto">
@@ -782,53 +1337,88 @@ function NumbersSection() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {phoneNumbers.map((number) => (
-                <tr key={number.name}>
+              {data.accounts.map((number) => (
+                <tr key={number.id}>
                   <td className="px-4 py-3 font-medium text-slate-950">
-                    {number.name}
+                    {number.displayName}
                   </td>
-                  <td className="px-4 py-3 text-slate-700">{number.phone}</td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {number.phoneNumber ?? "Asignado despues del QR"}
+                  </td>
                   <td className="px-4 py-3">
                     <Badge
-                      tone={number.status === "Conectado" ? "dark" : "warn"}
+                      tone={number.status === "connected" ? "dark" : "warn"}
                     >
-                      {number.status}
+                      {statusLabel(number.status)}
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    {number.lastEvent}
+                    {formatDate(number.lastConnectedAt)}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    {number.lastDisconnect}
+                    {formatDate(number.lastDisconnectedAt)}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    {number.automation}
+                    {number.automationEnabled ? "Activa" : "Inactiva"}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
-                      <Button variant="ghost">Ver</Button>
-                      <Button variant="ghost">QR</Button>
-                      <Button variant="ghost">Desconectar</Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setSelectedId(number.id)}
+                      >
+                        Ver
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void requestQr(number.id)}
+                      >
+                        QR
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void disconnect(number.id)}
+                      >
+                        Desconectar
+                      </Button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {data.accounts.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-sm text-slate-500" colSpan={7}>
+                    No hay numeros conectados.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <form
+          onSubmit={createNumber}
+          className="rounded-lg border border-slate-200 bg-white p-5"
+        >
           <h2 className="font-semibold text-slate-950">
             Agregar numero de WhatsApp
           </h2>
           <div className="mt-5 grid gap-4">
             <Field label="Nombre del numero">
-              <Input placeholder="Ej. Ventas, Soporte, Sucursal Centro" />
+              <Input
+                placeholder="Ej. Ventas, Soporte, Sucursal Centro"
+                value={displayName}
+                onChange={setDisplayName}
+              />
             </Field>
             <Field label="Descripcion interna">
-              <TextArea placeholder="Ej. Numero principal para pedidos y cotizaciones" />
+              <TextArea
+                placeholder="Ej. Numero principal para pedidos y cotizaciones"
+                value={description}
+                onChange={setDescription}
+              />
             </Field>
             <Field label="Zona horaria">
               <Select>
@@ -838,20 +1428,38 @@ function NumbersSection() {
             <Switch checked label="Usar horario general de la empresa" />
             <Switch checked label="Usar configuracion general del bot" />
             <div className="flex gap-3">
-              <Button>Crear numero</Button>
-              <Button variant="secondary">Cancelar</Button>
+              <Button type="submit" disabled={!displayName.trim()}>
+                Crear numero
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDisplayName("");
+                  setDescription("");
+                }}
+              >
+                Cancelar
+              </Button>
             </div>
           </div>
-        </section>
+        </form>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
           <h2 className="font-semibold text-slate-950">
             Conectar numero por QR
           </h2>
           <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-5 text-center">
-            <div className="mx-auto grid h-56 w-56 place-items-center rounded-lg border border-slate-300 bg-white text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              QR listo
-            </div>
+            {qr?.imageUrl ? (
+              <img
+                src={qr.imageUrl}
+                alt="WhatsApp QR"
+                className="mx-auto h-56 w-56 rounded-lg border border-slate-300 bg-white object-contain"
+              />
+            ) : (
+              <div className="mx-auto grid h-56 w-56 place-items-center rounded-lg border border-slate-300 bg-white p-4 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {selected ? "Pide o regenera el QR" : "Selecciona un numero"}
+              </div>
+            )}
             <p className="mt-4 font-semibold text-slate-950">
               Escanea este codigo QR con WhatsApp
             </p>
@@ -862,8 +1470,15 @@ function NumbersSection() {
               <li>Escanea el codigo QR.</li>
             </ol>
             <div className="mt-5 flex justify-center gap-3">
-              <Button>Regenerar QR</Button>
-              <Button variant="secondary">Cancelar</Button>
+              <Button
+                disabled={!selected}
+                onClick={() => selected && void requestQr(selected.id)}
+              >
+                Regenerar QR
+              </Button>
+              <Button variant="secondary" onClick={() => setQr(null)}>
+                Cancelar
+              </Button>
             </div>
           </div>
         </section>
@@ -1813,13 +2428,592 @@ function StatesSection({ role }: { role: Role }) {
   );
 }
 
-function renderSection(section: SectionId, role: Role) {
-  if (section === "home") return <HomeSection role={role} />;
-  if (section === "conversations") return <ConversationsSection />;
-  if (section === "numbers") return <NumbersSection />;
-  if (section === "automation") return <AutomationSection />;
-  if (section === "hours") return <HoursSection />;
-  if (section === "users") return <UsersSection />;
+function AutomationSectionConnected({
+  data,
+  onRefresh,
+}: {
+  data: TakuData;
+  onRefresh: () => void;
+}) {
+  const [botName, setBotName] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [responseText, setResponseText] = useState("");
+  const [assignmentPhone, setAssignmentPhone] = useState("");
+  const [assignmentBot, setAssignmentBot] = useState("");
+  const [assignmentMode, setAssignmentMode] = useState(
+    "outside_business_hours",
+  );
+  const [settings, setSettings] = useState({
+    enabled: data.botSettings?.enabled ?? false,
+    afterHoursEnabled: data.botSettings?.afterHoursEnabled ?? false,
+    afterHoursMessage: data.botSettings?.afterHoursMessage ?? "",
+    rulesEnabled: data.botSettings?.rulesEnabled ?? false,
+    aiEnabled: data.botSettings?.aiEnabled ?? false,
+  });
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSettings({
+      enabled: data.botSettings?.enabled ?? false,
+      afterHoursEnabled: data.botSettings?.afterHoursEnabled ?? false,
+      afterHoursMessage: data.botSettings?.afterHoursMessage ?? "",
+      rulesEnabled: data.botSettings?.rulesEnabled ?? false,
+      aiEnabled: data.botSettings?.aiEnabled ?? false,
+    });
+  }, [data.botSettings]);
+
+  async function saveSettings() {
+    await takuApi("/bot-settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+    setMessage("Configuracion guardada.");
+    onRefresh();
+  }
+
+  async function createBot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await takuApi("/bots", {
+      method: "POST",
+      body: JSON.stringify({ name: botName, instructions, status: "active" }),
+    });
+    setBotName("");
+    setInstructions("");
+    setMessage("Bot creado y provisionado en Bot Service.");
+    onRefresh();
+  }
+
+  async function createRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await takuApi("/automation-rules", {
+      method: "POST",
+      body: JSON.stringify({
+        keyword,
+        matchType: "contains",
+        responseText,
+        enabled: true,
+      }),
+    });
+    setKeyword("");
+    setResponseText("");
+    setMessage("Regla creada.");
+    onRefresh();
+  }
+
+  async function assignBot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await takuApi("/bot-assignments", {
+      method: "POST",
+      body: JSON.stringify({
+        whatsappAccountId: assignmentPhone,
+        botId: assignmentBot,
+        mode: assignmentMode,
+        enabled: true,
+      }),
+    });
+    setMessage("Bot asignado al numero.");
+    onRefresh();
+  }
+
+  return (
+    <div className="grid gap-6">
+      <SectionHeader
+        label="Automatizacion"
+        title="Bots, reglas y asignaciones"
+        description="TAKU decide cuando responder: reglas, fuera de horario o bot asignado a un numero."
+        action={
+          <Button onClick={() => void saveSettings()}>
+            Guardar configuracion
+          </Button>
+        }
+      />
+      {message ? (
+        <div className="rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
+          {message}
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="font-semibold text-slate-950">Motor de respuestas</h2>
+          <div className="mt-5 grid gap-3">
+            <Switch
+              checked={settings.enabled}
+              label="Automatizacion activa"
+              onChange={(enabled) =>
+                setSettings((current) => ({ ...current, enabled }))
+              }
+            />
+            <Switch
+              checked={settings.afterHoursEnabled}
+              label="Respuesta fuera de horario"
+              onChange={(afterHoursEnabled) =>
+                setSettings((current) => ({ ...current, afterHoursEnabled }))
+              }
+            />
+            <Switch
+              checked={settings.rulesEnabled}
+              label="Reglas por palabra clave"
+              onChange={(rulesEnabled) =>
+                setSettings((current) => ({ ...current, rulesEnabled }))
+              }
+            />
+            <Switch
+              checked={settings.aiEnabled}
+              label="Bots IA asignados a numeros"
+              onChange={(aiEnabled) =>
+                setSettings((current) => ({ ...current, aiEnabled }))
+              }
+            />
+            <Field label="Mensaje fuera de horario">
+              <TextArea
+                placeholder="Gracias por escribir. Estamos fuera de horario."
+                value={settings.afterHoursMessage}
+                onChange={(afterHoursMessage) =>
+                  setSettings((current) => ({ ...current, afterHoursMessage }))
+                }
+              />
+            </Field>
+          </div>
+        </section>
+
+        <form
+          onSubmit={createBot}
+          className="rounded-lg border border-slate-200 bg-white p-5"
+        >
+          <h2 className="font-semibold text-slate-950">Crear bot</h2>
+          <div className="mt-5 grid gap-4">
+            <Field label="Nombre">
+              <Input
+                placeholder="Ej. Ventas automaticas"
+                value={botName}
+                onChange={setBotName}
+              />
+            </Field>
+            <Field label="Instrucciones">
+              <TextArea
+                placeholder="Responde breve, pide nombre y pasa a un agente si falta informacion."
+                value={instructions}
+                onChange={setInstructions}
+              />
+            </Field>
+            <Button
+              type="submit"
+              disabled={!botName.trim() || !instructions.trim()}
+            >
+              Crear bot
+            </Button>
+          </div>
+        </form>
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-950">Bots</h2>
+          <Badge>{data.bots.length}</Badge>
+        </div>
+        <div className="mt-5 overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+              <tr>
+                {["Nombre", "Estado", "Assistant", "Client ID", "Token"].map(
+                  (head) => (
+                    <th key={head} className="px-4 py-3">
+                      {head}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {data.bots.map((bot) => (
+                <tr key={bot.id}>
+                  <td className="px-4 py-3 font-medium text-slate-950">
+                    {bot.name}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge>{bot.status}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {bot.externalAssistantId ?? "-"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {bot.clientId ?? "-"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {bot.hasClientToken ? "Configurado" : "Falta"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <form
+          onSubmit={assignBot}
+          className="rounded-lg border border-slate-200 bg-white p-5"
+        >
+          <h2 className="font-semibold text-slate-950">Asignar bot a numero</h2>
+          <div className="mt-5 grid gap-4">
+            <Field label="Numero">
+              <Select value={assignmentPhone} onChange={setAssignmentPhone}>
+                <option value="">Selecciona numero</option>
+                {data.accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayName}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Bot">
+              <Select value={assignmentBot} onChange={setAssignmentBot}>
+                <option value="">Selecciona bot</option>
+                {data.bots.map((bot) => (
+                  <option key={bot.id} value={bot.id}>
+                    {bot.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Modo">
+              <Select value={assignmentMode} onChange={setAssignmentMode}>
+                <option value="outside_business_hours">Fuera de horario</option>
+                <option value="business_hours">Dentro de horario</option>
+                <option value="always">Siempre</option>
+                <option value="disabled">Deshabilitado</option>
+              </Select>
+            </Field>
+            <Button type="submit" disabled={!assignmentPhone || !assignmentBot}>
+              Guardar asignacion
+            </Button>
+          </div>
+        </form>
+
+        <form
+          onSubmit={createRule}
+          className="rounded-lg border border-slate-200 bg-white p-5"
+        >
+          <h2 className="font-semibold text-slate-950">Crear regla</h2>
+          <div className="mt-5 grid gap-4">
+            <Field label="Palabra clave">
+              <Input
+                placeholder="horario"
+                value={keyword}
+                onChange={setKeyword}
+              />
+            </Field>
+            <Field label="Respuesta">
+              <TextArea
+                placeholder="Nuestro horario es de lunes a viernes..."
+                value={responseText}
+                onChange={setResponseText}
+              />
+            </Field>
+            <Button
+              type="submit"
+              disabled={!keyword.trim() || !responseText.trim()}
+            >
+              Guardar regla
+            </Button>
+          </div>
+        </form>
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold text-slate-950">Asignaciones y reglas</h2>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-slate-200">
+            <div className="border-b border-slate-200 p-3 font-semibold">
+              Asignaciones
+            </div>
+            <div className="divide-y divide-slate-200">
+              {data.assignments.map((assignment) => (
+                <div key={assignment.id} className="grid gap-1 p-3 text-sm">
+                  <p className="font-medium text-slate-950">
+                    {data.accounts.find(
+                      (account) => account.id === assignment.whatsappAccountId,
+                    )?.displayName ?? "Numero"}{" "}
+                    ·{" "}
+                    {assignment.bot?.name ??
+                      data.bots.find((bot) => bot.id === assignment.botId)
+                        ?.name ??
+                      "Bot"}
+                  </p>
+                  <p className="text-slate-500">
+                    {assignment.mode} ·{" "}
+                    {assignment.enabled ? "activo" : "inactivo"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200">
+            <div className="border-b border-slate-200 p-3 font-semibold">
+              Reglas
+            </div>
+            <div className="divide-y divide-slate-200">
+              {data.rules.map((rule) => (
+                <div key={rule.id} className="grid gap-1 p-3 text-sm">
+                  <p className="font-medium text-slate-950">{rule.keyword}</p>
+                  <p className="text-slate-500">
+                    {rule.matchType} · {rule.enabled ? "activa" : "inactiva"}
+                  </p>
+                  <p className="text-slate-700">{rule.responseText}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function HoursSectionConnected({
+  data,
+  onRefresh,
+}: {
+  data: TakuData;
+  onRefresh: () => void;
+}) {
+  const dayNames = [
+    "Domingo",
+    "Lunes",
+    "Martes",
+    "Miercoles",
+    "Jueves",
+    "Viernes",
+    "Sabado",
+  ];
+  const [days, setDays] = useState(
+    dayNames.map((_, dayOfWeek) => ({
+      dayOfWeek,
+      isClosed: false,
+      opensAt: "09:00",
+      closesAt: "18:00",
+    })),
+  );
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!data.hours?.days.length) return;
+    setDays(
+      dayNames.map((_, dayOfWeek) => {
+        const found = data.hours?.days.find(
+          (day) => day.dayOfWeek === dayOfWeek,
+        );
+        return {
+          dayOfWeek,
+          isClosed: found?.isClosed ?? false,
+          opensAt: found?.opensAt ?? "09:00",
+          closesAt: found?.closesAt ?? "18:00",
+        };
+      }),
+    );
+  }, [data.hours]);
+
+  async function saveHours() {
+    await takuApi("/business-hours", {
+      method: "PUT",
+      body: JSON.stringify({ days }),
+    });
+    setMessage("Horario guardado.");
+    onRefresh();
+  }
+
+  return (
+    <div className="grid gap-6">
+      <SectionHeader
+        label="Horarios"
+        title="Horario de atencion"
+        description="Si no hay horario configurado, TAKU considera el numero siempre activo."
+        action={
+          <Button onClick={() => void saveHours()}>Guardar horario</Button>
+        }
+      />
+      {message ? (
+        <div className="rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
+          {message}
+        </div>
+      ) : null}
+      <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
+        <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="font-semibold text-slate-950">Estado actual</h2>
+          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-5">
+            <Badge
+              tone={
+                data.hours?.currentStatus?.isOpen === false ? "warn" : "dark"
+              }
+            >
+              {data.hours?.currentStatus?.label ?? "Siempre activo"}
+            </Badge>
+            <p className="mt-3 text-2xl font-semibold text-slate-950">
+              {data.hours?.currentStatus?.isOpen === false
+                ? "Fuera de horario"
+                : "Activo para responder"}
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Zona horaria: {data.hours?.timezone ?? "America/Mexico_City"}
+            </p>
+          </div>
+        </section>
+        <section className="rounded-lg border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 p-4">
+            <h2 className="font-semibold text-slate-950">Horario semanal</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                <tr>
+                  {["Dia", "Abierto", "Apertura", "Cierre"].map((head) => (
+                    <th key={head} className="px-4 py-3">
+                      {head}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {days.map((day) => (
+                  <tr key={day.dayOfWeek}>
+                    <td className="px-4 py-3 font-medium text-slate-950">
+                      {dayNames[day.dayOfWeek]}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Switch
+                        checked={!day.isClosed}
+                        label={day.isClosed ? "Cerrado" : "Abierto"}
+                        onChange={(open) =>
+                          setDays((current) =>
+                            current.map((item) =>
+                              item.dayOfWeek === day.dayOfWeek
+                                ? { ...item, isClosed: !open }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <Input
+                        type="time"
+                        placeholder="09:00"
+                        value={day.opensAt}
+                        onChange={(opensAt) =>
+                          setDays((current) =>
+                            current.map((item) =>
+                              item.dayOfWeek === day.dayOfWeek
+                                ? { ...item, opensAt }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <Input
+                        type="time"
+                        placeholder="18:00"
+                        value={day.closesAt}
+                        onChange={(closesAt) =>
+                          setDays((current) =>
+                            current.map((item) =>
+                              item.dayOfWeek === day.dayOfWeek
+                                ? { ...item, closesAt }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function UsersSectionConnected({ data }: { data: TakuData }) {
+  return (
+    <div className="grid gap-6">
+      <SectionHeader
+        label="Usuarios"
+        title="Equipo y roles"
+        description="Usuarios reales del workspace actual."
+      />
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+              <tr>
+                {["Nombre", "Email", "Rol", "Estado", "Ultimo acceso"].map(
+                  (head) => (
+                    <th key={head} className="px-4 py-3">
+                      {head}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {data.users.map((user) => (
+                <tr key={user.id}>
+                  <td className="px-4 py-3 font-medium text-slate-950">
+                    {user.name}
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">{user.email}</td>
+                  <td className="px-4 py-3">
+                    <Badge>{user.role}</Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge tone={user.status === "active" ? "dark" : "default"}>
+                      {user.status}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {formatDate(user.lastLoginAt)}
+                  </td>
+                </tr>
+              ))}
+              {data.users.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-sm text-slate-500" colSpan={5}>
+                    No hay usuarios visibles.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function renderSection(
+  section: SectionId,
+  role: Role,
+  data: TakuData,
+  onRefresh: () => void,
+  onSection: (section: SectionId) => void,
+) {
+  if (section === "home")
+    return <HomeSection role={role} data={data} onSection={onSection} />;
+  if (section === "conversations")
+    return <ConversationsSection data={data} onRefresh={onRefresh} />;
+  if (section === "numbers")
+    return <NumbersSection data={data} onRefresh={onRefresh} />;
+  if (section === "automation")
+    return <AutomationSectionConnected data={data} onRefresh={onRefresh} />;
+  if (section === "hours")
+    return <HoursSectionConnected data={data} onRefresh={onRefresh} />;
+  if (section === "users") return <UsersSectionConnected data={data} />;
   if (section === "settings") return <SettingsSection />;
   if (section === "billing") return <BillingSection />;
   if (section === "profile") return <ProfileSection />;
@@ -1835,16 +3029,18 @@ function dashboardRoleForAdmin(adminRole: string | undefined): Role {
 }
 
 export default function MainDashboardMockPage() {
-  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [session, setSession] = useState<WorkspaceSession | null>(null);
   const [section, setSection] = useState<SectionId>("home");
-  const role = dashboardRoleForAdmin(adminUser?.role);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { data, isLoading, error } = useTakuData(refreshKey);
+  const role = (session?.role as Role | undefined) ?? "owner";
   const visibleNav = useMemo(
     () => navItems.filter((item) => item.roles.includes(role)),
     [role],
   );
 
   useEffect(() => {
-    setAdminUser(getAdminSession()?.adminUser ?? null);
+    setSession(getWorkspaceSession());
   }, []);
 
   useEffect(() => {
@@ -1871,11 +3067,13 @@ export default function MainDashboardMockPage() {
             </a>
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-sm font-semibold text-slate-950">
-                La Mojarreria
+                {session?.currentWorkspace.name ?? "Workspace"}
               </p>
               <p className="mt-1 text-xs text-slate-500">Workspace activo</p>
               <div className="mt-3">
-                <Badge tone="dark">Activo</Badge>
+                <Badge tone="dark">
+                  {session?.currentWorkspace.status ?? "activo"}
+                </Badge>
               </div>
             </div>
           </div>
@@ -1886,13 +3084,13 @@ export default function MainDashboardMockPage() {
             </p>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-sm font-semibold text-slate-950">
-                {adminUser?.name ?? "Super Admin"}
+                {session?.user.name ?? "Usuario"}
               </p>
               <p className="mt-1 break-all text-xs text-slate-500">
-                {adminUser?.email ?? "Sesion activa"}
+                {session?.user.email ?? "Sesion activa"}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Badge tone="dark">{adminUser?.role ?? "super_owner"}</Badge>
+                <Badge tone="dark">{session?.role ?? "owner"}</Badge>
                 <Badge>{role}</Badge>
               </div>
             </div>
@@ -1933,13 +3131,36 @@ export default function MainDashboardMockPage() {
                   placeholder="Buscar..."
                   className="min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200 sm:w-64"
                 />
-                <Badge tone="warn">Soporte desconectado</Badge>
-                <Badge tone="dark">{adminUser?.role ?? "super_owner"}</Badge>
+                {data.accounts.some(
+                  (account) => account.status !== "connected",
+                ) ? (
+                  <Badge tone="warn">Hay numeros desconectados</Badge>
+                ) : null}
+                <Badge tone="dark">{session?.role ?? "owner"}</Badge>
                 <Button variant="secondary">Mi perfil</Button>
               </div>
             </div>
           </header>
-          <div className="p-4 md:p-6">{renderSection(section, role)}</div>
+          <div className="p-4 md:p-6">
+            {error ? (
+              <div className="mb-4 rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
+                {error}
+              </div>
+            ) : null}
+            {isLoading ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-700">
+                Cargando datos...
+              </div>
+            ) : (
+              renderSection(
+                section,
+                role,
+                data,
+                () => setRefreshKey((current) => current + 1),
+                setSection,
+              )
+            )}
+          </div>
         </section>
       </div>
     </main>

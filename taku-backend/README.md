@@ -51,8 +51,10 @@ Las variables criticas son:
 - `TAKU_BACKEND_SUPERADMIN_EMAIL`
 - `TAKU_BACKEND_SUPERADMIN_PASSWORD`
 - `TAKU_BACKEND_ALLOWED_ORIGINS`
+- `TAKU_BACKEND_PUBLIC_BASE_URL`
 - `TAKU_WA_BASE_URL`
 - `TAKU_WA_API_KEY`
+- `TAKU_WA_CLIENT_DOMAIN`
 - `TAKU_WA_WEBHOOK_SECRET`
 - `BOT_SERVICE_BASE_URL`
 - `BOT_SERVICE_API_KEY`
@@ -83,6 +85,23 @@ Endpoints:
 - `POST /api/webhooks/whatsapp`
 - `POST /api/webhooks/bot`
 
+## Orquestacion TAKU
+
+`taku-backend` es quien decide la operacion del producto. `wa-service` solo
+administra conexiones WhatsApp y envia/recibe mensajes. `bot-service` solo
+administra asistentes y completions.
+
+Flujo de auto-respuesta:
+
+1. `wa-service` envia `POST /api/webhooks/whatsapp`.
+2. `taku-backend` identifica workspace, numero, contacto y conversacion.
+3. `taku-backend` evalua estado del workspace, horario, reglas y asignacion de bot.
+4. Si corresponde, `taku-backend` llama a `bot-service` con `client_id` y `client_token`.
+5. `taku-backend` envia la respuesta por `wa-service`.
+6. La decision queda en `automationDecisionLogs`.
+
+Si un numero no tiene horario configurado, se considera siempre activo.
+
 ## Endpoints principales
 
 - `/api/auth/*`
@@ -94,7 +113,10 @@ Endpoints:
 - `/api/messages/*`
 - `/api/business-hours/*`
 - `/api/bot-settings/*`
+- `/api/bots/*`
+- `/api/bot-assignments/*`
 - `/api/automation-rules/*`
+- `/api/automation-decisions/*`
 - `/api/dashboard/overview`
 - `/api/profile`
 - `/api/preferences`

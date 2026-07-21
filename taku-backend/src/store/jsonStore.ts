@@ -7,7 +7,9 @@ import type {
   AdminAuditLog,
   AdminUser,
   AuditLog,
+  BotAssignment,
   AutomationRule,
+  TakuBot,
   BotSettings,
   BusinessHour,
   Contact,
@@ -48,7 +50,10 @@ function createEmptyDatabase(): Database {
     messages: [],
     businessHours: [],
     botSettings: [],
+    bots: [],
+    botAssignments: [],
     automationRules: [],
+    automationDecisionLogs: [],
     preferences: [],
     auditLogs: [],
     refreshTokens: [],
@@ -69,7 +74,10 @@ function ensureDatabaseCollections(database: Database) {
   target.messages ??= [];
   target.businessHours ??= [];
   target.botSettings ??= [];
+  target.bots ??= [];
+  target.botAssignments ??= [];
   target.automationRules ??= [];
+  target.automationDecisionLogs ??= [];
   target.preferences ??= [];
   target.auditLogs ??= [];
   target.refreshTokens ??= [];
@@ -253,6 +261,33 @@ function createTestSeed(): Database {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
+  const bots: TakuBot[] = [
+    {
+      id: "bot_demo_customer_assistant",
+      workspaceId: workspace.id,
+      name: "Customer assistant",
+      instructions:
+        "Responde de forma breve y amable. Si no tienes informacion suficiente, pide el nombre del cliente y ofrece que un agente lo atienda.",
+      status: "active",
+      externalAssistantId: null,
+      clientId: null,
+      clientToken: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
+  const botAssignments: BotAssignment[] = [
+    {
+      id: "bot_assignment_sales",
+      workspaceId: workspace.id,
+      whatsappAccountId: salesAccount.id,
+      botId: bots[0]!.id,
+      enabled: true,
+      mode: "outside_business_hours",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ];
   const automationRules: AutomationRule[] = [
     {
       id: "rule_horario",
@@ -294,7 +329,10 @@ function createTestSeed(): Database {
     messages,
     businessHours,
     botSettings: [botSettings],
+    bots,
+    botAssignments,
     automationRules,
+    automationDecisionLogs: [],
     preferences: [preferences],
     auditLogs: [],
     refreshTokens: [],
@@ -420,6 +458,9 @@ function ensureTestData(database: Database) {
     addMissingById(database.businessHours, testSeed.businessHours) || changed;
   changed =
     addMissingById(database.botSettings, testSeed.botSettings) || changed;
+  changed = addMissingById(database.bots, testSeed.bots) || changed;
+  changed =
+    addMissingById(database.botAssignments, testSeed.botAssignments) || changed;
   changed =
     addMissingById(database.automationRules, testSeed.automationRules) ||
     changed;

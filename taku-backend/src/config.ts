@@ -65,13 +65,18 @@ export const config = {
     "http://localhost:3006",
     "http://localhost:3003",
   ]),
+  publicBaseUrl: stringValue(
+    "TAKU_BACKEND_PUBLIC_BASE_URL",
+    "https://api.taku.lat/api",
+  ),
   takuWaBaseUrl: stringValue("TAKU_WA_BASE_URL", "https://api.wa.taku.lat"),
   takuWaApiKey: process.env.TAKU_WA_API_KEY?.trim() ?? "",
+  takuWaClientDomain: stringValue("TAKU_WA_CLIENT_DOMAIN", "taku.lat"),
   takuWaWebhookSecret:
     process.env.TAKU_WA_WEBHOOK_SECRET?.trim() ?? "dev-wa-webhook-secret",
   botServiceBaseUrl: stringValue(
     "BOT_SERVICE_BASE_URL",
-    "https://bot.taku.lat",
+    "https://api.bot.taku.lat",
   ),
   botServiceApiKey: process.env.BOT_SERVICE_API_KEY?.trim() ?? "",
   botServiceWebhookSecret:

@@ -164,6 +164,31 @@ CREATE TABLE IF NOT EXISTS bot_settings (
   UNIQUE (workspace_id, whatsapp_account_id)
 );
 
+CREATE TABLE IF NOT EXISTS bots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  instructions TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  external_assistant_id TEXT,
+  client_id TEXT,
+  client_token TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS bot_assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  whatsapp_account_id UUID NOT NULL REFERENCES whatsapp_accounts(id) ON DELETE CASCADE,
+  bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  mode TEXT NOT NULL DEFAULT 'outside_business_hours',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (workspace_id, whatsapp_account_id)
+);
+
 CREATE TABLE IF NOT EXISTS automation_rules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -175,6 +200,20 @@ CREATE TABLE IF NOT EXISTS automation_rules (
   avoid_if_agent_responded BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS automation_decision_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  whatsapp_account_id UUID NOT NULL REFERENCES whatsapp_accounts(id) ON DELETE CASCADE,
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  bot_id UUID REFERENCES bots(id) ON DELETE SET NULL,
+  assignment_id UUID REFERENCES bot_assignments(id) ON DELETE SET NULL,
+  decision TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  response_text TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS preferences (
@@ -216,5 +255,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(convers
 CREATE INDEX IF NOT EXISTS idx_messages_workspace_created ON messages(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_business_hours_workspace ON business_hours(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_bot_settings_workspace ON bot_settings(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_bots_workspace ON bots(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_bot_assignments_workspace_account ON bot_assignments(workspace_id, whatsapp_account_id);
 CREATE INDEX IF NOT EXISTS idx_automation_rules_workspace ON automation_rules(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_automation_decision_logs_workspace_created ON automation_decision_logs(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_workspace_created ON audit_logs(workspace_id, created_at DESC);

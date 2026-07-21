@@ -44,13 +44,16 @@ import { id, now, type JsonStore } from "./store/jsonStore.js";
 import type {
   AutomationRule,
   AdminRole,
+  BotAssignmentMode,
   BusinessHour,
   ConversationStatus,
+  Database,
   MatchType,
   Message,
   MessageType,
   Preferences,
   Role,
+  TakuBotStatus,
   WhatsAppStatus,
 } from "./types.js";
 import type { Realtime } from "./realtime.js";
@@ -272,6 +275,110 @@ function findConversation(
   return conversation;
 }
 
+function botStatusValid(value: unknown): value is TakuBotStatus {
+  return value === "draft" || value === "active" || value === "paused";
+}
+
+function botAssignmentModeValid(value: unknown): value is BotAssignmentMode {
+  return (
+    value === "disabled" ||
+    value === "always" ||
+    value === "business_hours" ||
+    value === "outside_business_hours"
+  );
+}
+
+function timeToMinutes(value: string | null) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function isBusinessOpen(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId: string,
+  date = new Date(),
+) {
+  const accountHours = database.businessHours.filter(
+    (item) =>
+      item.workspaceId === workspaceId &&
+      item.whatsappAccountId === whatsappAccountId,
+  );
+  const hours = accountHours.length
+    ? accountHours
+    : database.businessHours.filter(
+        (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+      );
+  if (!hours.length) return true;
+  const today = hours.find((item) => item.dayOfWeek === date.getDay());
+  if (!today) return true;
+  if (today.isClosed) return false;
+  const opensAt = timeToMinutes(today.opensAt);
+  const closesAt = timeToMinutes(today.closesAt);
+  if (opensAt === null || closesAt === null) return true;
+  const current = date.getHours() * 60 + date.getMinutes();
+  return current >= opensAt && current < closesAt;
+}
+
+function ruleMatches(rule: AutomationRule, incomingText: string) {
+  const text = incomingText.toLowerCase();
+  const keyword = rule.keyword.toLowerCase();
+  if (rule.matchType === "exact") return text === keyword;
+  if (rule.matchType === "starts_with") return text.startsWith(keyword);
+  return text.includes(keyword);
+}
+
+function findEffectiveBotSettings(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId: string,
+) {
+  return (
+    database.botSettings.find(
+      (item) =>
+        item.workspaceId === workspaceId &&
+        item.whatsappAccountId === whatsappAccountId,
+    ) ??
+    database.botSettings.find(
+      (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+    ) ??
+    null
+  );
+}
+
+function findMatchingAutomationRule(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId: string,
+  incomingText: string,
+) {
+  const scopedRules = database.automationRules.filter(
+    (item) =>
+      item.workspaceId === workspaceId &&
+      item.enabled &&
+      (item.whatsappAccountId === whatsappAccountId || !item.whatsappAccountId),
+  );
+  return scopedRules.find((rule) => ruleMatches(rule, incomingText)) ?? null;
+}
+
+function assignmentCanRespond(mode: BotAssignmentMode, isOpen: boolean) {
+  if (mode === "disabled") return false;
+  if (mode === "business_hours") return isOpen;
+  if (mode === "outside_business_hours") return !isOpen;
+  return true;
+}
+
 function signWebhookBody(body: unknown, secret: string, timestamp: string) {
   return createHmac("sha256", secret)
     .update(`${timestamp}.${JSON.stringify(body)}`)
@@ -319,6 +426,239 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
   const workspace = requireWorkspace(store);
   const adminAuth = requireAdminAuth(store);
 
+  async function sendAutomationReply(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    inboundMessageId: string;
+    to: string;
+    text: string;
+    botId: string | null;
+    assignmentId: string | null;
+    reason: string;
+  }) {
+    const snapshot = await store.read();
+    const account = findAccount(snapshot, params.workspaceId, params.accountId);
+    let externalMessageId: string | null = null;
+    let status: Message["status"] = "queued";
+    try {
+      const sent = await whatsappClient.sendTextMessage(
+        account.externalInstanceId,
+        params.to,
+        params.text,
+      );
+      externalMessageId = sent.messageId ?? null;
+      status = sent.status === "failed" ? "failed" : "sent";
+    } catch {
+      status = "failed";
+    }
+
+    const result = await store.update((database) => {
+      const conversation = findConversation(
+        database,
+        params.workspaceId,
+        params.conversationId,
+      );
+      const message: Message = {
+        id: id("message"),
+        workspaceId: params.workspaceId,
+        conversationId: params.conversationId,
+        whatsappAccountId: params.accountId,
+        contactId: params.contactId,
+        externalMessageId,
+        direction: "bot",
+        type: "text",
+        body: params.text,
+        mediaUrl: null,
+        mediaMimeType: null,
+        mediaFilename: null,
+        status,
+        sentByUserId: null,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      database.messages.push(message);
+      database.automationDecisionLogs.push({
+        id: id("automation_decision"),
+        workspaceId: params.workspaceId,
+        whatsappAccountId: params.accountId,
+        conversationId: params.conversationId,
+        messageId: params.inboundMessageId,
+        botId: params.botId,
+        assignmentId: params.assignmentId,
+        decision: params.botId ? "bot_reply" : "static_reply",
+        reason: params.reason,
+        responseText: params.text,
+        createdAt: now(),
+      });
+      conversation.lastMessageBody = params.text;
+      conversation.lastMessageAt = message.createdAt;
+      conversation.updatedAt = now();
+      return {
+        message: messageView(message, database),
+        conversation: conversationView(conversation, database),
+      };
+    });
+    realtime.emitToWorkspace(params.workspaceId, "message.created", {
+      conversationId: params.conversationId,
+      message: result.message,
+    });
+    realtime.emitToWorkspace(
+      params.workspaceId,
+      "conversation.updated",
+      result.conversation,
+    );
+  }
+
+  async function runAutomationDecision(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    inboundMessageId: string;
+    from: string;
+    text: string;
+  }) {
+    const database = await store.read();
+    const workspaceRecord = database.workspaces.find(
+      (item) => item.id === params.workspaceId,
+    );
+    const account = findAccount(database, params.workspaceId, params.accountId);
+    const settings = findEffectiveBotSettings(
+      database,
+      params.workspaceId,
+      params.accountId,
+    );
+    if (!workspaceRecord || workspaceRecord.status === "suspended") {
+      await store.update((current) => {
+        current.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "blocked",
+          reason: "workspace_not_active",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+      return;
+    }
+    if (!account.enabled || !settings?.enabled) return;
+
+    const isOpen = isBusinessOpen(
+      database,
+      params.workspaceId,
+      params.accountId,
+    );
+    const rule = settings.rulesEnabled
+      ? findMatchingAutomationRule(
+          database,
+          params.workspaceId,
+          params.accountId,
+          params.text,
+        )
+      : null;
+    if (rule) {
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: rule.responseText,
+        botId: null,
+        assignmentId: null,
+        reason: `automation_rule:${rule.id}`,
+      });
+      return;
+    }
+
+    if (settings.afterHoursEnabled && !isOpen && settings.afterHoursMessage) {
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: settings.afterHoursMessage,
+        botId: null,
+        assignmentId: null,
+        reason: "after_hours",
+      });
+      return;
+    }
+
+    const assignment = database.botAssignments.find(
+      (item) =>
+        item.workspaceId === params.workspaceId &&
+        item.whatsappAccountId === params.accountId &&
+        item.enabled &&
+        assignmentCanRespond(item.mode, isOpen),
+    );
+    const bot = assignment
+      ? database.bots.find(
+          (item) =>
+            item.id === assignment.botId &&
+            item.workspaceId === params.workspaceId &&
+            item.status === "active",
+        )
+      : null;
+    if (
+      !settings.aiEnabled ||
+      !assignment ||
+      !bot?.clientId ||
+      !bot.clientToken
+    ) {
+      return;
+    }
+
+    try {
+      const history = database.messages
+        .filter((item) => item.conversationId === params.conversationId)
+        .filter((item) => item.body)
+        .slice(-10)
+        .map((item) => ({
+          role:
+            item.direction === "inbound"
+              ? ("user" as const)
+              : ("assistant" as const),
+          content: item.body ?? "",
+        }));
+      const completion = await botClient.createCompletion({
+        clientId: bot.clientId,
+        clientToken: bot.clientToken,
+        assistantId: bot.externalAssistantId,
+        history,
+        messages: [{ role: "user", content: params.text }],
+      });
+      const reply = completion.choices?.[0]?.message?.content?.trim();
+      if (!reply) throw new Error("Bot completion did not include reply text");
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: reply,
+        botId: bot.id,
+        assignmentId: assignment.id,
+        reason: "bot_assignment",
+      });
+    } catch (error) {
+      await store.update((current) => {
+        current.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: bot?.id ?? null,
+          assignmentId: assignment.id,
+          decision: "error",
+          reason: error instanceof Error ? error.message : "bot_error",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+    }
+  }
+
   router.get("/health", (_req, res) => {
     ok(res, { status: "ok", timestamp: now() });
   });
@@ -343,6 +683,213 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.post(
+    "/webhooks/whatsapp",
+    asyncHandler(async (req, res) => {
+      validateWebhook(req, config.takuWaWebhookSecret);
+      const event = requireString(req.body?.event, "event");
+      const connectionId = requireString(
+        req.body?.connectionId,
+        "connectionId",
+      );
+      const payload =
+        req.body?.data && typeof req.body.data === "object"
+          ? (req.body.data as Record<string, unknown>)
+          : {};
+      const result = await store.update((database) => {
+        const account = database.whatsappAccounts.find(
+          (item) => item.externalInstanceId === connectionId,
+        );
+        if (!account)
+          throw new ApiError({
+            status: 404,
+            code: "WHATSAPP_ACCOUNT_NOT_FOUND",
+            message: "Conexion no encontrada.",
+          });
+
+        if (event === "message.received") {
+          const from = requireString(payload.from, "from");
+          const text = readOptionalString(payload.text) ?? "";
+          const externalMessageId = readOptionalString(payload.messageId);
+          if (
+            externalMessageId &&
+            database.messages.some(
+              (item) =>
+                item.workspaceId === account.workspaceId &&
+                item.externalMessageId === externalMessageId &&
+                item.direction === "inbound",
+            )
+          ) {
+            return {
+              workspaceId: account.workspaceId,
+              duplicate: true,
+            };
+          }
+          let contact = database.contacts.find(
+            (item) =>
+              item.workspaceId === account.workspaceId &&
+              item.phoneNumber === from,
+          );
+          if (!contact) {
+            contact = {
+              id: id("contact"),
+              workspaceId: account.workspaceId,
+              phoneNumber: from,
+              name: readOptionalString(payload.profileName) ?? null,
+              profilePictureUrl: null,
+              notes: null,
+              createdAt: now(),
+              updatedAt: now(),
+            };
+            database.contacts.push(contact);
+          }
+          let conversation = database.conversations.find(
+            (item) =>
+              item.workspaceId === account.workspaceId &&
+              item.whatsappAccountId === account.id &&
+              item.contactId === contact?.id,
+          );
+          if (!conversation) {
+            conversation = {
+              id: id("conversation"),
+              workspaceId: account.workspaceId,
+              whatsappAccountId: account.id,
+              contactId: contact.id,
+              status: "open",
+              lastMessageBody: text,
+              lastMessageAt: now(),
+              assignedUserId: null,
+              unreadCount: 0,
+              createdAt: now(),
+              updatedAt: now(),
+            };
+            database.conversations.push(conversation);
+          }
+          const message: Message = {
+            id: id("message"),
+            workspaceId: account.workspaceId,
+            conversationId: conversation.id,
+            whatsappAccountId: account.id,
+            contactId: contact.id,
+            externalMessageId: externalMessageId ?? null,
+            direction: "inbound",
+            type: (readOptionalString(payload.type) ?? "text") as MessageType,
+            body: text,
+            mediaUrl: null,
+            mediaMimeType: null,
+            mediaFilename: null,
+            status: "received",
+            sentByUserId: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.messages.push(message);
+          conversation.lastMessageBody = text;
+          conversation.lastMessageAt = message.createdAt;
+          conversation.unreadCount += 1;
+          conversation.updatedAt = now();
+          return {
+            workspaceId: account.workspaceId,
+            accountId: account.id,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            from,
+            text,
+            inboundMessageId: message.id,
+            message: messageView(message, database),
+            conversation: conversationView(conversation, database),
+          };
+        }
+
+        if (event.startsWith("message.")) {
+          const messageId = readOptionalString(payload.messageId);
+          if (messageId) {
+            const message = database.messages.find(
+              (item) =>
+                item.externalMessageId === messageId &&
+                item.workspaceId === account.workspaceId,
+            );
+            if (message) {
+              message.status = (readOptionalString(payload.status) ??
+                event.replace("message.", "")) as Message["status"];
+              message.updatedAt = now();
+              return {
+                workspaceId: account.workspaceId,
+                message: messageView(message, database),
+              };
+            }
+          }
+        }
+
+        if (event.startsWith("connection.")) {
+          const statusMap: Record<string, WhatsAppStatus> = {
+            open: "connected",
+            connected: "connected",
+            close: "disconnected",
+            disconnected: "disconnected",
+            connecting: "connecting",
+            qr: "qr_required",
+            failed: "failed",
+          };
+          const rawStatus =
+            readOptionalString(payload.status) ??
+            event.replace("connection.", "");
+          account.status = statusMap[rawStatus] ?? account.status;
+          account.phoneNumber =
+            readOptionalString(payload.phoneNumber) ?? account.phoneNumber;
+          if (account.status === "connected") account.lastConnectedAt = now();
+          if (account.status === "disconnected")
+            account.lastDisconnectedAt = now();
+          account.updatedAt = now();
+          return {
+            workspaceId: account.workspaceId,
+            account: whatsappAccountView(account, database),
+          };
+        }
+        return { workspaceId: account.workspaceId };
+      });
+
+      if ("message" in result)
+        realtime.emitToWorkspace(result.workspaceId, "message.created", result);
+      if ("conversation" in result)
+        realtime.emitToWorkspace(
+          result.workspaceId,
+          "conversation.updated",
+          result.conversation,
+        );
+      if ("account" in result)
+        realtime.emitToWorkspace(
+          result.workspaceId,
+          "whatsapp.status.updated",
+          result.account,
+        );
+      if (
+        "inboundMessageId" in result &&
+        "accountId" in result &&
+        "conversationId" in result &&
+        "contactId" in result &&
+        typeof result.workspaceId === "string" &&
+        typeof result.accountId === "string" &&
+        typeof result.conversationId === "string" &&
+        typeof result.contactId === "string" &&
+        typeof result.inboundMessageId === "string" &&
+        typeof result.from === "string" &&
+        typeof result.text === "string"
+      ) {
+        void runAutomationDecision({
+          workspaceId: result.workspaceId,
+          accountId: result.accountId,
+          conversationId: result.conversationId,
+          contactId: result.contactId,
+          inboundMessageId: result.inboundMessageId,
+          from: result.from,
+          text: result.text,
+        });
+      }
+      ok(res, { received: true, duplicate: "duplicate" in result });
+    }),
+  );
+
   router.get("/runtime/status", (req, res) => {
     const statusPassword = req.header("x-taku-status-password") ?? "";
     if (statusPassword !== config.superAdminPassword) {
@@ -364,7 +911,9 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         port: config.port,
         dataFile: config.dataFile,
         allowedOrigins: config.allowedOrigins,
+        publicBaseUrl: config.publicBaseUrl,
         takuWaBaseUrl: config.takuWaBaseUrl,
+        takuWaClientDomain: config.takuWaClientDomain,
         botServiceBaseUrl: config.botServiceBaseUrl,
       },
       variables: [
@@ -404,6 +953,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           required: true,
         },
         {
+          name: "TAKU_BACKEND_PUBLIC_BASE_URL",
+          configured: configured(config.publicBaseUrl),
+          required: true,
+        },
+        {
           name: "TAKU_BACKEND_SUPERADMIN_EMAIL or SUPERADMIN_EMAIL",
           configured: configured(config.superAdminEmail),
           required: true,
@@ -421,6 +975,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         {
           name: "TAKU_WA_API_KEY",
           configured: configured(config.takuWaApiKey),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_CLIENT_DOMAIN",
+          configured: configured(config.takuWaClientDomain),
           required: true,
         },
         {
@@ -1797,6 +2356,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         database.whatsappAccounts.push(account);
         return account;
       });
+      await whatsappClient.createConnection({
+        connectionId: created.externalInstanceId,
+        businessId: context.workspace.id,
+        label: created.displayName,
+        autoStart: false,
+      });
       await store.audit({
         workspaceId: context.workspace.id,
         userId: context.user.id,
@@ -1901,6 +2466,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       const account = findAccount(database, context.workspace.id, accountId);
       account.status = "qr_required";
       account.qrCode =
+        externalQr.qr ??
+        externalQr.qrImage ??
         externalQr.payload ??
         externalQr.imageBase64 ??
         externalQr.imageUrl ??
@@ -1910,8 +2477,9 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         id: account.id,
         status: account.status,
         qr: {
-          payload: externalQr.payload ?? account.qrCode,
+          payload: externalQr.qr ?? externalQr.payload ?? account.qrCode,
           imageUrl:
+            externalQr.qrImage ??
             externalQr.imageUrl ??
             (externalQr.imageBase64
               ? `data:image/png;base64,${externalQr.imageBase64}`
@@ -1929,6 +2497,18 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const account = findAccount(
+        snapshot,
+        context.workspace.id,
+        req.params.id,
+      );
+      await whatsappClient.startConnection(account.externalInstanceId);
+      await whatsappClient.createWebhookSubscription(
+        `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp`,
+        ["connection.*", "message.*"],
+        config.takuWaWebhookSecret,
+      );
       const data = await qrForAccount(req.params.id, context);
       await store.audit({
         workspaceId: context.workspace.id,
@@ -1970,6 +2550,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const externalInstanceId = findAccount(
+        snapshot,
+        context.workspace.id,
+        req.params.id,
+      ).externalInstanceId;
+      await whatsappClient.stopConnection(externalInstanceId);
       const data = await store.update((database) => {
         const account = findAccount(
           database,
@@ -3012,6 +3599,333 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
   );
 
   router.get(
+    "/bots",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.bots
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .map((bot) => ({
+          id: bot.id,
+          name: bot.name,
+          instructions: bot.instructions,
+          status: bot.status,
+          externalAssistantId: bot.externalAssistantId,
+          clientId: bot.clientId,
+          hasClientToken: Boolean(bot.clientToken),
+          createdAt: bot.createdAt,
+          updatedAt: bot.updatedAt,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/bots",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const name = requireString(req.body?.name, "name");
+      const instructions = requireString(
+        req.body?.instructions,
+        "instructions",
+      );
+      const status = botStatusValid(req.body?.status)
+        ? req.body.status
+        : "active";
+      if (name.length > 100 || instructions.length > 8000) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Bot invalido.",
+        });
+      }
+
+      const clientId =
+        readOptionalString(req.body?.clientId) ??
+        `taku_${context.workspace.id}_${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+      const clientToken =
+        readOptionalString(req.body?.clientToken) ??
+        (await botClient.ensureClientAccount(clientId));
+      if (!clientToken) {
+        throw new ApiError({
+          status: 502,
+          code: "BOT_CLIENT_TOKEN_UNAVAILABLE",
+          message: "Bot Service no regreso un client_token.",
+        });
+      }
+      const assistant = await botClient.createAssistant({
+        clientId,
+        clientToken,
+        name,
+        instructions,
+      });
+
+      const bot = await store.update((database) => {
+        const item = {
+          id: id("bot"),
+          workspaceId: context.workspace.id,
+          name,
+          instructions,
+          status,
+          externalAssistantId: assistant?.id ?? null,
+          clientId,
+          clientToken,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.bots.push(item);
+        return item;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot.created",
+        entityType: "bot",
+        entityId: bot.id,
+        metadata: { externalAssistantId: bot.externalAssistantId },
+      });
+      ok(
+        res,
+        {
+          ...bot,
+          clientToken: undefined,
+          hasClientToken: Boolean(bot.clientToken),
+        },
+        201,
+      );
+    }),
+  );
+
+  router.patch(
+    "/bots/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const current = snapshot.bots.find(
+        (item) =>
+          item.id === req.params.id &&
+          item.workspaceId === context.workspace.id,
+      );
+      if (!current)
+        throw new ApiError({
+          status: 404,
+          code: "BOT_NOT_FOUND",
+          message: "Bot no encontrado.",
+        });
+      const name = readOptionalString(req.body?.name) ?? current.name;
+      const instructions =
+        readOptionalString(req.body?.instructions) ?? current.instructions;
+      const status = botStatusValid(req.body?.status)
+        ? req.body.status
+        : current.status;
+
+      if (
+        current.clientId &&
+        current.clientToken &&
+        current.externalAssistantId
+      ) {
+        await botClient.updateAssistant({
+          clientId: current.clientId,
+          clientToken: current.clientToken,
+          assistantId: current.externalAssistantId,
+          name,
+          instructions,
+        });
+      }
+
+      const bot = await store.update((database) => {
+        const item = database.bots.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!item)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        item.name = name;
+        item.instructions = instructions;
+        item.status = status;
+        item.updatedAt = now();
+        return item;
+      });
+      ok(res, { ...bot, clientToken: undefined, hasClientToken: true });
+    }),
+  );
+
+  router.get(
+    "/bot-assignments",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.botAssignments
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.whatsappAccountId
+            ? item.whatsappAccountId === req.query.whatsappAccountId
+            : true,
+        )
+        .map((assignment) => ({
+          ...assignment,
+          bot:
+            database.bots.find((item) => item.id === assignment.botId) ?? null,
+          whatsappAccount:
+            database.whatsappAccounts.find(
+              (item) => item.id === assignment.whatsappAccountId,
+            ) ?? null,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/bot-assignments",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const whatsappAccountId = requireString(
+        req.body?.whatsappAccountId,
+        "whatsappAccountId",
+      );
+      const botId = requireString(req.body?.botId, "botId");
+      const mode = botAssignmentModeValid(req.body?.mode)
+        ? req.body.mode
+        : "outside_business_hours";
+      const assignment = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          whatsappAccountId,
+        );
+        const bot = database.bots.find(
+          (item) =>
+            item.id === botId && item.workspaceId === context.workspace.id,
+        );
+        if (!bot)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        let item = database.botAssignments.find(
+          (found) =>
+            found.workspaceId === context.workspace.id &&
+            found.whatsappAccountId === account.id,
+        );
+        if (!item) {
+          item = {
+            id: id("bot_assignment"),
+            workspaceId: context.workspace.id,
+            whatsappAccountId: account.id,
+            botId: bot.id,
+            enabled: req.body?.enabled !== false,
+            mode,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.botAssignments.push(item);
+        } else {
+          item.botId = bot.id;
+          item.enabled = req.body?.enabled !== false;
+          item.mode = mode;
+          item.updatedAt = now();
+        }
+        return item;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot_assignment.upserted",
+        entityType: "bot_assignment",
+        entityId: assignment.id,
+        metadata: null,
+      });
+      ok(res, assignment, 201);
+    }),
+  );
+
+  router.patch(
+    "/bot-assignments/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const assignment = await store.update((database) => {
+        const item = database.botAssignments.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!item)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_ASSIGNMENT_NOT_FOUND",
+            message: "Asignacion no encontrada.",
+          });
+        if (readOptionalString(req.body?.botId)) {
+          const bot = database.bots.find(
+            (found) =>
+              found.id === req.body.botId &&
+              found.workspaceId === context.workspace.id,
+          );
+          if (!bot)
+            throw new ApiError({
+              status: 404,
+              code: "BOT_NOT_FOUND",
+              message: "Bot no encontrado.",
+            });
+          item.botId = bot.id;
+        }
+        if (typeof req.body?.enabled === "boolean")
+          item.enabled = req.body.enabled;
+        if (botAssignmentModeValid(req.body?.mode)) item.mode = req.body.mode;
+        item.updatedAt = now();
+        return item;
+      });
+      ok(res, assignment);
+    }),
+  );
+
+  router.get(
+    "/automation-decisions",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.automationDecisionLogs
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.whatsappAccountId
+            ? item.whatsappAccountId === req.query.whatsappAccountId
+            : true,
+        )
+        .filter((item) =>
+          req.query.decision ? item.decision === req.query.decision : true,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .map((item) => ({
+          ...item,
+          bot: item.botId
+            ? (database.bots.find((bot) => bot.id === item.botId) ?? null)
+            : null,
+          whatsappAccount:
+            database.whatsappAccounts.find(
+              (account) => account.id === item.whatsappAccountId,
+            ) ?? null,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.get(
     "/dashboard/overview",
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
@@ -3224,165 +4138,6 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         message: "Preferencias actualizadas correctamente.",
         preferences: data,
       });
-    }),
-  );
-
-  router.post(
-    "/webhooks/whatsapp",
-    asyncHandler(async (req, res) => {
-      validateWebhook(req, config.takuWaWebhookSecret);
-      const event = requireString(req.body?.event, "event");
-      const connectionId = requireString(
-        req.body?.connectionId,
-        "connectionId",
-      );
-      const payload =
-        req.body?.data && typeof req.body.data === "object"
-          ? (req.body.data as Record<string, unknown>)
-          : {};
-      const result = await store.update((database) => {
-        const account = database.whatsappAccounts.find(
-          (item) => item.externalInstanceId === connectionId,
-        );
-        if (!account)
-          throw new ApiError({
-            status: 404,
-            code: "WHATSAPP_ACCOUNT_NOT_FOUND",
-            message: "Conexion no encontrada.",
-          });
-        if (event === "message.received") {
-          const from = requireString(payload.from, "from");
-          const text = readOptionalString(payload.text) ?? "";
-          let contact = database.contacts.find(
-            (item) =>
-              item.workspaceId === account.workspaceId &&
-              item.phoneNumber === from,
-          );
-          if (!contact) {
-            contact = {
-              id: id("contact"),
-              workspaceId: account.workspaceId,
-              phoneNumber: from,
-              name: readOptionalString(payload.profileName) ?? null,
-              profilePictureUrl: null,
-              notes: null,
-              createdAt: now(),
-              updatedAt: now(),
-            };
-            database.contacts.push(contact);
-          }
-          let conversation = database.conversations.find(
-            (item) =>
-              item.workspaceId === account.workspaceId &&
-              item.whatsappAccountId === account.id &&
-              item.contactId === contact?.id,
-          );
-          if (!conversation) {
-            conversation = {
-              id: id("conversation"),
-              workspaceId: account.workspaceId,
-              whatsappAccountId: account.id,
-              contactId: contact.id,
-              status: "open",
-              lastMessageBody: text,
-              lastMessageAt: now(),
-              assignedUserId: null,
-              unreadCount: 0,
-              createdAt: now(),
-              updatedAt: now(),
-            };
-            database.conversations.push(conversation);
-          }
-          const message: Message = {
-            id: id("message"),
-            workspaceId: account.workspaceId,
-            conversationId: conversation.id,
-            whatsappAccountId: account.id,
-            contactId: contact.id,
-            externalMessageId: readOptionalString(payload.messageId) ?? null,
-            direction: "inbound",
-            type: (readOptionalString(payload.type) ?? "text") as MessageType,
-            body: text,
-            mediaUrl: null,
-            mediaMimeType: null,
-            mediaFilename: null,
-            status: "received",
-            sentByUserId: null,
-            createdAt: now(),
-            updatedAt: now(),
-          };
-          database.messages.push(message);
-          conversation.lastMessageBody = text;
-          conversation.lastMessageAt = message.createdAt;
-          conversation.unreadCount += 1;
-          conversation.updatedAt = now();
-          return {
-            workspaceId: account.workspaceId,
-            message: messageView(message, database),
-            conversation: conversationView(conversation, database),
-          };
-        }
-        if (event.startsWith("message.")) {
-          const messageId = readOptionalString(payload.messageId);
-          if (messageId) {
-            const message = database.messages.find(
-              (item) =>
-                item.externalMessageId === messageId &&
-                item.workspaceId === account.workspaceId,
-            );
-            if (message) {
-              message.status = (readOptionalString(payload.status) ??
-                event.replace("message.", "")) as Message["status"];
-              message.updatedAt = now();
-              return {
-                workspaceId: account.workspaceId,
-                message: messageView(message, database),
-              };
-            }
-          }
-        }
-        if (event.startsWith("connection.")) {
-          const statusMap: Record<string, WhatsAppStatus> = {
-            open: "connected",
-            connected: "connected",
-            close: "disconnected",
-            disconnected: "disconnected",
-            connecting: "connecting",
-            qr: "qr_required",
-            failed: "failed",
-          };
-          const rawStatus =
-            readOptionalString(payload.status) ??
-            event.replace("connection.", "");
-          account.status = statusMap[rawStatus] ?? account.status;
-          account.phoneNumber =
-            readOptionalString(payload.phoneNumber) ?? account.phoneNumber;
-          if (account.status === "connected") account.lastConnectedAt = now();
-          if (account.status === "disconnected")
-            account.lastDisconnectedAt = now();
-          account.updatedAt = now();
-          return {
-            workspaceId: account.workspaceId,
-            account: whatsappAccountView(account, database),
-          };
-        }
-        return { workspaceId: account.workspaceId };
-      });
-      if ("message" in result)
-        realtime.emitToWorkspace(result.workspaceId, "message.created", result);
-      if ("conversation" in result)
-        realtime.emitToWorkspace(
-          result.workspaceId,
-          "conversation.updated",
-          result.conversation,
-        );
-      if ("account" in result)
-        realtime.emitToWorkspace(
-          result.workspaceId,
-          "whatsapp.status.updated",
-          result.account,
-        );
-      ok(res, { received: true });
     }),
   );
 

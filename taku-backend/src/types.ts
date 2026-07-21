@@ -37,6 +37,18 @@ export type MessageStatus =
   | "failed"
   | "received";
 export type MatchType = "exact" | "contains" | "starts_with";
+export type TakuBotStatus = "draft" | "active" | "paused";
+export type BotAssignmentMode =
+  | "disabled"
+  | "always"
+  | "business_hours"
+  | "outside_business_hours";
+export type AutomationDecision =
+  | "ignored"
+  | "static_reply"
+  | "bot_reply"
+  | "blocked"
+  | "error";
 
 export type Workspace = {
   id: string;
@@ -160,6 +172,30 @@ export type BotSettings = {
   updatedAt: string;
 };
 
+export type TakuBot = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  instructions: string;
+  status: TakuBotStatus;
+  externalAssistantId: string | null;
+  clientId: string | null;
+  clientToken: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BotAssignment = {
+  id: string;
+  workspaceId: string;
+  whatsappAccountId: string;
+  botId: string;
+  enabled: boolean;
+  mode: BotAssignmentMode;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AutomationRule = {
   id: string;
   workspaceId: string;
@@ -171,6 +207,20 @@ export type AutomationRule = {
   avoidIfAgentResponded: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AutomationDecisionLog = {
+  id: string;
+  workspaceId: string;
+  whatsappAccountId: string;
+  conversationId: string;
+  messageId: string;
+  botId: string | null;
+  assignmentId: string | null;
+  decision: AutomationDecision;
+  reason: string;
+  responseText: string | null;
+  createdAt: string;
 };
 
 export type Preferences = {
@@ -245,7 +295,10 @@ export type Database = {
   messages: Message[];
   businessHours: BusinessHour[];
   botSettings: BotSettings[];
+  bots: TakuBot[];
+  botAssignments: BotAssignment[];
   automationRules: AutomationRule[];
+  automationDecisionLogs: AutomationDecisionLog[];
   preferences: Preferences[];
   auditLogs: AuditLog[];
   refreshTokens: Array<{

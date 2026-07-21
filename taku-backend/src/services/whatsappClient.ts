@@ -16,6 +16,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
       headers: {
         "content-type": "application/json",
         "x-api-key": config.takuWaApiKey,
+        "x-client-domain": config.takuWaClientDomain,
         ...(init?.headers ?? {}),
       },
     },
@@ -41,12 +42,41 @@ export const whatsappClient = {
     return request("/v1/account/connections");
   },
 
+  async createConnection(params: {
+    connectionId: string;
+    businessId: string;
+    label: string;
+    autoStart?: boolean;
+  }) {
+    return request("/v1/connections", {
+      method: "POST",
+      body: JSON.stringify(params),
+    });
+  },
+
+  async startConnection(connectionId: string) {
+    return request(
+      `/v1/connections/${encodeURIComponent(connectionId)}/start`,
+      {
+        method: "POST",
+      },
+    );
+  },
+
+  async stopConnection(connectionId: string) {
+    return request(`/v1/connections/${encodeURIComponent(connectionId)}/stop`, {
+      method: "POST",
+    });
+  },
+
   async getConnectionQr(connectionId: string) {
     const payload = await request(
-      `/v1/account/connections/${encodeURIComponent(connectionId)}/qr`,
+      `/v1/connections/${encodeURIComponent(connectionId)}/qr`,
     );
     if (payload && typeof payload === "object") {
       return payload as {
+        qr?: string | null;
+        qrImage?: string | null;
         payload?: string;
         imageUrl?: string;
         imageBase64?: string;
@@ -58,7 +88,7 @@ export const whatsappClient = {
 
   async sendTextMessage(connectionId: string, to: string, text: string) {
     const payload = await request(
-      `/v1/account/connections/${encodeURIComponent(connectionId)}/messages`,
+      `/v1/connections/${encodeURIComponent(connectionId)}/messages`,
       {
         method: "POST",
         body: JSON.stringify({ to, text }),
@@ -72,7 +102,7 @@ export const whatsappClient = {
     events: string[],
     secret: string,
   ) {
-    return request("/v1/account/webhooks/subscriptions", {
+    return request("/v1/webhooks/subscriptions", {
       method: "POST",
       body: JSON.stringify({ url, events, secret }),
     });
