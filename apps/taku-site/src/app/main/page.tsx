@@ -1,8 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getWorkspaceSession, takuApi, takuList } from "@/lib/taku-api";
-import type { WorkspaceSession } from "@/lib/auth";
+import {
+  hasOwnerModeAdminBackup,
+  restoreOwnerModeAdminSession,
+  type WorkspaceSession,
+} from "@/lib/auth";
 
 type Role = "owner" | "admin" | "agent";
 type AdminRole =
@@ -3029,7 +3034,9 @@ function dashboardRoleForAdmin(adminRole: string | undefined): Role {
 }
 
 export default function MainDashboardMockPage() {
+  const router = useRouter();
   const [session, setSession] = useState<WorkspaceSession | null>(null);
+  const [hasAdminBackup, setHasAdminBackup] = useState(false);
   const [section, setSection] = useState<SectionId>("home");
   const [refreshKey, setRefreshKey] = useState(0);
   const { data, isLoading, error } = useTakuData(refreshKey);
@@ -3041,6 +3048,7 @@ export default function MainDashboardMockPage() {
 
   useEffect(() => {
     setSession(getWorkspaceSession());
+    setHasAdminBackup(hasOwnerModeAdminBackup());
   }, []);
 
   useEffect(() => {
@@ -3137,7 +3145,19 @@ export default function MainDashboardMockPage() {
                   <Badge tone="warn">Hay numeros desconectados</Badge>
                 ) : null}
                 <Badge tone="dark">{session?.role ?? "owner"}</Badge>
-                <Button variant="secondary">Mi perfil</Button>
+                {hasAdminBackup ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      restoreOwnerModeAdminSession();
+                      router.push("/admin");
+                    }}
+                  >
+                    Volver a superowner
+                  </Button>
+                ) : (
+                  <Button variant="secondary">Mi perfil</Button>
+                )}
               </div>
             </div>
           </header>

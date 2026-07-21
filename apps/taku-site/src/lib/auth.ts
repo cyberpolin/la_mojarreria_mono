@@ -2,6 +2,7 @@
 
 const sessionKey = "TAKU_SITE_SESSION";
 const legacyAdminSessionKey = "TAKU_SITE_ADMIN_SESSION";
+const ownerModeAdminBackupKey = "TAKU_SITE_OWNER_MODE_ADMIN_BACKUP";
 
 export type AdminUser = {
   id: string;
@@ -92,9 +93,43 @@ export function saveAppSession(session: AppSession) {
 
 export const saveAdminSession = saveAppSession;
 
+export function saveOwnerModeSession(session: WorkspaceSession) {
+  const adminSession = getAdminSession();
+  if (adminSession) {
+    window.localStorage.setItem(
+      ownerModeAdminBackupKey,
+      JSON.stringify(adminSession),
+    );
+  }
+  saveAppSession(session);
+}
+
+export function restoreOwnerModeAdminSession() {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(ownerModeAdminBackupKey);
+  if (!raw) return null;
+  try {
+    const session = JSON.parse(raw) as AdminSession;
+    window.localStorage.setItem(sessionKey, JSON.stringify(session));
+    window.localStorage.removeItem(ownerModeAdminBackupKey);
+    return session;
+  } catch {
+    window.localStorage.removeItem(ownerModeAdminBackupKey);
+    return null;
+  }
+}
+
+export function hasOwnerModeAdminBackup() {
+  return (
+    typeof window !== "undefined" &&
+    Boolean(window.localStorage.getItem(ownerModeAdminBackupKey))
+  );
+}
+
 export function clearAdminSession() {
   window.localStorage.removeItem(sessionKey);
   window.localStorage.removeItem(legacyAdminSessionKey);
+  window.localStorage.removeItem(ownerModeAdminBackupKey);
 }
 
 export function routeForSession(session: AppSession) {

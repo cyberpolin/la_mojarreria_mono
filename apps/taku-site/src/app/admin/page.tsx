@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAdminSession, type AdminUser } from "@/lib/auth";
+import { useRouter } from "next/navigation";
+import {
+  getAdminSession,
+  saveOwnerModeSession,
+  type AdminUser,
+  type WorkspaceSession,
+} from "@/lib/auth";
+import { takuAdminApi, takuAdminList } from "@/lib/taku-api";
 
 const metrics = [
   ["Workspaces activos", "18"],
@@ -12,38 +19,17 @@ const metrics = [
   ["Errores ultimos 60 min", "3"],
 ];
 
-const workspaces = [
-  {
-    name: "La Mojarreria",
-    slug: "la-mojarreria",
-    status: "active",
-    plan: "business",
-    users: 8,
-    numbers: 3,
-    connected: 2,
-    lastActivity: "Hace 5 min",
-  },
-  {
-    name: "Clinica Santa Fe",
-    slug: "clinica-santa-fe",
-    status: "trial",
-    plan: "starter",
-    users: 5,
-    numbers: 1,
-    connected: 1,
-    lastActivity: "Hace 22 min",
-  },
-  {
-    name: "Taller Norte",
-    slug: "taller-norte",
-    status: "suspended",
-    plan: "starter",
-    users: 3,
-    numbers: 1,
-    connected: 0,
-    lastActivity: "Hace 2 dias",
-  },
-];
+type AdminWorkspace = {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  plan: string;
+  users: number;
+  whatsappAccounts: number;
+  connectedWhatsappAccounts: number;
+  lastActivityAt: string | null;
+};
 
 const nav = [
   "Overview",
@@ -80,11 +66,47 @@ function Badge({
 }
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [openingWorkspaceId, setOpeningWorkspaceId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     setAdminUser(getAdminSession()?.adminUser ?? null);
+    void takuAdminList<AdminWorkspace>("/admin/workspaces")
+      .then(setWorkspaces)
+      .catch((caught) =>
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "No se pudieron cargar workspaces.",
+        ),
+      );
   }, []);
+
+  async function openAsOwner(workspaceId: string) {
+    setOpeningWorkspaceId(workspaceId);
+    setError(null);
+    try {
+      const session = await takuAdminApi<WorkspaceSession>(
+        `/admin/workspaces/${workspaceId}/owner-session`,
+        { method: "POST" },
+      );
+      saveOwnerModeSession(session);
+      router.push("/main");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo abrir como owner.",
+      );
+    } finally {
+      setOpeningWorkspaceId(null);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -156,6 +178,11 @@ export default function AdminDashboardPage() {
           </header>
 
           <div className="grid gap-6 p-4 md:p-6">
+            {error ? (
+              <div className="rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
+                {error}
+              </div>
+            ) : null}
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {metrics.map(([label, value]) => (
                 <div
@@ -190,6 +217,7 @@ export default function AdminDashboardPage() {
                         <th className="px-4 py-3">Usuarios</th>
                         <th className="px-4 py-3">Numeros</th>
                         <th className="px-4 py-3">Actividad</th>
+                        <th className="px-4 py-3">Owner UI</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -215,13 +243,41 @@ export default function AdminDashboardPage() {
                             {workspace.users}
                           </td>
                           <td className="px-4 py-3 text-slate-700">
-                            {workspace.connected}/{workspace.numbers}
+                            {workspace.connectedWhatsappAccounts}/
+                            {workspace.whatsappAccounts}
                           </td>
                           <td className="px-4 py-3 text-slate-600">
-                            {workspace.lastActivity}
+                            {workspace.lastActivityAt
+                              ? new Intl.DateTimeFormat("es-MX", {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                }).format(new Date(workspace.lastActivityAt))
+                              : "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              disabled={openingWorkspaceId === workspace.id}
+                              onClick={() => void openAsOwner(workspace.id)}
+                              className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {openingWorkspaceId === workspace.id
+                                ? "Abriendo..."
+                                : "Abrir como owner"}
+                            </button>
                           </td>
                         </tr>
                       ))}
+                      {workspaces.length === 0 ? (
+                        <tr>
+                          <td
+                            className="px-4 py-8 text-sm text-slate-500"
+                            colSpan={7}
+                          >
+                            No hay workspaces disponibles.
+                          </td>
+                        </tr>
+                      ) : null}
                     </tbody>
                   </table>
                 </div>

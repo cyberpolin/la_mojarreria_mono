@@ -228,6 +228,61 @@ function createClientLoginResult(
   };
 }
 
+function createClientSessionForUser(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  userId: string,
+  workspaceId: string,
+) {
+  const user = database.users.find((item) => item.id === userId);
+  if (!user || user.status !== "active") {
+    throw new ApiError({
+      status: 404,
+      code: "USER_NOT_FOUND",
+      message: "Usuario no encontrado.",
+    });
+  }
+  const memberships = database.memberships.filter(
+    (item) => item.userId === user.id && item.status === "active",
+  );
+  const workspaces = memberships
+    .map((membership) => {
+      const found = database.workspaces.find(
+        (item) => item.id === membership.workspaceId,
+      );
+      return found ? workspaceWithRole(found, membership.role) : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const currentWorkspace =
+    workspaces.find((item) => item.id === workspaceId) ?? null;
+  if (!currentWorkspace) {
+    throw new ApiError({
+      status: 403,
+      code: "WORKSPACE_FORBIDDEN",
+      message: "Usuario sin acceso al workspace.",
+    });
+  }
+  const tokens = createTokens(user.id);
+  database.refreshTokens.push({
+    id: id("refresh"),
+    userId: user.id,
+    tokenHash: hashToken(tokens.refreshToken, config.refreshSecret),
+    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+    revokedAt: null,
+    createdAt: now(),
+  });
+  user.lastLoginAt = now();
+  user.updatedAt = now();
+  return {
+    sessionType: "client" as const,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: publicUser(user),
+    role: currentWorkspace.role,
+    currentWorkspace,
+    workspaces,
+  };
+}
+
 function assertWorkspace(req: Request) {
   if (!req.auth || !req.workspaceContext) {
     throw new ApiError({
@@ -1407,6 +1462,79 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           (settings) => settings.workspaceId === workspaceItem.id,
         ),
       });
+    }),
+  );
+
+  router.post(
+    "/admin/workspaces/:workspaceId/owner-session",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const result = await store.update((database) => {
+        const workspaceItem = database.workspaces.find(
+          (item) => item.id === req.params.workspaceId,
+        );
+        if (!workspaceItem) {
+          throw new ApiError({
+            status: 404,
+            code: "WORKSPACE_NOT_FOUND",
+            message: "Workspace no encontrado.",
+          });
+        }
+        const shadowUserId = `admin_owner_${adminUser.id}`;
+        let user = database.users.find((item) => item.id === shadowUserId);
+        if (!user) {
+          user = {
+            id: shadowUserId,
+            name: `${adminUser.name} (Superowner)`,
+            email: `superowner+${adminUser.id}@taku.internal`,
+            passwordHash: hashPassword(createOpaqueToken()),
+            status: "active",
+            lastLoginAt: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.users.push(user);
+        } else {
+          user.name = `${adminUser.name} (Superowner)`;
+          user.status = "active";
+          user.updatedAt = now();
+        }
+        let membership = database.memberships.find(
+          (item) =>
+            item.workspaceId === workspaceItem.id && item.userId === user.id,
+        );
+        if (!membership) {
+          membership = {
+            id: id("membership"),
+            workspaceId: workspaceItem.id,
+            userId: user.id,
+            role: "owner",
+            status: "active",
+            invitationSentAt: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.memberships.push(membership);
+        } else {
+          membership.role = "owner";
+          membership.status = "active";
+          membership.updatedAt = now();
+        }
+        return createClientSessionForUser(database, user.id, workspaceItem.id);
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.workspace.owner_session_created",
+        targetType: "workspace",
+        targetId: req.params.workspaceId,
+        workspaceId: req.params.workspaceId,
+        reason: "Superowner requested owner UI access.",
+        metadata: { impersonatedUserId: result.user.id },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, result, 201);
     }),
   );
 
