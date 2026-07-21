@@ -289,7 +289,7 @@ jobs:
           port: ${{ steps.cloudcluster.outputs.port }}
           envs: DEPLOY_PATH,CERTBOT_EMAIL,SUDO_PASSWORD
           timeout: 60s
-          command_timeout: 15m
+          command_timeout: 30m
           request_pty: true
           debug: true
           script: |
@@ -345,7 +345,7 @@ jobs:
                 cd /tmp/taku-backend-infra
                 TAKU_SERVICES="TAKU_BACKEND" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
                 TAKU_SERVICES="TAKU_BACKEND" scripts/list-taku-services.sh
-                run_sudo env TAKU_SERVICES="TAKU_BACKEND" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+                run_sudo timeout 300s env TAKU_SERVICES="TAKU_BACKEND" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
                 run_sudo env TAKU_SERVICES="TAKU_BACKEND" DEBUG=true scripts/enable-taku-nginx-sites.sh
               )
 
@@ -412,3 +412,25 @@ jobs:
             echo "Remote deploy log:"
             cat "$LOG_FILE"
             exit "$DEPLOY_STATUS"
+
+      - name: Fetch remote deploy log
+        if: always()
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            echo "Remote deploy log:"
+            if [ -f /tmp/taku-backend-deploy.log ]; then
+              cat /tmp/taku-backend-deploy.log
+            else
+              echo "No remote deploy log file found"
+            fi
