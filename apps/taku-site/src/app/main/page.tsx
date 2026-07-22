@@ -555,7 +555,7 @@ function useTakuData(refreshKey: number) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setIsLoading(true);
+      setIsLoading(refreshKey === 0);
       setError(null);
       try {
         const [
