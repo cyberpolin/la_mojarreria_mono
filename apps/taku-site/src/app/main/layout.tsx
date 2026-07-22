@@ -2,7 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { clearAdminSession, getAppSession, routeForSession } from "@/lib/auth";
+import {
+  clearAdminSession,
+  getAppSession,
+  saveOwnerModeSession,
+  type WorkspaceSession,
+} from "@/lib/auth";
+import { takuAdminApi, takuAdminList } from "@/lib/taku-api";
+
+type AdminWorkspace = {
+  id: string;
+};
 
 export default function MainLayout({
   children,
@@ -14,23 +24,53 @@ export default function MainLayout({
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    const session = getAppSession();
-    if (!session) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-      return;
+    let cancelled = false;
+
+    async function validateSession() {
+      const session = getAppSession();
+      if (!session) {
+        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+        return;
+      }
+
+      if (session.sessionType !== "client") {
+        try {
+          const workspaces = await takuAdminList<AdminWorkspace>(
+            "/admin/workspaces?pageSize=1",
+          );
+          const workspace = workspaces[0];
+          if (!workspace) {
+            router.replace("/admin");
+            return;
+          }
+          const ownerSession = await takuAdminApi<WorkspaceSession>(
+            `/admin/workspaces/${workspace.id}/owner-session`,
+            { method: "POST" },
+          );
+          saveOwnerModeSession(ownerSession);
+          if (!cancelled) setIsChecking(false);
+          return;
+        } catch {
+          router.replace("/admin");
+          return;
+        }
+      }
+
+      if (!cancelled) setIsChecking(false);
     }
-    if (session.sessionType !== "client") {
-      router.replace(routeForSession(session));
-      return;
-    }
-    setIsChecking(false);
+
+    void validateSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pathname, router]);
 
   if (isChecking) {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-100 px-4 text-slate-950">
         <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-700">
-          Validando sesion...
+          Preparando vista owner...
         </div>
       </main>
     );

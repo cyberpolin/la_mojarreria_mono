@@ -173,6 +173,17 @@ export default function AdminDashboardPage() {
                 />
                 <Badge>Servicios OK</Badge>
                 <Badge dark>{adminUser?.role ?? "super_owner"}</Badge>
+                <button
+                  type="button"
+                  disabled={!workspaces[0] || Boolean(openingWorkspaceId)}
+                  onClick={() => {
+                    const workspace = workspaces[0];
+                    if (workspace) void openAsOwner(workspace.id);
+                  }}
+                  className="min-h-10 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {openingWorkspaceId ? "Abriendo owner..." : "Ver como owner"}
+                </button>
               </div>
             </div>
           </header>
