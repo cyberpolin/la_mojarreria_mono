@@ -107,6 +107,15 @@ type BotSettings = {
   aiEnabled: boolean;
 };
 
+type AutomationSettingsForm = {
+  enabled: boolean;
+  afterHoursEnabled: boolean;
+  afterHoursResponder: "static_message" | "assigned_bot" | "none";
+  afterHoursMessage: string;
+  rulesEnabled: boolean;
+  aiEnabled: boolean;
+};
+
 type AutomationRule = {
   id: string;
   keyword: string;
@@ -2592,6 +2601,19 @@ function StatesSection({ role }: { role: Role }) {
   );
 }
 
+function settingsFormFromBotSettings(
+  botSettings: BotSettings | null | undefined,
+): AutomationSettingsForm {
+  return {
+    enabled: botSettings?.enabled ?? false,
+    afterHoursEnabled: botSettings?.afterHoursEnabled ?? false,
+    afterHoursResponder: botSettings?.afterHoursResponder ?? "static_message",
+    afterHoursMessage: botSettings?.afterHoursMessage ?? "",
+    rulesEnabled: botSettings?.rulesEnabled ?? false,
+    aiEnabled: botSettings?.aiEnabled ?? false,
+  };
+}
+
 function AutomationSectionConnected({
   data,
   onRefresh,
@@ -2609,41 +2631,75 @@ function AutomationSectionConnected({
   const [assignmentMode, setAssignmentMode] = useState(
     "outside_business_hours",
   );
-  const [settings, setSettings] = useState({
-    enabled: data.botSettings?.enabled ?? false,
-    afterHoursEnabled: data.botSettings?.afterHoursEnabled ?? false,
-    afterHoursResponder:
-      data.botSettings?.afterHoursResponder ?? "static_message",
-    afterHoursMessage: data.botSettings?.afterHoursMessage ?? "",
-    rulesEnabled: data.botSettings?.rulesEnabled ?? false,
-    aiEnabled: data.botSettings?.aiEnabled ?? false,
-  });
+  const [settings, setSettings] = useState<AutomationSettingsForm>(() =>
+    settingsFormFromBotSettings(data.botSettings),
+  );
+  const [numberSettings, setNumberSettings] = useState<AutomationSettingsForm>(
+    () => settingsFormFromBotSettings(data.botSettings),
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [loadingNumberSettings, setLoadingNumberSettings] = useState(false);
+  const [savingNumberSettings, setSavingNumberSettings] = useState(false);
   const [creatingBot, setCreatingBot] = useState(false);
   const [creatingRule, setCreatingRule] = useState(false);
   const [assigningBot, setAssigningBot] = useState(false);
 
   useEffect(() => {
-    setSettings({
-      enabled: data.botSettings?.enabled ?? false,
-      afterHoursEnabled: data.botSettings?.afterHoursEnabled ?? false,
-      afterHoursResponder:
-        data.botSettings?.afterHoursResponder ?? "static_message",
-      afterHoursMessage: data.botSettings?.afterHoursMessage ?? "",
-      rulesEnabled: data.botSettings?.rulesEnabled ?? false,
-      aiEnabled: data.botSettings?.aiEnabled ?? false,
-    });
+    setSettings(settingsFormFromBotSettings(data.botSettings));
   }, [data.botSettings]);
 
   useEffect(() => {
     if (!assignmentPhone && data.accounts[0]) {
       setAssignmentPhone(data.accounts[0].id);
     }
+  }, [assignmentPhone, data.accounts]);
+
+  useEffect(() => {
+    const currentAssignment = data.assignments.find(
+      (assignment) => assignment.whatsappAccountId === assignmentPhone,
+    );
+    if (currentAssignment) {
+      setAssignmentBot(currentAssignment.botId);
+      setAssignmentMode(currentAssignment.mode);
+      return;
+    }
     if (!assignmentBot && data.bots[0]) {
       setAssignmentBot(data.bots[0].id);
     }
-  }, [assignmentBot, assignmentPhone, data.accounts, data.bots]);
+    if (!currentAssignment) {
+      setAssignmentMode("outside_business_hours");
+    }
+  }, [assignmentBot, assignmentPhone, data.assignments, data.bots]);
+
+  useEffect(() => {
+    if (!assignmentPhone) {
+      setNumberSettings(settingsFormFromBotSettings(data.botSettings));
+      return;
+    }
+
+    let cancelled = false;
+    async function loadNumberSettings() {
+      setLoadingNumberSettings(true);
+      try {
+        const loaded = await takuApi<BotSettings>(
+          `/bot-settings?whatsappAccountId=${encodeURIComponent(assignmentPhone)}`,
+        );
+        if (!cancelled) setNumberSettings(settingsFormFromBotSettings(loaded));
+      } catch {
+        if (!cancelled) {
+          setNumberSettings(settingsFormFromBotSettings(data.botSettings));
+        }
+      } finally {
+        if (!cancelled) setLoadingNumberSettings(false);
+      }
+    }
+
+    void loadNumberSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [assignmentPhone, data.botSettings]);
 
   async function saveSettings() {
     setMessage(null);
@@ -2676,6 +2732,45 @@ function AutomationSectionConnected({
       );
     } finally {
       setSavingSettings(false);
+    }
+  }
+
+  async function saveNumberSettings() {
+    setMessage(null);
+    if (!assignmentPhone) {
+      setMessage("Selecciona un numero para configurar su automatizacion.");
+      return;
+    }
+    if (
+      numberSettings.afterHoursEnabled &&
+      numberSettings.afterHoursResponder === "static_message" &&
+      !numberSettings.afterHoursMessage.trim()
+    ) {
+      setMessage(
+        "Escribe el mensaje fijo fuera de horario o elige otro responder.",
+      );
+      return;
+    }
+    setSavingNumberSettings(true);
+    try {
+      await takuApi("/bot-settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          whatsappAccountId: assignmentPhone,
+          ...numberSettings,
+          afterHoursMessage: numberSettings.afterHoursMessage.trim(),
+        }),
+      });
+      setMessage("Automatizacion del numero guardada.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar la automatizacion del numero.",
+      );
+    } finally {
+      setSavingNumberSettings(false);
     }
   }
 
@@ -2773,7 +2868,13 @@ function AutomationSectionConnected({
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold text-slate-950">Motor de respuestas</h2>
+          <h2 className="font-semibold text-slate-950">
+            Motor global de respuestas
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Base general para todos los numeros. Puedes ajustar cada numero en
+            la seccion por numero.
+          </p>
           <div className="mt-5 grid gap-3">
             <Switch
               checked={settings.enabled}
@@ -2789,10 +2890,7 @@ function AutomationSectionConnected({
                 setSettings((current) => ({ ...current, afterHoursEnabled }))
               }
             />
-            <Field
-              label="Fuera de horario responde con"
-              hint="Si eliges bot asignado, configura abajo el bot del numero en modo Fuera de horario."
-            >
+            <Field label="Fuera de horario responde con">
               <Select
                 value={settings.afterHoursResponder}
                 onChange={(afterHoursResponder) =>
@@ -2918,12 +3016,138 @@ function AutomationSectionConnected({
         </div>
       </section>
 
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-950">
+              Automatizacion por numero
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Selecciona un numero, activa o pausa su automatizacion y define
+              cuando responde el bot.
+            </p>
+          </div>
+          <Button
+            disabled={!assignmentPhone || savingNumberSettings}
+            onClick={() => void saveNumberSettings()}
+          >
+            {savingNumberSettings ? "Guardando..." : "Guardar numero"}
+          </Button>
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="grid gap-4">
+            <Field label="Numero">
+              <Select value={assignmentPhone} onChange={setAssignmentPhone}>
+                <option value="">Selecciona numero</option>
+                {data.accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayName} · {statusLabel(account.status)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {data.accounts.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Primero agrega y vincula un numero de WhatsApp.
+              </p>
+            ) : null}
+            {loadingNumberSettings ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Cargando configuracion del numero...
+              </p>
+            ) : null}
+            <Switch
+              checked={numberSettings.enabled}
+              label="Automatizacion activa para este numero"
+              onChange={(enabled) =>
+                setNumberSettings((current) => ({ ...current, enabled }))
+              }
+            />
+            <Switch
+              checked={numberSettings.rulesEnabled}
+              label="Aplicar reglas por palabra clave a este numero"
+              onChange={(rulesEnabled) =>
+                setNumberSettings((current) => ({ ...current, rulesEnabled }))
+              }
+            />
+            <Switch
+              checked={numberSettings.aiEnabled}
+              label="Permitir bot asignado en este numero"
+              onChange={(aiEnabled) =>
+                setNumberSettings((current) => ({ ...current, aiEnabled }))
+              }
+            />
+          </div>
+
+          <div className="grid gap-4">
+            <Switch
+              checked={numberSettings.afterHoursEnabled}
+              label="Respuesta fuera de horario para este numero"
+              onChange={(afterHoursEnabled) =>
+                setNumberSettings((current) => ({
+                  ...current,
+                  afterHoursEnabled,
+                }))
+              }
+            />
+            <Field label="Fuera de horario responde con">
+              <Select
+                value={numberSettings.afterHoursResponder}
+                onChange={(afterHoursResponder) =>
+                  setNumberSettings((current) => ({
+                    ...current,
+                    afterHoursResponder: afterHoursResponder as
+                      | "static_message"
+                      | "assigned_bot"
+                      | "none",
+                    afterHoursEnabled:
+                      afterHoursResponder === "assigned_bot"
+                        ? true
+                        : current.afterHoursEnabled,
+                    aiEnabled:
+                      afterHoursResponder === "assigned_bot"
+                        ? true
+                        : current.aiEnabled,
+                  }))
+                }
+              >
+                <option value="static_message">Mensaje fijo</option>
+                <option value="assigned_bot">Bot asignado</option>
+                <option value="none">Nada</option>
+              </Select>
+            </Field>
+            <Field label="Mensaje fijo fuera de horario">
+              <TextArea
+                placeholder="Gracias por escribir. Estamos fuera de horario."
+                value={numberSettings.afterHoursMessage}
+                readOnly={
+                  numberSettings.afterHoursResponder !== "static_message"
+                }
+                onChange={(afterHoursMessage) =>
+                  setNumberSettings((current) => ({
+                    ...current,
+                    afterHoursMessage,
+                  }))
+                }
+              />
+            </Field>
+          </div>
+        </div>
+      </section>
+
       <div className="grid gap-6 xl:grid-cols-2">
         <form
           onSubmit={assignBot}
           className="rounded-lg border border-slate-200 bg-white p-5"
         >
-          <h2 className="font-semibold text-slate-950">Asignar bot a numero</h2>
+          <h2 className="font-semibold text-slate-950">
+            Bot y horario de respuesta
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Define que bot usa el numero seleccionado y en que horario puede
+            responder.
+          </p>
           <div className="mt-5 grid gap-4">
             <Field label="Numero">
               <Select value={assignmentPhone} onChange={setAssignmentPhone}>
@@ -2955,7 +3179,7 @@ function AutomationSectionConnected({
                 Primero crea un bot.
               </p>
             ) : null}
-            <Field label="Modo">
+            <Field label="Horario en que responde el bot">
               <Select value={assignmentMode} onChange={setAssignmentMode}>
                 <option value="outside_business_hours">Fuera de horario</option>
                 <option value="business_hours">Dentro de horario</option>

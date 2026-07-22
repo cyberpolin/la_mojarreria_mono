@@ -586,6 +586,11 @@ function signWebhookBody(body: unknown, secret: string, timestamp: string) {
 }
 
 function validateWebhook(req: Request, secret: string) {
+  const waServiceSecret = req.header("x-wa-service-secret");
+  if (waServiceSecret && waServiceSecret === secret) {
+    return;
+  }
+
   const signature = req.header("X-Signature");
   const timestamp = req.header("X-Timestamp");
   if (!signature || !timestamp) {
@@ -918,10 +923,21 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         req.body?.connectionId,
         "connectionId",
       );
-      const payload =
+      const rawPayload =
         req.body?.data && typeof req.body.data === "object"
           ? (req.body.data as Record<string, unknown>)
-          : {};
+          : req.body?.message && typeof req.body.message === "object"
+            ? (req.body.message as Record<string, unknown>)
+            : {};
+      const payload =
+        "phone" in rawPayload || "id" in rawPayload
+          ? {
+              ...rawPayload,
+              from: rawPayload.phone,
+              messageId: rawPayload.id,
+              type: "text",
+            }
+          : rawPayload;
       const result = await store.update((database) => {
         const account = database.whatsappAccounts.find(
           (item) => item.externalInstanceId === connectionId,
