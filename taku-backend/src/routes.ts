@@ -2602,21 +2602,39 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         database.whatsappAccounts.push(account);
         return account;
       });
-      await whatsappClient.createConnection({
-        connectionId: created.externalInstanceId,
-        businessId: context.workspace.id,
-        label: created.displayName,
-        autoStart: false,
-      });
+      let provisioningWarning: string | null = null;
+      try {
+        await whatsappClient.createConnection({
+          connectionId: created.externalInstanceId,
+          businessId: context.workspace.id,
+          label: created.displayName,
+          autoStart: false,
+        });
+      } catch (error) {
+        if (!isAlreadyExistsServiceError(error)) {
+          provisioningWarning =
+            error instanceof ApiError
+              ? error.message
+              : "No se pudo preparar la conexion en WhatsApp Service.";
+        }
+      }
       await store.audit({
         workspaceId: context.workspace.id,
         userId: context.user.id,
         action: "whatsapp_account.created",
         entityType: "whatsapp_account",
         entityId: created.id,
-        metadata: null,
+        metadata: provisioningWarning ? { provisioningWarning } : null,
       });
-      ok(res, { ...whatsappAccountView(created), qrAvailable: false }, 201);
+      ok(
+        res,
+        {
+          ...whatsappAccountView(created),
+          qrAvailable: false,
+          provisioningWarning,
+        },
+        201,
+      );
     }),
   );
 

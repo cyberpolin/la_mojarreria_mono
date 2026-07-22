@@ -9,18 +9,38 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
       message: "TAKU_WA_API_KEY no esta configurado.",
     });
   }
-  const response = await fetch(
-    `${config.takuWaBaseUrl.replace(/\/+$/, "")}${path}`,
-    {
-      ...init,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": config.takuWaApiKey,
-        "x-client-domain": config.takuWaClientDomain,
-        ...(init?.headers ?? {}),
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let response: Response;
+  try {
+    response = await fetch(
+      `${config.takuWaBaseUrl.replace(/\/+$/, "")}${path}`,
+      {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": config.takuWaApiKey,
+          "x-client-domain": config.takuWaClientDomain,
+          ...(init?.headers ?? {}),
+        },
       },
-    },
-  );
+    );
+  } catch (error) {
+    throw new ApiError({
+      status: 502,
+      code: "WHATSAPP_SERVICE_ERROR",
+      message: "Error al comunicarse con WhatsApp Service.",
+      details: {
+        cause:
+          error instanceof Error && error.name === "AbortError"
+            ? "timeout"
+            : "network_error",
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new ApiError({

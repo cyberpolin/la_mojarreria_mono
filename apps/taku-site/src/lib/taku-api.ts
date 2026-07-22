@@ -16,6 +16,8 @@ type ApiPayload<T> = {
   pagination?: { page: number; pageSize: number; total: number };
 };
 
+let workspaceRefreshPromise: Promise<WorkspaceSession | null> | null = null;
+
 export function getWorkspaceSession(): WorkspaceSession | null {
   const session = getAppSession();
   return session?.sessionType === "client" ? session : null;
@@ -24,8 +26,9 @@ export function getWorkspaceSession(): WorkspaceSession | null {
 export async function takuApi<T>(
   path: string,
   init: RequestInit = {},
+  retryOnUnauthorized = true,
 ): Promise<T> {
-  const session = getWorkspaceSession();
+  const session = await getFreshWorkspaceSession();
   if (!session) throw new Error("Sesion requerida.");
 
   const response = await fetch(`${getBackendApiBaseUrl()}${path}`, {
@@ -40,6 +43,12 @@ export async function takuApi<T>(
   const payload = (await response
     .json()
     .catch(() => null)) as ApiPayload<T> | null;
+  if (response.status === 401 && retryOnUnauthorized) {
+    const refreshed = await refreshWorkspaceSession(session);
+    if (refreshed) {
+      return takuApi<T>(path, init, false);
+    }
+  }
   if (!response.ok || !payload?.ok) {
     throw new Error(
       payload?.error?.message ?? `Request failed with HTTP ${response.status}`,
@@ -50,6 +59,65 @@ export async function takuApi<T>(
 
 export async function takuList<T>(path: string): Promise<T[]> {
   return takuApi<T[]>(path);
+}
+
+async function getFreshWorkspaceSession() {
+  const session = getWorkspaceSession();
+  if (!session) return null;
+  if (!isTokenExpiring(session.accessToken)) return session;
+  return refreshWorkspaceSession(session);
+}
+
+function isTokenExpiring(token: string) {
+  const payload = decodeJwtPayload(token);
+  if (typeof payload?.exp !== "number") return false;
+  return payload.exp <= Math.floor(Date.now() / 1000) + 30;
+}
+
+function decodeJwtPayload(token: string): { exp?: number } | null {
+  const [, encodedPayload] = token.split(".");
+  if (!encodedPayload) return null;
+  try {
+    const normalized = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "=",
+    );
+    return JSON.parse(window.atob(padded)) as { exp?: number };
+  } catch {
+    return null;
+  }
+}
+
+async function refreshWorkspaceSession(session: WorkspaceSession) {
+  if (!workspaceRefreshPromise) {
+    workspaceRefreshPromise = refreshWorkspaceSessionOnce(session).finally(
+      () => {
+        workspaceRefreshPromise = null;
+      },
+    );
+  }
+  return workspaceRefreshPromise;
+}
+
+async function refreshWorkspaceSessionOnce(session: WorkspaceSession) {
+  const response = await fetch(`${getBackendApiBaseUrl()}/auth/refresh`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ refreshToken: session.refreshToken }),
+  });
+  const payload = (await response.json().catch(() => null)) as ApiPayload<{
+    accessToken: string;
+    refreshToken: string;
+  }> | null;
+  if (!response.ok || !payload?.ok || !payload.data) return null;
+  const refreshed: WorkspaceSession = {
+    ...session,
+    accessToken: payload.data.accessToken,
+    refreshToken: payload.data.refreshToken,
+  };
+  saveAppSession(refreshed);
+  return refreshed;
 }
 
 export async function takuAdminApi<T>(

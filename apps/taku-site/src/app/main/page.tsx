@@ -1243,6 +1243,7 @@ function NumbersSection({
     expiresAt?: string | null;
   } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const selected =
     data.accounts.find((account) => account.id === selectedId) ??
     data.accounts[0] ??
@@ -1251,18 +1252,34 @@ function NumbersSection({
   async function createNumber(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
-    await takuApi("/whatsapp-accounts", {
-      method: "POST",
-      body: JSON.stringify({
-        displayName,
-        description,
-        timezone: "America/Mexico_City",
-      }),
-    });
-    setDisplayName("");
-    setDescription("");
-    setMessage("Numero creado. Ahora puedes pedir el QR.");
-    onRefresh();
+    setCreating(true);
+    try {
+      const response = await takuApi<{ provisioningWarning?: string | null }>(
+        "/whatsapp-accounts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            displayName,
+            description,
+            timezone: "America/Mexico_City",
+          }),
+        },
+      );
+      setDisplayName("");
+      setDescription("");
+      setMessage(
+        response.provisioningWarning
+          ? "Numero creado. WhatsApp Service no pudo preparar la conexion todavia; intenta pedir el QR en unos segundos."
+          : "Numero creado. Ahora puedes pedir el QR.",
+      );
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo crear el numero.",
+      );
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function requestQr(accountId: string) {
@@ -1448,8 +1465,8 @@ function NumbersSection({
             <Switch checked label="Usar horario general de la empresa" />
             <Switch checked label="Usar configuracion general del bot" />
             <div className="flex gap-3">
-              <Button type="submit" disabled={!displayName.trim()}>
-                Crear numero
+              <Button type="submit" disabled={!displayName.trim() || creating}>
+                {creating ? "Creando..." : "Crear numero"}
               </Button>
               <Button
                 variant="secondary"
