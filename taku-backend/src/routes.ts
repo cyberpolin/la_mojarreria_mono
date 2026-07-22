@@ -98,6 +98,29 @@ function isAlreadyExistsServiceError(error: unknown) {
   );
 }
 
+function logWhatsAppConnectEvent(
+  event: string,
+  details: Record<string, unknown>,
+) {
+  console.log(JSON.stringify({ event, ...details }));
+}
+
+function errorLogDetails(error: unknown) {
+  if (error instanceof ApiError) {
+    return {
+      name: error.name,
+      code: error.code,
+      status: error.status,
+      message: error.message,
+      details: error.details ?? null,
+    };
+  }
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+  return { message: String(error) };
+}
+
 function matchTypeValid(value: unknown): value is MatchType {
   return value === "exact" || value === "contains" || value === "starts_with";
 }
@@ -2733,7 +2756,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           qr = await whatsappClient.getConnectionQr(account.externalInstanceId);
         }
         return qr;
-      } catch {
+      } catch (error) {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_qr_failed", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+          error: errorLogDetails(error),
+        });
         return {
           payload: `mock_qr_${account.externalInstanceId}`,
           imageUrl: `data:text/plain;base64,${Buffer.from(`QR ${account.externalInstanceId}`).toString("base64")}`,
@@ -2783,27 +2812,93 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         context.workspace.id,
         req.params.id,
       );
+      logWhatsAppConnectEvent("taku_backend_wa_connect_started", {
+        workspaceId: context.workspace.id,
+        accountId: account.id,
+        connectionId: account.externalInstanceId,
+      });
       try {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_create_attempt", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
         await whatsappClient.createConnection({
           connectionId: account.externalInstanceId,
           businessId: context.workspace.id,
           label: account.displayName,
           autoStart: false,
         });
+        logWhatsAppConnectEvent("taku_backend_wa_connect_create_ok", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
       } catch (error) {
-        if (!isAlreadyExistsServiceError(error)) throw error;
+        if (!isAlreadyExistsServiceError(error)) {
+          logWhatsAppConnectEvent("taku_backend_wa_connect_create_failed", {
+            workspaceId: context.workspace.id,
+            accountId: account.id,
+            connectionId: account.externalInstanceId,
+            error: errorLogDetails(error),
+          });
+          throw error;
+        }
+        logWhatsAppConnectEvent("taku_backend_wa_connect_create_exists", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
       }
-      await whatsappClient.startConnection(account.externalInstanceId);
+      try {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_start_attempt", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+        await whatsappClient.startConnection(account.externalInstanceId);
+        logWhatsAppConnectEvent("taku_backend_wa_connect_start_ok", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+      } catch (error) {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_start_failed", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+          error: errorLogDetails(error),
+        });
+        throw error;
+      }
       try {
         await whatsappClient.createWebhookSubscription(
           `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp`,
           ["message.received"],
           config.takuWaWebhookSecret,
         );
-      } catch {
+        logWhatsAppConnectEvent("taku_backend_wa_webhook_subscription_ok", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+      } catch (error) {
+        logWhatsAppConnectEvent("taku_backend_wa_webhook_subscription_failed", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+          error: errorLogDetails(error),
+        });
         // QR pairing should not be blocked by webhook registration.
       }
       const data = await qrForAccount(req.params.id, context);
+      logWhatsAppConnectEvent("taku_backend_wa_connect_qr_ok", {
+        workspaceId: context.workspace.id,
+        accountId: account.id,
+        connectionId: account.externalInstanceId,
+        hasPayload: Boolean(data.qr.payload),
+        hasImageUrl: Boolean(data.qr.imageUrl),
+      });
       await store.audit({
         workspaceId: context.workspace.id,
         userId: context.user.id,
