@@ -283,6 +283,94 @@ function createClientSessionForUser(
   };
 }
 
+function ensureAdminOwnerUser(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  adminUser: ReturnType<typeof assertAdmin>,
+  workspaceId: string,
+) {
+  const shadowUserId = `admin_owner_${adminUser.id}`;
+  let user = database.users.find((item) => item.id === shadowUserId);
+  if (!user) {
+    user = {
+      id: shadowUserId,
+      name: `${adminUser.name} (Superowner)`,
+      email: `superowner+${adminUser.id}@taku.internal`,
+      passwordHash: hashPassword(createOpaqueToken()),
+      status: "active",
+      lastLoginAt: null,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    database.users.push(user);
+  } else {
+    user.name = `${adminUser.name} (Superowner)`;
+    user.status = "active";
+    user.updatedAt = now();
+  }
+
+  let membership = database.memberships.find(
+    (item) => item.workspaceId === workspaceId && item.userId === user.id,
+  );
+  if (!membership) {
+    membership = {
+      id: id("membership"),
+      workspaceId,
+      userId: user.id,
+      role: "owner",
+      status: "active",
+      invitationSentAt: null,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    database.memberships.push(membership);
+  } else {
+    membership.role = "owner";
+    membership.status = "active";
+    membership.updatedAt = now();
+  }
+
+  return user;
+}
+
+function ensureWorkspaceDefaults(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  workspaceId: string,
+) {
+  if (!database.preferences.some((item) => item.workspaceId === workspaceId)) {
+    database.preferences.push({
+      id: id("preferences"),
+      workspaceId,
+      defaultConversationStatus: "open",
+      autoCloseEnabled: false,
+      autoCloseAfterHours: null,
+      showBotMessages: true,
+      agentsCanCloseConversations: true,
+      agentsCanReassignConversations: false,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+  }
+  if (
+    !database.botSettings.some(
+      (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+    )
+  ) {
+    database.botSettings.push({
+      id: id("bot_settings"),
+      workspaceId,
+      whatsappAccountId: null,
+      enabled: false,
+      afterHoursEnabled: false,
+      afterHoursMessage: null,
+      rulesEnabled: false,
+      aiEnabled: false,
+      externalBotId: null,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+  }
+}
+
 function assertWorkspace(req: Request) {
   if (!req.auth || !req.workspaceContext) {
     throw new ApiError({
@@ -1418,6 +1506,52 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.post(
+    "/admin/owner-session",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const result = await store.update((database) => {
+        let workspaceItem = database.workspaces[0] ?? null;
+        if (!workspaceItem) {
+          workspaceItem = {
+            id: id("workspace"),
+            name: "TAKU Internal",
+            slug: "taku-internal",
+            status: "active",
+            plan: "starter",
+            timezone: "America/Mexico_City",
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.workspaces.push(workspaceItem);
+        }
+        ensureWorkspaceDefaults(database, workspaceItem.id);
+        const user = ensureAdminOwnerUser(
+          database,
+          adminUser,
+          workspaceItem.id,
+        );
+        return createClientSessionForUser(database, user.id, workspaceItem.id);
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.owner_session_created",
+        targetType: "workspace",
+        targetId: result.currentWorkspace.id,
+        workspaceId: result.currentWorkspace.id,
+        reason: "Superowner requested owner UI access.",
+        metadata: {
+          impersonatedUserId: result.user.id,
+          ensuredWorkspace: true,
+        },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, result, 201);
+    }),
+  );
+
   router.get(
     "/admin/workspaces/:workspaceId",
     asyncHandler(async (req, res) => {
@@ -1481,46 +1615,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             message: "Workspace no encontrado.",
           });
         }
-        const shadowUserId = `admin_owner_${adminUser.id}`;
-        let user = database.users.find((item) => item.id === shadowUserId);
-        if (!user) {
-          user = {
-            id: shadowUserId,
-            name: `${adminUser.name} (Superowner)`,
-            email: `superowner+${adminUser.id}@taku.internal`,
-            passwordHash: hashPassword(createOpaqueToken()),
-            status: "active",
-            lastLoginAt: null,
-            createdAt: now(),
-            updatedAt: now(),
-          };
-          database.users.push(user);
-        } else {
-          user.name = `${adminUser.name} (Superowner)`;
-          user.status = "active";
-          user.updatedAt = now();
-        }
-        let membership = database.memberships.find(
-          (item) =>
-            item.workspaceId === workspaceItem.id && item.userId === user.id,
+        ensureWorkspaceDefaults(database, workspaceItem.id);
+        const user = ensureAdminOwnerUser(
+          database,
+          adminUser,
+          workspaceItem.id,
         );
-        if (!membership) {
-          membership = {
-            id: id("membership"),
-            workspaceId: workspaceItem.id,
-            userId: user.id,
-            role: "owner",
-            status: "active",
-            invitationSentAt: null,
-            createdAt: now(),
-            updatedAt: now(),
-          };
-          database.memberships.push(membership);
-        } else {
-          membership.role = "owner";
-          membership.status = "active";
-          membership.updatedAt = now();
-        }
         return createClientSessionForUser(database, user.id, workspaceItem.id);
       });
       await store.adminAudit({

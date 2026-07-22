@@ -134,6 +134,32 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function openFirstWorkspaceAsOwner() {
+    const workspace = workspaces[0];
+    if (workspace) {
+      await openAsOwner(workspace.id);
+      return;
+    }
+    setOpeningWorkspaceId("default");
+    setError(null);
+    try {
+      const session = await takuAdminApi<WorkspaceSession>(
+        "/admin/owner-session",
+        { method: "POST" },
+      );
+      saveOwnerModeSession(session);
+      router.push("/main");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo crear workspace owner.",
+      );
+    } finally {
+      setOpeningWorkspaceId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
@@ -201,14 +227,15 @@ export default function AdminDashboardPage() {
                 <Badge dark>{adminUser?.role ?? "super_owner"}</Badge>
                 <button
                   type="button"
-                  disabled={!workspaces[0] || Boolean(openingWorkspaceId)}
-                  onClick={() => {
-                    const workspace = workspaces[0];
-                    if (workspace) void openAsOwner(workspace.id);
-                  }}
+                  disabled={Boolean(openingWorkspaceId)}
+                  onClick={() => void openFirstWorkspaceAsOwner()}
                   className="min-h-10 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {openingWorkspaceId ? "Abriendo owner..." : "Ver como owner"}
+                  {openingWorkspaceId
+                    ? "Abriendo owner..."
+                    : workspaces[0]
+                      ? "Ver como owner"
+                      : "Crear y ver como owner"}
                 </button>
                 <span className="max-w-xs text-xs font-medium text-slate-500">
                   {ownerButtonReason}
