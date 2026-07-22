@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { clearAdminSession, getAdminSession } from "@/lib/auth";
+import {
+  clearAdminSession,
+  getAdminSession,
+  restoreOwnerModeAdminSession,
+} from "@/lib/auth";
 
 export default function AdminLayout({
   children,
@@ -19,6 +23,7 @@ export default function AdminLayout({
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
     }
+    restoreOwnerModeAdminSession();
     if (session.requiresPasswordChange) {
       router.replace("/update-password");
       return;

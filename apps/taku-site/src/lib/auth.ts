@@ -83,7 +83,8 @@ export function getAppSession(): AppSession | null {
 
 export function getAdminSession(): AdminSession | null {
   const session = getAppSession();
-  return session && session.sessionType !== "client" ? session : null;
+  if (session && session.sessionType !== "client") return session;
+  return getOwnerModeAdminBackupSession();
 }
 
 export function saveAppSession(session: AppSession) {
@@ -106,12 +107,26 @@ export function saveOwnerModeSession(session: WorkspaceSession) {
 
 export function restoreOwnerModeAdminSession() {
   if (typeof window === "undefined") return null;
+  const session = getOwnerModeAdminBackupSession();
+  if (!session) return null;
+  window.localStorage.setItem(sessionKey, JSON.stringify(session));
+  window.localStorage.removeItem(ownerModeAdminBackupKey);
+  return session;
+}
+
+export function getOwnerModeAdminBackupSession() {
+  if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(ownerModeAdminBackupKey);
   if (!raw) return null;
   try {
     const session = JSON.parse(raw) as AdminSession;
-    window.localStorage.setItem(sessionKey, JSON.stringify(session));
-    window.localStorage.removeItem(ownerModeAdminBackupKey);
+    if (
+      typeof session.accessToken !== "string" ||
+      typeof session.refreshToken !== "string" ||
+      !session.adminUser
+    ) {
+      return null;
+    }
     return session;
   } catch {
     window.localStorage.removeItem(ownerModeAdminBackupKey);
