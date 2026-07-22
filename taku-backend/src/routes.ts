@@ -2794,11 +2794,15 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         if (!isAlreadyExistsServiceError(error)) throw error;
       }
       await whatsappClient.startConnection(account.externalInstanceId);
-      await whatsappClient.createWebhookSubscription(
-        `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp`,
-        ["connection.*", "message.*"],
-        config.takuWaWebhookSecret,
-      );
+      try {
+        await whatsappClient.createWebhookSubscription(
+          `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp`,
+          ["message.received"],
+          config.takuWaWebhookSecret,
+        );
+      } catch {
+        // QR pairing should not be blocked by webhook registration.
+      }
       const data = await qrForAccount(req.params.id, context);
       await store.audit({
         workspaceId: context.workspace.id,
