@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  getAppSession,
   getAdminSession,
   saveOwnerModeSession,
   type AdminUser,
@@ -70,21 +71,46 @@ export default function AdminDashboardPage() {
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [ownerButtonReason, setOwnerButtonReason] = useState(
+    "Cargando workspaces...",
+  );
   const [openingWorkspaceId, setOpeningWorkspaceId] = useState<string | null>(
     null,
   );
 
   useEffect(() => {
-    setAdminUser(getAdminSession()?.adminUser ?? null);
+    const session = getAppSession();
+    const adminSession = getAdminSession();
+    setAdminUser(adminSession?.adminUser ?? null);
+    if (!adminSession) {
+      setOwnerButtonReason(
+        session?.sessionType === "client"
+          ? "Sesion actual es owner/client, no superowner."
+          : "No hay sesion superowner activa.",
+      );
+      return;
+    }
     void takuAdminList<AdminWorkspace>("/admin/workspaces")
-      .then(setWorkspaces)
-      .catch((caught) =>
-        setError(
+      .then((rows) => {
+        setWorkspaces(rows);
+        setOwnerButtonReason(
+          rows.length > 0
+            ? "Listo para abrir el primer workspace como owner."
+            : "No hay workspaces disponibles.",
+        );
+      })
+      .catch((caught) => {
+        const message =
           caught instanceof Error
             ? caught.message
-            : "No se pudieron cargar workspaces.",
-        ),
-      );
+            : "No se pudieron cargar workspaces.";
+        setError(message);
+        setOwnerButtonReason(
+          message.includes("401")
+            ? "La API rechazo el token admin. Cierra sesion y vuelve a entrar como superowner."
+            : message,
+        );
+      });
   }, []);
 
   async function openAsOwner(workspaceId: string) {
@@ -184,6 +210,9 @@ export default function AdminDashboardPage() {
                 >
                   {openingWorkspaceId ? "Abriendo owner..." : "Ver como owner"}
                 </button>
+                <span className="max-w-xs text-xs font-medium text-slate-500">
+                  {ownerButtonReason}
+                </span>
               </div>
             </div>
           </header>

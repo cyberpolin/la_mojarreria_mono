@@ -3,33 +3,10 @@ name: Deploy Taku-api to Cloudcluster
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Branch, tag, or commit SHA to deploy"
+      disabled:
+        description: "This legacy all-in-one TAKU CloudCluster deploy is disabled. Use service-specific workflows."
         required: true
-        default: "taku-deployment"
-  push:
-    branches:
-      - taku-deployment
-    paths:
-      - "taku-backend/**"
-      - "apps/taku-site/**"
-      - "apps/taku-wa-web/**"
-      - "apps/taku-bot-web/**"
-      - "apps/wa-service/**"
-      - "apps/bot-service/**"
-      - "apps/service-ports.conf"
-      - "apps/*_SITE.conf"
-      - "scripts/enable-taku-nginx-sites.sh"
-      - "scripts/ensure-taku-service-certs.sh"
-      - "scripts/taku-service-helpers.sh"
-      - "scripts/list-taku-services.sh"
-      - "scripts/check-taku-service-config.sh"
-      - "scripts/dev-taku.sh"
-      - "scripts/dev-taku-main.sh"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "package.json"
-      - ".github/workflows/deploy-taku-cloudcluster.yml"
+        default: "disabled"
 
 concurrency:
   group: taku-cloudcluster
@@ -37,6 +14,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: cloudcluster
