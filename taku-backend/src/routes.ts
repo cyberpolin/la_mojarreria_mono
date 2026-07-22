@@ -84,6 +84,20 @@ function statusValid(value: unknown): value is ConversationStatus {
   );
 }
 
+function isAlreadyExistsServiceError(error: unknown) {
+  if (!(error instanceof ApiError)) return false;
+  const details = error.details;
+  const status = details?.status;
+  const payload = details?.payload;
+  const payloadText = JSON.stringify(payload ?? "").toLowerCase();
+  return (
+    status === 409 ||
+    payloadText.includes("already") ||
+    payloadText.includes("exists") ||
+    payloadText.includes("ya existe")
+  );
+}
+
 function matchTypeValid(value: unknown): value is MatchType {
   return value === "exact" || value === "contains" || value === "starts_with";
 }
@@ -2751,6 +2765,16 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         context.workspace.id,
         req.params.id,
       );
+      try {
+        await whatsappClient.createConnection({
+          connectionId: account.externalInstanceId,
+          businessId: context.workspace.id,
+          label: account.displayName,
+          autoStart: false,
+        });
+      } catch (error) {
+        if (!isAlreadyExistsServiceError(error)) throw error;
+      }
       await whatsappClient.startConnection(account.externalInstanceId);
       await whatsappClient.createWebhookSubscription(
         `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp`,

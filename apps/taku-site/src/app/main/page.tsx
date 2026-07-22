@@ -1267,21 +1267,31 @@ function NumbersSection({
 
   async function requestQr(accountId: string) {
     setMessage(null);
-    const response = await takuApi<{
-      id: string;
-      status: string;
-      qr: {
-        payload?: string | null;
-        imageUrl?: string | null;
-        expiresAt?: string | null;
-      };
-    }>(`/whatsapp-accounts/${accountId}/connect`, { method: "POST" });
-    setSelectedId(accountId);
-    setQr(response.qr);
-    setMessage(
-      "QR solicitado. Si no aparece, intenta regenerarlo en unos segundos.",
-    );
-    onRefresh();
+    try {
+      const response = await takuApi<{
+        id: string;
+        status: string;
+        qr: {
+          payload?: string | null;
+          imageUrl?: string | null;
+          expiresAt?: string | null;
+        };
+      }>(`/whatsapp-accounts/${accountId}/connect`, { method: "POST" });
+      setSelectedId(accountId);
+      setQr(response.qr);
+      setMessage(
+        "QR solicitado. Si no aparece, intenta regenerarlo en unos segundos.",
+      );
+      onRefresh();
+    } catch (error) {
+      setSelectedId(accountId);
+      setQr(null);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo comunicar con WhatsApp Service.",
+      );
+    }
   }
 
   async function disconnect(accountId: string) {
