@@ -27,6 +27,17 @@ function stringList(name: string, fallback: string[]): string[] {
     .filter(Boolean);
 }
 
+function serviceUrlValue(name: string, fallback: string): string {
+  const value = stringValue(name, fallback).replace(/\/+$/, "");
+  if (value === "https://bot.api.taku.lat") {
+    console.warn(
+      `${name}=https://bot.api.taku.lat is deprecated; using https://api.bot.taku.lat`,
+    );
+    return "https://api.bot.taku.lat";
+  }
+  return value;
+}
+
 export const config = {
   environment: stringValue(
     "TAKU_BACKEND_ENV",
@@ -69,12 +80,12 @@ export const config = {
     "TAKU_BACKEND_PUBLIC_BASE_URL",
     "https://api.taku.lat/api",
   ),
-  takuWaBaseUrl: stringValue("TAKU_WA_BASE_URL", "https://api.wa.taku.lat"),
+  takuWaBaseUrl: serviceUrlValue("TAKU_WA_BASE_URL", "https://api.wa.taku.lat"),
   takuWaApiKey: process.env.TAKU_WA_API_KEY?.trim() ?? "",
   takuWaClientDomain: stringValue("TAKU_WA_CLIENT_DOMAIN", "taku.lat"),
   takuWaWebhookSecret:
     process.env.TAKU_WA_WEBHOOK_SECRET?.trim() ?? "dev-wa-webhook-secret",
-  botServiceBaseUrl: stringValue(
+  botServiceBaseUrl: serviceUrlValue(
     "BOT_SERVICE_BASE_URL",
     "https://api.bot.taku.lat",
   ),

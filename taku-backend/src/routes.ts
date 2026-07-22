@@ -881,6 +881,20 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     "/health/ready",
     asyncHandler(async (_req, res) => {
       await store.read();
+      let botServiceStatus = config.botServiceApiKey
+        ? "configured"
+        : "missing_api_key";
+      if (config.botServiceApiKey) {
+        try {
+          await botClient.getHealth();
+          botServiceStatus = "reachable";
+        } catch (error) {
+          botServiceStatus =
+            error instanceof ApiError
+              ? `${error.code}:${error.message}`
+              : "unreachable";
+        }
+      }
       ok(res, {
         status: "ready",
         services: {
@@ -888,9 +902,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           whatsappService: config.takuWaApiKey
             ? "configured"
             : "missing_api_key",
-          botService: config.botServiceApiKey
-            ? "configured"
-            : "missing_api_key",
+          botService: botServiceStatus,
           realtime: "ok",
         },
       });
@@ -4157,6 +4169,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           error: errorLogDetails(error),
         });
         throw error;
+      }
+      if (!assistant?.id) {
+        throw new ApiError({
+          status: 502,
+          code: "BOT_SERVICE_INVALID_RESPONSE",
+          message: "Bot Service no regreso un assistant id.",
+        });
       }
 
       const bot = await store.update((database) => {

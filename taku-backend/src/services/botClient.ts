@@ -70,7 +70,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     throw new ApiError({
       status: 502,
       code: "BOT_SERVICE_ERROR",
-      message: "Error al comunicarse con Bot Service.",
+      message: `No se pudo alcanzar Bot Service en ${config.botServiceBaseUrl}${path}.`,
       details: {
         cause:
           error instanceof Error && error.name === "AbortError"
@@ -83,6 +83,11 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    const serviceMessage =
+      payload && typeof payload === "object"
+        ? ((payload as { error?: unknown; message?: unknown }).error ??
+          (payload as { message?: unknown }).message)
+        : null;
     logBotClientError("taku_backend_bot_response_error", {
       method: init?.method ?? "GET",
       path,
@@ -93,7 +98,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     throw new ApiError({
       status: response.status,
       code: "BOT_SERVICE_ERROR",
-      message: "Error al comunicarse con Bot Service.",
+      message: `Bot Service respondio HTTP ${response.status}${typeof serviceMessage === "string" ? `: ${serviceMessage}` : ""}.`,
       details: { status: response.status, payload },
     });
   }
@@ -137,6 +142,10 @@ function readAssistant(payload: unknown): AssistantPayload | null {
 }
 
 export const botClient = {
+  async getHealth() {
+    return request("/v1/health");
+  },
+
   async ensureClientAccount(clientId: string) {
     const payload = await request("/v1/public/accounts", {
       method: "POST",

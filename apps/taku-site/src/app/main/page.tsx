@@ -2603,6 +2603,7 @@ function AutomationSectionConnected({
   const [instructions, setInstructions] = useState("");
   const [keyword, setKeyword] = useState("");
   const [responseText, setResponseText] = useState("");
+  const [matchType, setMatchType] = useState("contains");
   const [assignmentPhone, setAssignmentPhone] = useState("");
   const [assignmentBot, setAssignmentBot] = useState("");
   const [assignmentMode, setAssignmentMode] = useState(
@@ -2618,7 +2619,10 @@ function AutomationSectionConnected({
     aiEnabled: data.botSettings?.aiEnabled ?? false,
   });
   const [message, setMessage] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [creatingBot, setCreatingBot] = useState(false);
+  const [creatingRule, setCreatingRule] = useState(false);
+  const [assigningBot, setAssigningBot] = useState(false);
 
   useEffect(() => {
     setSettings({
@@ -2632,13 +2636,47 @@ function AutomationSectionConnected({
     });
   }, [data.botSettings]);
 
+  useEffect(() => {
+    if (!assignmentPhone && data.accounts[0]) {
+      setAssignmentPhone(data.accounts[0].id);
+    }
+    if (!assignmentBot && data.bots[0]) {
+      setAssignmentBot(data.bots[0].id);
+    }
+  }, [assignmentBot, assignmentPhone, data.accounts, data.bots]);
+
   async function saveSettings() {
-    await takuApi("/bot-settings", {
-      method: "PATCH",
-      body: JSON.stringify(settings),
-    });
-    setMessage("Configuracion guardada.");
-    onRefresh();
+    setMessage(null);
+    if (
+      settings.afterHoursEnabled &&
+      settings.afterHoursResponder === "static_message" &&
+      !settings.afterHoursMessage.trim()
+    ) {
+      setMessage(
+        "Escribe el mensaje fijo fuera de horario o elige otro responder.",
+      );
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      await takuApi("/bot-settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...settings,
+          afterHoursMessage: settings.afterHoursMessage.trim(),
+        }),
+      });
+      setMessage("Configuracion guardada.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar la configuracion.",
+      );
+    } finally {
+      setSavingSettings(false);
+    }
   }
 
   async function createBot(event: FormEvent<HTMLFormElement>) {
@@ -2665,34 +2703,54 @@ function AutomationSectionConnected({
 
   async function createRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await takuApi("/automation-rules", {
-      method: "POST",
-      body: JSON.stringify({
-        keyword,
-        matchType: "contains",
-        responseText,
-        enabled: true,
-      }),
-    });
-    setKeyword("");
-    setResponseText("");
-    setMessage("Regla creada.");
-    onRefresh();
+    setMessage(null);
+    setCreatingRule(true);
+    try {
+      await takuApi("/automation-rules", {
+        method: "POST",
+        body: JSON.stringify({
+          keyword: keyword.trim(),
+          matchType,
+          responseText: responseText.trim(),
+          enabled: true,
+        }),
+      });
+      setKeyword("");
+      setResponseText("");
+      setMessage("Regla creada.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo crear la regla.",
+      );
+    } finally {
+      setCreatingRule(false);
+    }
   }
 
   async function assignBot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await takuApi("/bot-assignments", {
-      method: "POST",
-      body: JSON.stringify({
-        whatsappAccountId: assignmentPhone,
-        botId: assignmentBot,
-        mode: assignmentMode,
-        enabled: true,
-      }),
-    });
-    setMessage("Bot asignado al numero.");
-    onRefresh();
+    setMessage(null);
+    setAssigningBot(true);
+    try {
+      await takuApi("/bot-assignments", {
+        method: "POST",
+        body: JSON.stringify({
+          whatsappAccountId: assignmentPhone,
+          botId: assignmentBot,
+          mode: assignmentMode,
+          enabled: true,
+        }),
+      });
+      setMessage("Bot asignado al numero.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo asignar el bot.",
+      );
+    } finally {
+      setAssigningBot(false);
+    }
   }
 
   return (
@@ -2702,8 +2760,8 @@ function AutomationSectionConnected({
         title="Bots, reglas y asignaciones"
         description="TAKU decide cuando responder: reglas, fuera de horario o bot asignado a un numero."
         action={
-          <Button onClick={() => void saveSettings()}>
-            Guardar configuracion
+          <Button disabled={savingSettings} onClick={() => void saveSettings()}>
+            {savingSettings ? "Guardando..." : "Guardar configuracion"}
           </Button>
         }
       />
@@ -2744,6 +2802,10 @@ function AutomationSectionConnected({
                       | "static_message"
                       | "assigned_bot"
                       | "none",
+                    afterHoursEnabled:
+                      afterHoursResponder === "assigned_bot"
+                        ? true
+                        : current.afterHoursEnabled,
                     aiEnabled:
                       afterHoursResponder === "assigned_bot"
                         ? true
@@ -2868,11 +2930,16 @@ function AutomationSectionConnected({
                 <option value="">Selecciona numero</option>
                 {data.accounts.map((account) => (
                   <option key={account.id} value={account.id}>
-                    {account.displayName}
+                    {account.displayName} · {statusLabel(account.status)}
                   </option>
                 ))}
               </Select>
             </Field>
+            {data.accounts.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Primero agrega y vincula un numero de WhatsApp.
+              </p>
+            ) : null}
             <Field label="Bot">
               <Select value={assignmentBot} onChange={setAssignmentBot}>
                 <option value="">Selecciona bot</option>
@@ -2883,6 +2950,11 @@ function AutomationSectionConnected({
                 ))}
               </Select>
             </Field>
+            {data.bots.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Primero crea un bot.
+              </p>
+            ) : null}
             <Field label="Modo">
               <Select value={assignmentMode} onChange={setAssignmentMode}>
                 <option value="outside_business_hours">Fuera de horario</option>
@@ -2891,8 +2963,11 @@ function AutomationSectionConnected({
                 <option value="disabled">Deshabilitado</option>
               </Select>
             </Field>
-            <Button type="submit" disabled={!assignmentPhone || !assignmentBot}>
-              Guardar asignacion
+            <Button
+              type="submit"
+              disabled={!assignmentPhone || !assignmentBot || assigningBot}
+            >
+              {assigningBot ? "Guardando..." : "Guardar asignacion"}
             </Button>
           </div>
         </form>
@@ -2910,6 +2985,13 @@ function AutomationSectionConnected({
                 onChange={setKeyword}
               />
             </Field>
+            <Field label="Tipo de coincidencia">
+              <Select value={matchType} onChange={setMatchType}>
+                <option value="contains">Contiene</option>
+                <option value="exact">Exacta</option>
+                <option value="starts_with">Empieza con</option>
+              </Select>
+            </Field>
             <Field label="Respuesta">
               <TextArea
                 placeholder="Nuestro horario es de lunes a viernes..."
@@ -2919,9 +3001,9 @@ function AutomationSectionConnected({
             </Field>
             <Button
               type="submit"
-              disabled={!keyword.trim() || !responseText.trim()}
+              disabled={!keyword.trim() || !responseText.trim() || creatingRule}
             >
-              Guardar regla
+              {creatingRule ? "Guardando..." : "Guardar regla"}
             </Button>
           </div>
         </form>
