@@ -104,6 +104,28 @@ export const whatsappClient = {
     );
   },
 
+  async getConnectionStatus(connectionId: string) {
+    const payload = await request(
+      `/v1/connections/${encodeURIComponent(connectionId)}/status`,
+    );
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "connection" in payload &&
+      payload.connection &&
+      typeof payload.connection === "object"
+    ) {
+      return payload.connection as {
+        connected?: boolean;
+        connection?: "connecting" | "open" | "close";
+        hasQr?: boolean;
+        phone?: string | null;
+        state?: string;
+      };
+    }
+    return null;
+  },
+
   async stopConnection(connectionId: string) {
     return request(`/v1/connections/${encodeURIComponent(connectionId)}/stop`, {
       method: "POST",

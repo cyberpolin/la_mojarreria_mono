@@ -101,6 +101,7 @@ type BotSettings = {
   id: string;
   enabled: boolean;
   afterHoursEnabled: boolean;
+  afterHoursResponder?: "static_message" | "assigned_bot" | "none";
   afterHoursMessage: string | null;
   rulesEnabled: boolean;
   aiEnabled: boolean;
@@ -432,19 +433,22 @@ function TextArea({
   rows = 4,
   value,
   onChange,
+  readOnly,
 }: {
   placeholder: string;
   rows?: number;
   value?: string;
   onChange?: (value: string) => void;
+  readOnly?: boolean;
 }) {
   return (
     <textarea
       rows={rows}
+      readOnly={readOnly}
       placeholder={placeholder}
       value={value}
       onChange={(event) => onChange?.(event.target.value)}
-      className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-950 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
+      className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-950 outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200 read-only:bg-slate-100"
     />
   );
 }
@@ -1244,10 +1248,55 @@ function NumbersSection({
   } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [pairing, setPairing] = useState(false);
+  const [pairingStatus, setPairingStatus] = useState<string | null>(null);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const selected =
     data.accounts.find((account) => account.id === selectedId) ??
     data.accounts[0] ??
     null;
+  const disconnectingAccount =
+    data.accounts.find((account) => account.id === disconnectingId) ?? null;
+  const selectedIsConnected = selected?.status === "connected";
+
+  useEffect(() => {
+    if (!selectedId || !qr || selectedIsConnected) {
+      setPairing(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPairing(true);
+    setPairingStatus("Esperando vinculacion...");
+
+    async function syncStatus() {
+      try {
+        const synced = await takuApi<WhatsAppAccount>(
+          `/whatsapp-accounts/${selectedId}/sync`,
+          { method: "POST" },
+        );
+        if (cancelled) return;
+        if (synced.status === "connected") {
+          setPairing(false);
+          setPairingStatus("Conectado");
+          setQr(null);
+          setMessage("Numero conectado correctamente.");
+          onRefresh();
+        }
+      } catch {
+        if (!cancelled) {
+          setPairingStatus("Seguimos esperando la vinculacion...");
+        }
+      }
+    }
+
+    void syncStatus();
+    const interval = window.setInterval(() => void syncStatus(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [onRefresh, qr, selectedId, selectedIsConnected]);
 
   async function createNumber(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1296,6 +1345,8 @@ function NumbersSection({
       }>(`/whatsapp-accounts/${accountId}/connect`, { method: "POST" });
       setSelectedId(accountId);
       setQr(response.qr);
+      setPairing(true);
+      setPairingStatus("Esperando vinculacion...");
       setMessage(
         "QR solicitado. Si no aparece, intenta regenerarlo en unos segundos.",
       );
@@ -1313,12 +1364,23 @@ function NumbersSection({
 
   async function disconnect(accountId: string) {
     setMessage(null);
-    await takuApi(`/whatsapp-accounts/${accountId}/disconnect`, {
-      method: "POST",
-      body: JSON.stringify({ reason: "manual_from_taku_site" }),
-    });
-    setMessage("Numero desconectado.");
-    onRefresh();
+    try {
+      await takuApi(`/whatsapp-accounts/${accountId}/disconnect`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "manual_from_taku_site" }),
+      });
+      setDisconnectingId(null);
+      setQr(null);
+      setPairing(false);
+      setMessage("Numero desconectado.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo desconectar el numero.",
+      );
+    }
   }
 
   async function updateSelected() {
@@ -1414,7 +1476,7 @@ function NumbersSection({
                       </Button>
                       <Button
                         variant="ghost"
-                        onClick={() => void disconnect(number.id)}
+                        onClick={() => setDisconnectingId(number.id)}
                       >
                         Desconectar
                       </Button>
@@ -1486,7 +1548,21 @@ function NumbersSection({
             Conectar numero por QR
           </h2>
           <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-5 text-center">
-            {qr?.imageUrl ? (
+            {selectedIsConnected ? (
+              <div className="mx-auto grid h-56 w-56 place-items-center rounded-lg border border-slate-300 bg-white p-5 text-center">
+                <div>
+                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-slate-950 text-2xl font-semibold text-white">
+                    ✓
+                  </div>
+                  <p className="mt-4 text-sm font-semibold text-slate-950">
+                    Conectado
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selected.phoneNumber ?? "WhatsApp vinculado"}
+                  </p>
+                </div>
+              </div>
+            ) : qr?.imageUrl ? (
               <img
                 src={qr.imageUrl}
                 alt="WhatsApp QR"
@@ -1502,14 +1578,27 @@ function NumbersSection({
               </div>
             )}
             <p className="mt-4 font-semibold text-slate-950">
-              Escanea este codigo QR con WhatsApp
+              {selectedIsConnected
+                ? "Numero conectado"
+                : "Escanea este codigo QR con WhatsApp"}
             </p>
-            <ol className="mx-auto mt-3 max-w-sm list-decimal space-y-1 pl-5 text-left text-sm text-slate-600">
-              <li>Abre WhatsApp en tu telefono.</li>
-              <li>Ve a Dispositivos vinculados.</li>
-              <li>Toca Vincular dispositivo.</li>
-              <li>Escanea el codigo QR.</li>
-            </ol>
+            {selectedIsConnected ? (
+              <p className="mx-auto mt-3 max-w-sm text-sm text-slate-600">
+                La vinculacion ya esta activa para este workspace.
+              </p>
+            ) : (
+              <ol className="mx-auto mt-3 max-w-sm list-decimal space-y-1 pl-5 text-left text-sm text-slate-600">
+                <li>Abre WhatsApp en tu telefono.</li>
+                <li>Ve a Dispositivos vinculados.</li>
+                <li>Toca Vincular dispositivo.</li>
+                <li>Escanea el codigo QR.</li>
+              </ol>
+            )}
+            {pairing && pairingStatus ? (
+              <p className="mt-3 text-xs font-semibold text-slate-600">
+                {pairingStatus}
+              </p>
+            ) : null}
             {qr?.expiresAt ? (
               <p className="mt-3 text-xs text-slate-500">
                 Expira: {formatDate(qr.expiresAt)}
@@ -1529,6 +1618,35 @@ function NumbersSection({
           </div>
         </section>
       </div>
+
+      {disconnectingAccount ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
+          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-slate-950">
+              Desconectar numero
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Esta accion cerrara la conexion activa de{" "}
+              <span className="font-semibold text-slate-950">
+                {disconnectingAccount.displayName}
+              </span>
+              . El numero dejara de recibir y enviar mensajes desde TAKU hasta
+              que se vuelva a vincular por QR.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setDisconnectingId(null)}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={() => void disconnect(disconnectingAccount.id)}>
+                Confirmar desconexion
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2493,16 +2611,21 @@ function AutomationSectionConnected({
   const [settings, setSettings] = useState({
     enabled: data.botSettings?.enabled ?? false,
     afterHoursEnabled: data.botSettings?.afterHoursEnabled ?? false,
+    afterHoursResponder:
+      data.botSettings?.afterHoursResponder ?? "static_message",
     afterHoursMessage: data.botSettings?.afterHoursMessage ?? "",
     rulesEnabled: data.botSettings?.rulesEnabled ?? false,
     aiEnabled: data.botSettings?.aiEnabled ?? false,
   });
   const [message, setMessage] = useState<string | null>(null);
+  const [creatingBot, setCreatingBot] = useState(false);
 
   useEffect(() => {
     setSettings({
       enabled: data.botSettings?.enabled ?? false,
       afterHoursEnabled: data.botSettings?.afterHoursEnabled ?? false,
+      afterHoursResponder:
+        data.botSettings?.afterHoursResponder ?? "static_message",
       afterHoursMessage: data.botSettings?.afterHoursMessage ?? "",
       rulesEnabled: data.botSettings?.rulesEnabled ?? false,
       aiEnabled: data.botSettings?.aiEnabled ?? false,
@@ -2520,14 +2643,24 @@ function AutomationSectionConnected({
 
   async function createBot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await takuApi("/bots", {
-      method: "POST",
-      body: JSON.stringify({ name: botName, instructions, status: "active" }),
-    });
-    setBotName("");
-    setInstructions("");
-    setMessage("Bot creado y provisionado en Bot Service.");
-    onRefresh();
+    setMessage(null);
+    setCreatingBot(true);
+    try {
+      await takuApi("/bots", {
+        method: "POST",
+        body: JSON.stringify({ name: botName, instructions, status: "active" }),
+      });
+      setBotName("");
+      setInstructions("");
+      setMessage("Bot creado y provisionado en Bot Service.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo crear el bot.",
+      );
+    } finally {
+      setCreatingBot(false);
+    }
   }
 
   async function createRule(event: FormEvent<HTMLFormElement>) {
@@ -2598,6 +2731,31 @@ function AutomationSectionConnected({
                 setSettings((current) => ({ ...current, afterHoursEnabled }))
               }
             />
+            <Field
+              label="Fuera de horario responde con"
+              hint="Si eliges bot asignado, configura abajo el bot del numero en modo Fuera de horario."
+            >
+              <Select
+                value={settings.afterHoursResponder}
+                onChange={(afterHoursResponder) =>
+                  setSettings((current) => ({
+                    ...current,
+                    afterHoursResponder: afterHoursResponder as
+                      | "static_message"
+                      | "assigned_bot"
+                      | "none",
+                    aiEnabled:
+                      afterHoursResponder === "assigned_bot"
+                        ? true
+                        : current.aiEnabled,
+                  }))
+                }
+              >
+                <option value="static_message">Mensaje fijo</option>
+                <option value="assigned_bot">Bot asignado</option>
+                <option value="none">Nada</option>
+              </Select>
+            </Field>
             <Switch
               checked={settings.rulesEnabled}
               label="Reglas por palabra clave"
@@ -2616,6 +2774,7 @@ function AutomationSectionConnected({
               <TextArea
                 placeholder="Gracias por escribir. Estamos fuera de horario."
                 value={settings.afterHoursMessage}
+                readOnly={settings.afterHoursResponder !== "static_message"}
                 onChange={(afterHoursMessage) =>
                   setSettings((current) => ({ ...current, afterHoursMessage }))
                 }
@@ -2646,9 +2805,9 @@ function AutomationSectionConnected({
             </Field>
             <Button
               type="submit"
-              disabled={!botName.trim() || !instructions.trim()}
+              disabled={!botName.trim() || !instructions.trim() || creatingBot}
             >
-              Crear bot
+              {creatingBot ? "Creando..." : "Crear bot"}
             </Button>
           </div>
         </form>

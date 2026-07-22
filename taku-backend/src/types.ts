@@ -43,6 +43,7 @@ export type BotAssignmentMode =
   | "always"
   | "business_hours"
   | "outside_business_hours";
+export type AfterHoursResponder = "static_message" | "assigned_bot" | "none";
 export type AutomationDecision =
   | "ignored"
   | "static_reply"
@@ -164,6 +165,7 @@ export type BotSettings = {
   whatsappAccountId: string | null;
   enabled: boolean;
   afterHoursEnabled: boolean;
+  afterHoursResponder: AfterHoursResponder;
   afterHoursMessage: string | null;
   rulesEnabled: boolean;
   aiEnabled: boolean;

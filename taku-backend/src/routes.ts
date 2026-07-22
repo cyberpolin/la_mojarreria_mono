@@ -121,6 +121,13 @@ function errorLogDetails(error: unknown) {
   return { message: String(error) };
 }
 
+function logBotProvisioningEvent(
+  event: string,
+  details: Record<string, unknown>,
+) {
+  console.log(JSON.stringify({ event, ...details }));
+}
+
 function matchTypeValid(value: unknown): value is MatchType {
   return value === "exact" || value === "contains" || value === "starts_with";
 }
@@ -398,6 +405,7 @@ function ensureWorkspaceDefaults(
       whatsappAccountId: null,
       enabled: false,
       afterHoursEnabled: false,
+      afterHoursResponder: "static_message",
       afterHoursMessage: null,
       rulesEnabled: false,
       aiEnabled: false,
@@ -557,6 +565,14 @@ function assignmentCanRespond(mode: BotAssignmentMode, isOpen: boolean) {
   if (mode === "business_hours") return isOpen;
   if (mode === "outside_business_hours") return !isOpen;
   return true;
+}
+
+function afterHoursResponderValid(
+  value: unknown,
+): value is "static_message" | "assigned_bot" | "none" {
+  return (
+    value === "static_message" || value === "assigned_bot" || value === "none"
+  );
 }
 
 function wait(ms: number) {
@@ -759,7 +775,21 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       return;
     }
 
-    if (settings.afterHoursEnabled && !isOpen && settings.afterHoursMessage) {
+    const afterHoursResponder =
+      settings.afterHoursResponder ?? "static_message";
+    if (
+      settings.afterHoursEnabled &&
+      !isOpen &&
+      afterHoursResponder === "none"
+    ) {
+      return;
+    }
+    if (
+      settings.afterHoursEnabled &&
+      !isOpen &&
+      afterHoursResponder === "static_message" &&
+      settings.afterHoursMessage
+    ) {
       await sendAutomationReply({
         ...params,
         to: params.from,
@@ -2983,22 +3013,47 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const snapshotAccount = findAccount(
+        snapshot,
+        context.workspace.id,
+        req.params.id,
+      );
+      const remoteStatus = await whatsappClient.getConnectionStatus(
+        snapshotAccount.externalInstanceId,
+      );
       const data = await store.update((database) => {
         const account = findAccount(
           database,
           context.workspace.id,
           req.params.id,
         );
-        account.status =
-          account.status === "disabled" ? "disabled" : account.status;
+        if (account.status !== "disabled" && remoteStatus) {
+          if (remoteStatus.connected || remoteStatus.connection === "open") {
+            account.status = "connected";
+            account.lastConnectedAt = account.lastConnectedAt ?? now();
+            account.lastDisconnectedAt = null;
+            account.qrCode = null;
+          } else if (remoteStatus.hasQr) {
+            account.status = "qr_required";
+          } else if (remoteStatus.connection === "connecting") {
+            account.status = "connecting";
+          } else if (remoteStatus.connection === "close") {
+            account.status = "disconnected";
+            account.lastDisconnectedAt = account.lastDisconnectedAt ?? now();
+          }
+          account.phoneNumber = remoteStatus.phone ?? account.phoneNumber;
+        }
         account.updatedAt = now();
-        return {
-          id: account.id,
-          status: account.status,
-          phoneNumber: account.phoneNumber,
-          lastConnectedAt: account.lastConnectedAt,
-        };
+        return whatsappAccountView(account, database);
       });
+      if (data.status === "connected") {
+        realtime.emitToWorkspace(
+          context.workspace.id,
+          "whatsapp.status.updated",
+          data,
+        );
+      }
       ok(res, data);
     }),
   );
@@ -3667,13 +3722,23 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       const whatsappAccountId =
         readOptionalString(req.body?.whatsappAccountId) ?? null;
       const afterHoursEnabled = Boolean(req.body?.afterHoursEnabled);
+      const afterHoursResponder = afterHoursResponderValid(
+        req.body?.afterHoursResponder,
+      )
+        ? req.body.afterHoursResponder
+        : "static_message";
       const afterHoursMessage =
         readOptionalString(req.body?.afterHoursMessage) ?? null;
-      if (afterHoursEnabled && !afterHoursMessage)
+      if (
+        afterHoursEnabled &&
+        afterHoursResponder === "static_message" &&
+        !afterHoursMessage
+      )
         throw new ApiError({
           status: 400,
           code: "AFTER_HOURS_MESSAGE_REQUIRED",
-          message: "Mensaje fuera de horario requerido.",
+          message:
+            "Mensaje fuera de horario requerido cuando el responder es mensaje fijo.",
         });
       const settings = await store.update((database) => {
         if (whatsappAccountId)
@@ -3690,6 +3755,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             whatsappAccountId,
             enabled: false,
             afterHoursEnabled: false,
+            afterHoursResponder: "static_message",
             afterHoursMessage: null,
             rulesEnabled: false,
             aiEnabled: false,
@@ -3703,6 +3769,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           item.enabled = req.body.enabled;
         if (typeof req.body?.afterHoursEnabled === "boolean")
           item.afterHoursEnabled = req.body.afterHoursEnabled;
+        if (afterHoursResponderValid(req.body?.afterHoursResponder))
+          item.afterHoursResponder = req.body.afterHoursResponder;
         if ("afterHoursMessage" in req.body)
           item.afterHoursMessage = afterHoursMessage;
         if (typeof req.body?.rulesEnabled === "boolean")
@@ -4035,9 +4103,28 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       const clientId =
         readOptionalString(req.body?.clientId) ??
         `taku_${context.workspace.id}_${randomUUID().replace(/-/g, "").slice(0, 10)}`;
-      const clientToken =
-        readOptionalString(req.body?.clientToken) ??
-        (await botClient.ensureClientAccount(clientId));
+      let clientToken = readOptionalString(req.body?.clientToken) ?? null;
+      if (!clientToken) {
+        try {
+          logBotProvisioningEvent("taku_backend_bot_client_create_attempt", {
+            workspaceId: context.workspace.id,
+            clientId,
+          });
+          clientToken = await botClient.ensureClientAccount(clientId);
+          logBotProvisioningEvent("taku_backend_bot_client_create_ok", {
+            workspaceId: context.workspace.id,
+            clientId,
+            hasClientToken: Boolean(clientToken),
+          });
+        } catch (error) {
+          logBotProvisioningEvent("taku_backend_bot_client_create_failed", {
+            workspaceId: context.workspace.id,
+            clientId,
+            error: errorLogDetails(error),
+          });
+          throw error;
+        }
+      }
       if (!clientToken) {
         throw new ApiError({
           status: 502,
@@ -4045,12 +4132,32 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           message: "Bot Service no regreso un client_token.",
         });
       }
-      const assistant = await botClient.createAssistant({
-        clientId,
-        clientToken,
-        name,
-        instructions,
-      });
+      let assistant;
+      try {
+        logBotProvisioningEvent("taku_backend_bot_assistant_create_attempt", {
+          workspaceId: context.workspace.id,
+          clientId,
+          name,
+        });
+        assistant = await botClient.createAssistant({
+          clientId,
+          clientToken,
+          name,
+          instructions,
+        });
+        logBotProvisioningEvent("taku_backend_bot_assistant_create_ok", {
+          workspaceId: context.workspace.id,
+          clientId,
+          assistantId: assistant?.id ?? null,
+        });
+      } catch (error) {
+        logBotProvisioningEvent("taku_backend_bot_assistant_create_failed", {
+          workspaceId: context.workspace.id,
+          clientId,
+          error: errorLogDetails(error),
+        });
+        throw error;
+      }
 
       const bot = await store.update((database) => {
         const item = {

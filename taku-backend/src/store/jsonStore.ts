@@ -253,6 +253,7 @@ function createTestSeed(): Database {
     whatsappAccountId: null,
     enabled: true,
     afterHoursEnabled: true,
+    afterHoursResponder: "static_message",
     afterHoursMessage:
       "Gracias por escribir. Estamos fuera de horario. Te responderemos el siguiente dia habil.",
     rulesEnabled: true,

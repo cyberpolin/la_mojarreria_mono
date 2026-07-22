@@ -26,6 +26,10 @@ type CompletionPayload = {
   billing?: unknown;
 };
 
+function logBotClientError(event: string, details: Record<string, unknown>) {
+  console.error(JSON.stringify({ event, ...details }));
+}
+
 async function request(path: string, init?: RequestInit): Promise<unknown> {
   if (!config.botServiceApiKey) {
     throw new ApiError({
@@ -35,20 +39,57 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     });
   }
 
-  const response = await fetch(
-    `${config.botServiceBaseUrl.replace(/\/+$/, "")}${path}`,
-    {
-      ...init,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.botServiceApiKey}`,
-        "x-api-key": config.botServiceApiKey,
-        ...(init?.headers ?? {}),
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let response: Response;
+  try {
+    response = await fetch(
+      `${config.botServiceBaseUrl.replace(/\/+$/, "")}${path}`,
+      {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.botServiceApiKey}`,
+          "x-api-key": config.botServiceApiKey,
+          ...(init?.headers ?? {}),
+        },
       },
-    },
-  );
+    );
+  } catch (error) {
+    logBotClientError("taku_backend_bot_request_failed", {
+      method: init?.method ?? "GET",
+      path,
+      baseUrl: config.botServiceBaseUrl,
+      cause:
+        error instanceof Error && error.name === "AbortError"
+          ? "timeout"
+          : "network_error",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw new ApiError({
+      status: 502,
+      code: "BOT_SERVICE_ERROR",
+      message: "Error al comunicarse con Bot Service.",
+      details: {
+        cause:
+          error instanceof Error && error.name === "AbortError"
+            ? "timeout"
+            : "network_error",
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
+    logBotClientError("taku_backend_bot_response_error", {
+      method: init?.method ?? "GET",
+      path,
+      baseUrl: config.botServiceBaseUrl,
+      status: response.status,
+      payload,
+    });
     throw new ApiError({
       status: response.status,
       code: "BOT_SERVICE_ERROR",
