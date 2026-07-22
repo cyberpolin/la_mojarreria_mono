@@ -522,6 +522,10 @@ function assignmentCanRespond(mode: BotAssignmentMode, isOpen: boolean) {
   return true;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function signWebhookBody(body: unknown, secret: string, timestamp: string) {
   return createHmac("sha256", secret)
     .update(`${timestamp}.${JSON.stringify(body)}`)
@@ -2680,7 +2684,23 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       const database = await store.read();
       const account = findAccount(database, context.workspace.id, accountId);
       try {
-        return await whatsappClient.getConnectionQr(account.externalInstanceId);
+        let qr = await whatsappClient.getConnectionQr(
+          account.externalInstanceId,
+        );
+        for (
+          let attempt = 0;
+          attempt < 6 &&
+          !qr.qr &&
+          !qr.qrImage &&
+          !qr.payload &&
+          !qr.imageUrl &&
+          !qr.imageBase64;
+          attempt += 1
+        ) {
+          await wait(750);
+          qr = await whatsappClient.getConnectionQr(account.externalInstanceId);
+        }
+        return qr;
       } catch {
         return {
           payload: `mock_qr_${account.externalInstanceId}`,

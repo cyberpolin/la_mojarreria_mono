@@ -1240,6 +1240,7 @@ function NumbersSection({
   const [qr, setQr] = useState<{
     payload?: string | null;
     imageUrl?: string | null;
+    expiresAt?: string | null;
   } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const selected =
@@ -1269,7 +1270,11 @@ function NumbersSection({
     const response = await takuApi<{
       id: string;
       status: string;
-      qr: { payload?: string | null; imageUrl?: string | null };
+      qr: {
+        payload?: string | null;
+        imageUrl?: string | null;
+        expiresAt?: string | null;
+      };
     }>(`/whatsapp-accounts/${accountId}/connect`, { method: "POST" });
     setSelectedId(accountId);
     setQr(response.qr);
@@ -1460,6 +1465,10 @@ function NumbersSection({
                 alt="WhatsApp QR"
                 className="mx-auto h-56 w-56 rounded-lg border border-slate-300 bg-white object-contain"
               />
+            ) : qr?.payload ? (
+              <div className="mx-auto grid h-56 w-56 place-items-center rounded-lg border border-slate-300 bg-white p-4 text-center text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                QR recibido sin imagen. Regenera el QR en unos segundos.
+              </div>
             ) : (
               <div className="mx-auto grid h-56 w-56 place-items-center rounded-lg border border-slate-300 bg-white p-4 text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                 {selected ? "Pide o regenera el QR" : "Selecciona un numero"}
@@ -1474,6 +1483,11 @@ function NumbersSection({
               <li>Toca Vincular dispositivo.</li>
               <li>Escanea el codigo QR.</li>
             </ol>
+            {qr?.expiresAt ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Expira: {formatDate(qr.expiresAt)}
+              </p>
+            ) : null}
             <div className="mt-5 flex justify-center gap-3">
               <Button
                 disabled={!selected}
