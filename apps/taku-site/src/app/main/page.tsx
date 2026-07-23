@@ -485,18 +485,29 @@ function Select({
 function Switch({
   checked = false,
   label,
+  disabled,
+  compact = false,
   onChange,
 }: {
   checked?: boolean;
   label: string;
+  disabled?: boolean;
+  compact?: boolean;
   onChange?: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
+    <label
+      className={cx(
+        "flex min-h-11 items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700",
+        compact && "min-h-9 border-transparent px-0",
+        disabled && "cursor-not-allowed opacity-60",
+      )}
+    >
       <span>{label}</span>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange?.(event.target.checked)}
         className="sr-only"
       />
@@ -1243,9 +1254,11 @@ function ConversationsSection({
 function NumbersSection({
   data,
   onRefresh,
+  onConfigureAutomation,
 }: {
   data: TakuData;
   onRefresh: () => void;
+  onConfigureAutomation: (accountId: string) => void;
 }) {
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
@@ -1260,6 +1273,9 @@ function NumbersSection({
   const [pairing, setPairing] = useState(false);
   const [pairingStatus, setPairingStatus] = useState<string | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [savingAutomationId, setSavingAutomationId] = useState<string | null>(
+    null,
+  );
   const selected =
     data.accounts.find((account) => account.id === selectedId) ??
     data.accounts[0] ??
@@ -1408,6 +1424,34 @@ function NumbersSection({
     onRefresh();
   }
 
+  async function toggleAutomation(accountId: string, enabled: boolean) {
+    setMessage(null);
+    setSavingAutomationId(accountId);
+    try {
+      await takuApi("/bot-settings", {
+        method: "PATCH",
+        body: JSON.stringify({
+          whatsappAccountId: accountId,
+          enabled,
+        }),
+      });
+      setMessage(
+        enabled
+          ? "Automatizacion activada para el numero."
+          : "Automatizacion desactivada para el numero.",
+      );
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar la automatizacion.",
+      );
+    } finally {
+      setSavingAutomationId(null);
+    }
+  }
+
   return (
     <div className="grid gap-6">
       <SectionHeader
@@ -1467,7 +1511,29 @@ function NumbersSection({
                     {formatDate(number.lastDisconnectedAt)}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
-                    {number.automationEnabled ? "Activa" : "Inactiva"}
+                    <div className="flex min-w-[220px] items-center gap-3">
+                      <Switch
+                        compact
+                        checked={number.automationEnabled}
+                        disabled={savingAutomationId === number.id}
+                        label={
+                          savingAutomationId === number.id
+                            ? "Guardando"
+                            : number.automationEnabled
+                              ? "Activa"
+                              : "Inactiva"
+                        }
+                        onChange={(enabled) =>
+                          void toggleAutomation(number.id, enabled)
+                        }
+                      />
+                      <Button
+                        variant="ghost"
+                        onClick={() => onConfigureAutomation(number.id)}
+                      >
+                        Configuracion
+                      </Button>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
@@ -2617,9 +2683,11 @@ function settingsFormFromBotSettings(
 function AutomationSectionConnected({
   data,
   onRefresh,
+  initialAccountId,
 }: {
   data: TakuData;
   onRefresh: () => void;
+  initialAccountId?: string | null;
 }) {
   const [botName, setBotName] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -2650,10 +2718,17 @@ function AutomationSectionConnected({
   }, [data.botSettings]);
 
   useEffect(() => {
+    if (
+      initialAccountId &&
+      data.accounts.some((account) => account.id === initialAccountId)
+    ) {
+      setAssignmentPhone(initialAccountId);
+      return;
+    }
     if (!assignmentPhone && data.accounts[0]) {
       setAssignmentPhone(data.accounts[0].id);
     }
-  }, [assignmentPhone, data.accounts]);
+  }, [assignmentPhone, data.accounts, initialAccountId]);
 
   useEffect(() => {
     const currentAssignment = data.assignments.find(
@@ -3513,15 +3588,29 @@ function renderSection(
   data: TakuData,
   onRefresh: () => void,
   onSection: (section: SectionId) => void,
+  automationAccountId: string | null,
+  onConfigureAutomation: (accountId: string) => void,
 ) {
   if (section === "home")
     return <HomeSection role={role} data={data} onSection={onSection} />;
   if (section === "conversations")
     return <ConversationsSection data={data} onRefresh={onRefresh} />;
   if (section === "numbers")
-    return <NumbersSection data={data} onRefresh={onRefresh} />;
+    return (
+      <NumbersSection
+        data={data}
+        onRefresh={onRefresh}
+        onConfigureAutomation={onConfigureAutomation}
+      />
+    );
   if (section === "automation")
-    return <AutomationSectionConnected data={data} onRefresh={onRefresh} />;
+    return (
+      <AutomationSectionConnected
+        data={data}
+        onRefresh={onRefresh}
+        initialAccountId={automationAccountId}
+      />
+    );
   if (section === "hours")
     return <HoursSectionConnected data={data} onRefresh={onRefresh} />;
   if (section === "users") return <UsersSectionConnected data={data} />;
@@ -3544,6 +3633,9 @@ export default function MainDashboardMockPage() {
   const [session, setSession] = useState<WorkspaceSession | null>(null);
   const [hasAdminBackup, setHasAdminBackup] = useState(false);
   const [section, setSection] = useState<SectionId>("home");
+  const [automationAccountId, setAutomationAccountId] = useState<string | null>(
+    null,
+  );
   const [refreshKey, setRefreshKey] = useState(0);
   const { data, isLoading, error } = useTakuData(refreshKey);
   const role = (session?.role as Role | undefined) ?? "owner";
@@ -3684,6 +3776,11 @@ export default function MainDashboardMockPage() {
                 data,
                 () => setRefreshKey((current) => current + 1),
                 setSection,
+                automationAccountId,
+                (accountId) => {
+                  setAutomationAccountId(accountId);
+                  setSection("automation");
+                },
               )
             )}
           </div>
