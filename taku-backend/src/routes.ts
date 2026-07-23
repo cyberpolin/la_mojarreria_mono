@@ -573,6 +573,10 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function normalizeBotName(value: string) {
+  return value.trim().toLowerCase();
+}
+
 function findBlockedAutomationContact(
   database: Database,
   workspaceId: string,
@@ -4375,6 +4379,21 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           message: "Bot invalido.",
         });
       }
+      const normalizedName = normalizeBotName(name);
+      const snapshot = await store.read();
+      if (
+        snapshot.bots.some(
+          (bot) =>
+            bot.workspaceId === context.workspace.id &&
+            normalizeBotName(bot.name) === normalizedName,
+        )
+      ) {
+        throw new ApiError({
+          status: 409,
+          code: "DUPLICATED_BOT_NAME",
+          message: "Ya existe un bot con ese nombre.",
+        });
+      }
 
       const clientId =
         readOptionalString(req.body?.clientId) ??
@@ -4501,6 +4520,21 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       const status = botStatusValid(req.body?.status)
         ? req.body.status
         : current.status;
+      const normalizedName = normalizeBotName(name);
+      if (
+        snapshot.bots.some(
+          (bot) =>
+            bot.id !== current.id &&
+            bot.workspaceId === context.workspace.id &&
+            normalizeBotName(bot.name) === normalizedName,
+        )
+      ) {
+        throw new ApiError({
+          status: 409,
+          code: "DUPLICATED_BOT_NAME",
+          message: "Ya existe un bot con ese nombre.",
+        });
+      }
 
       if (
         current.clientId &&

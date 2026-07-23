@@ -12,11 +12,23 @@ import {
 type ApiPayload<T> = {
   ok?: boolean;
   data?: T;
-  error?: { message?: string };
+  error?: { code?: string; message?: string };
   pagination?: { page: number; pageSize: number; total: number };
 };
 
 let workspaceRefreshPromise: Promise<WorkspaceSession | null> | null = null;
+
+export class TakuApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(params: { status: number; code?: string; message: string }) {
+    super(params.message);
+    this.name = "TakuApiError";
+    this.status = params.status;
+    this.code = params.code ?? null;
+  }
+}
 
 export function getWorkspaceSession(): WorkspaceSession | null {
   const session = getAppSession();
@@ -50,9 +62,13 @@ export async function takuApi<T>(
     }
   }
   if (!response.ok || !payload?.ok) {
-    throw new Error(
-      payload?.error?.message ?? `Request failed with HTTP ${response.status}`,
-    );
+    throw new TakuApiError({
+      status: response.status,
+      code: payload?.error?.code,
+      message:
+        payload?.error?.message ??
+        `Request failed with HTTP ${response.status}`,
+    });
   }
   return payload.data as T;
 }
@@ -146,9 +162,13 @@ export async function takuAdminApi<T>(
     }
   }
   if (!response.ok || !payload?.ok) {
-    throw new Error(
-      payload?.error?.message ?? `Request failed with HTTP ${response.status}`,
-    );
+    throw new TakuApiError({
+      status: response.status,
+      code: payload?.error?.code,
+      message:
+        payload?.error?.message ??
+        `Request failed with HTTP ${response.status}`,
+    });
   }
   return payload.data as T;
 }

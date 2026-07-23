@@ -2,7 +2,12 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getWorkspaceSession, takuApi, takuList } from "@/lib/taku-api";
+import {
+  getWorkspaceSession,
+  takuApi,
+  takuList,
+  TakuApiError,
+} from "@/lib/taku-api";
 import {
   hasOwnerModeAdminBackup,
   restoreOwnerModeAdminSession,
@@ -2751,11 +2756,24 @@ function AutomationSectionConnected({
     "draft" | "active" | "paused"
   >("active");
   const [savingBotEdit, setSavingBotEdit] = useState(false);
+  const [localBots, setLocalBots] = useState<TakuBot[]>(data.bots);
   const activeBots = useMemo(
-    () => data.bots.filter((bot) => bot.status === "active"),
-    [data.bots],
+    () => localBots.filter((bot) => bot.status === "active"),
+    [localBots],
   );
-  const editingBot = data.bots.find((bot) => bot.id === editingBotId) ?? null;
+  const editingBot = localBots.find((bot) => bot.id === editingBotId) ?? null;
+
+  function botNameExists(name: string, exceptBotId?: string) {
+    const normalized = name.trim().toLowerCase();
+    return localBots.some(
+      (bot) =>
+        bot.id !== exceptBotId && bot.name.trim().toLowerCase() === normalized,
+    );
+  }
+
+  useEffect(() => {
+    setLocalBots(data.bots);
+  }, [data.bots]);
 
   useEffect(() => {
     setSettings(settingsFormFromBotSettings(data.botSettings));
@@ -2904,12 +2922,17 @@ function AutomationSectionConnected({
   async function createBot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
+    if (botNameExists(botName)) {
+      setMessage("Ya existe un bot con ese nombre.");
+      return;
+    }
     setCreatingBot(true);
     try {
-      await takuApi("/bots", {
+      const created = await takuApi<TakuBot>("/bots", {
         method: "POST",
         body: JSON.stringify({ name: botName, instructions, status: "active" }),
       });
+      setLocalBots((current) => [...current, created]);
       setBotName("");
       setInstructions("");
       setMessage("Bot creado y provisionado en Bot Service.");
@@ -2927,7 +2950,7 @@ function AutomationSectionConnected({
     setMessage(null);
     setSavingBotStatusId(bot.id);
     try {
-      await takuApi(`/bots/${bot.id}`, {
+      const updated = await takuApi<TakuBot>(`/bots/${bot.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           name: bot.name,
@@ -2935,6 +2958,9 @@ function AutomationSectionConnected({
           status,
         }),
       });
+      setLocalBots((current) =>
+        current.map((item) => (item.id === bot.id ? updated : item)),
+      );
       setMessage(status === "active" ? "Bot reactivado." : "Bot pausado.");
       onRefresh();
     } catch (error) {
@@ -2961,9 +2987,13 @@ function AutomationSectionConnected({
     event.preventDefault();
     if (!editingBot) return;
     setMessage(null);
+    if (botNameExists(editBotName, editingBot.id)) {
+      setMessage("Ya existe un bot con ese nombre.");
+      return;
+    }
     setSavingBotEdit(true);
     try {
-      await takuApi(`/bots/${editingBot.id}`, {
+      const updated = await takuApi<TakuBot>(`/bots/${editingBot.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           name: editBotName.trim(),
@@ -2971,6 +3001,9 @@ function AutomationSectionConnected({
           status: editBotStatus,
         }),
       });
+      setLocalBots((current) =>
+        current.map((item) => (item.id === editingBot.id ? updated : item)),
+      );
       setMessage("Bot actualizado.");
       setEditingBotId(null);
       onRefresh();
@@ -2994,11 +3027,22 @@ function AutomationSectionConnected({
     setDeletingBotId(bot.id);
     try {
       await takuApi(`/bots/${bot.id}`, { method: "DELETE" });
+      setLocalBots((current) => current.filter((item) => item.id !== bot.id));
       if (assignmentBot === bot.id) setAssignmentBot("");
       if (editingBotId === bot.id) setEditingBotId(null);
       setMessage("Bot eliminado y asignaciones desactivadas.");
       onRefresh();
     } catch (error) {
+      if (
+        error instanceof TakuApiError &&
+        (error.status === 404 || error.code === "BOT_NOT_FOUND")
+      ) {
+        setLocalBots((current) => current.filter((item) => item.id !== bot.id));
+        if (assignmentBot === bot.id) setAssignmentBot("");
+        if (editingBotId === bot.id) setEditingBotId(null);
+        setMessage("Ese bot ya no existe; se removio de la lista.");
+        return;
+      }
       setMessage(
         error instanceof Error ? error.message : "No se pudo eliminar el bot.",
       );
@@ -3269,7 +3313,7 @@ function AutomationSectionConnected({
       <section className="rounded-lg border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-slate-950">Bots</h2>
-          <Badge>{data.bots.length}</Badge>
+          <Badge>{localBots.length}</Badge>
         </div>
         <div className="mt-5 overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm">
@@ -3290,7 +3334,7 @@ function AutomationSectionConnected({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {data.bots.map((bot) => (
+              {localBots.map((bot) => (
                 <tr key={bot.id}>
                   <td className="px-4 py-3 font-medium text-slate-950">
                     {bot.name}
@@ -3773,7 +3817,7 @@ function AutomationSectionConnected({
                     )?.displayName ?? "Numero"}{" "}
                     ·{" "}
                     {assignment.bot?.name ??
-                      data.bots.find((bot) => bot.id === assignment.botId)
+                      localBots.find((bot) => bot.id === assignment.botId)
                         ?.name ??
                       "Bot"}
                   </p>
