@@ -54,6 +54,7 @@ import type {
   Preferences,
   Role,
   TakuBotStatus,
+  WhatsAppAccount,
   WhatsAppStatus,
 } from "./types.js";
 import type { Realtime } from "./realtime.js";
@@ -575,6 +576,32 @@ function afterHoursResponderValid(
   );
 }
 
+type RemoteWhatsAppConnectionStatus = Awaited<
+  ReturnType<typeof whatsappClient.getConnectionStatus>
+>;
+
+function applyRemoteWhatsAppStatus(
+  account: WhatsAppAccount,
+  remoteStatus: RemoteWhatsAppConnectionStatus,
+) {
+  if (!remoteStatus || account.status === "disabled") return;
+  if (remoteStatus.connected || remoteStatus.connection === "open") {
+    account.status = "connected";
+    account.lastConnectedAt = account.lastConnectedAt ?? now();
+    account.lastDisconnectedAt = null;
+    account.qrCode = null;
+  } else if (remoteStatus.hasQr) {
+    account.status = "qr_required";
+  } else if (remoteStatus.connection === "connecting") {
+    account.status = "connecting";
+  } else if (remoteStatus.connection === "close") {
+    account.status = "disconnected";
+    account.lastDisconnectedAt = account.lastDisconnectedAt ?? now();
+  }
+  account.phoneNumber = remoteStatus.phone ?? account.phoneNumber;
+  account.updatedAt = now();
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -950,6 +977,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           });
 
         if (event === "message.received") {
+          account.status = "connected";
+          account.lastConnectedAt = account.lastConnectedAt ?? now();
+          account.lastDisconnectedAt = null;
+          account.qrCode = null;
+          account.updatedAt = now();
           const from = requireString(payload.from, "from");
           const text = readOptionalString(payload.text) ?? "";
           const externalMessageId = readOptionalString(payload.messageId);
@@ -2613,6 +2645,32 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     "/whatsapp-accounts",
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const statusChecks = await Promise.all(
+        snapshot.whatsappAccounts
+          .filter((item) => item.workspaceId === context.workspace.id)
+          .filter((item) => item.status !== "disabled")
+          .map(async (account) => ({
+            accountId: account.id,
+            remoteStatus: await whatsappClient
+              .getConnectionStatus(account.externalInstanceId)
+              .catch(() => null),
+          })),
+      );
+      if (statusChecks.some((item) => item.remoteStatus)) {
+        await store.update((database) => {
+          for (const statusCheck of statusChecks) {
+            const account = database.whatsappAccounts.find(
+              (item) =>
+                item.id === statusCheck.accountId &&
+                item.workspaceId === context.workspace.id,
+            );
+            if (account) {
+              applyRemoteWhatsAppStatus(account, statusCheck.remoteStatus);
+            }
+          }
+        });
+      }
       const database = await store.read();
       const rows = database.whatsappAccounts
         .filter((item) => item.workspaceId === context.workspace.id)
@@ -3056,23 +3114,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           context.workspace.id,
           req.params.id,
         );
-        if (account.status !== "disabled" && remoteStatus) {
-          if (remoteStatus.connected || remoteStatus.connection === "open") {
-            account.status = "connected";
-            account.lastConnectedAt = account.lastConnectedAt ?? now();
-            account.lastDisconnectedAt = null;
-            account.qrCode = null;
-          } else if (remoteStatus.hasQr) {
-            account.status = "qr_required";
-          } else if (remoteStatus.connection === "connecting") {
-            account.status = "connecting";
-          } else if (remoteStatus.connection === "close") {
-            account.status = "disconnected";
-            account.lastDisconnectedAt = account.lastDisconnectedAt ?? now();
-          }
-          account.phoneNumber = remoteStatus.phone ?? account.phoneNumber;
-        }
-        account.updatedAt = now();
+        applyRemoteWhatsAppStatus(account, remoteStatus);
         return whatsappAccountView(account, database);
       });
       if (data.status === "connected") {
