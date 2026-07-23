@@ -1033,9 +1033,43 @@ function ConversationsSection({
         selectedPhone.replace(/\D/g, ""),
     ) ?? null;
 
+  function clearLocalUnread(conversationId: string) {
+    setLocalConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, unreadCount: 0 }
+          : conversation,
+      ),
+    );
+  }
+
+  function markConversationRead(conversationId: string) {
+    clearLocalUnread(conversationId);
+    void takuApi(`/conversations/${conversationId}/read`, {
+      method: "POST",
+    }).catch((caught) => {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo marcar la conversacion como leida.",
+      );
+    });
+  }
+
+  function selectConversation(conversationId: string) {
+    setSelectedId(conversationId);
+    markConversationRead(conversationId);
+  }
+
   useEffect(() => {
-    setLocalConversations(data.conversations);
-  }, [data.conversations]);
+    setLocalConversations(
+      data.conversations.map((conversation) =>
+        conversation.id === selectedId
+          ? { ...conversation, unreadCount: 0 }
+          : conversation,
+      ),
+    );
+  }, [data.conversations, selectedId]);
 
   useEffect(() => {
     if (!selected && selectedId) setSelectedId(null);
@@ -1081,23 +1115,7 @@ function ConversationsSection({
 
   useEffect(() => {
     if (!selected || selected.unreadCount <= 0) return;
-    const conversationId = selected.id;
-    setLocalConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, unreadCount: 0 }
-          : conversation,
-      ),
-    );
-    void takuApi(`/conversations/${conversationId}/read`, {
-      method: "POST",
-    }).catch((caught) => {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "No se pudo marcar la conversacion como leida.",
-      );
-    });
+    markConversationRead(selected.id);
   }, [selected?.id, selected?.unreadCount]);
 
   async function sendMessage() {
@@ -1236,7 +1254,7 @@ function ConversationsSection({
               <button
                 type="button"
                 key={conversation.id}
-                onClick={() => setSelectedId(conversation.id)}
+                onClick={() => selectConversation(conversation.id)}
                 className={cx(
                   "grid w-full gap-2 p-4 text-left hover:bg-slate-50",
                   selected?.id === conversation.id && "bg-slate-100",
@@ -4036,42 +4054,101 @@ function HoursSectionConnected({
       closesAt: "18:00",
     })),
   );
+  const [selectedAccountId, setSelectedAccountId] = useState(
+    data.accounts[0]?.id ?? "",
+  );
   const [message, setMessage] = useState<string | null>(null);
+  const [isLoadingHours, setIsLoadingHours] = useState(false);
+  const [isSavingHours, setIsSavingHours] = useState(false);
+  const selectedAccount =
+    data.accounts.find((account) => account.id === selectedAccountId) ?? null;
 
   useEffect(() => {
-    if (!data.hours?.days.length) return;
-    setDays(
-      dayNames.map((_, dayOfWeek) => {
-        const found = data.hours?.days.find(
-          (day) => day.dayOfWeek === dayOfWeek,
+    if (!selectedAccountId && data.accounts[0]) {
+      setSelectedAccountId(data.accounts[0].id);
+    }
+  }, [data.accounts, selectedAccountId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHours() {
+      if (!selectedAccountId) return;
+      setIsLoadingHours(true);
+      setMessage(null);
+      try {
+        const loaded = await takuApi<BusinessHoursPayload>(
+          `/business-hours?whatsappAccountId=${encodeURIComponent(selectedAccountId)}`,
         );
-        return {
-          dayOfWeek,
-          isClosed: found?.isClosed ?? false,
-          opensAt: found?.opensAt ?? "09:00",
-          closesAt: found?.closesAt ?? "18:00",
-        };
-      }),
-    );
-  }, [data.hours]);
+        if (cancelled) return;
+        setDays(
+          dayNames.map((_, dayOfWeek) => {
+            const found = loaded.days.find(
+              (day) => day.dayOfWeek === dayOfWeek,
+            );
+            return {
+              dayOfWeek,
+              isClosed: found?.isClosed ?? false,
+              opensAt: found?.opensAt ?? "09:00",
+              closesAt: found?.closesAt ?? "18:00",
+            };
+          }),
+        );
+      } catch (caught) {
+        if (!cancelled) {
+          setMessage(
+            caught instanceof Error
+              ? caught.message
+              : "No se pudo cargar el horario del numero.",
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoadingHours(false);
+      }
+    }
+    void loadHours();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccountId]);
 
   async function saveHours() {
-    await takuApi("/business-hours", {
-      method: "PUT",
-      body: JSON.stringify({ days }),
-    });
-    setMessage("Horario guardado.");
-    onRefresh();
+    if (!selectedAccountId) {
+      setMessage("Selecciona un numero para guardar su horario.");
+      return;
+    }
+    setIsSavingHours(true);
+    setMessage(null);
+    try {
+      await takuApi("/business-hours", {
+        method: "PUT",
+        body: JSON.stringify({ whatsappAccountId: selectedAccountId, days }),
+      });
+      setMessage("Horario del numero guardado.");
+      onRefresh();
+    } catch (caught) {
+      setMessage(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo guardar el horario.",
+      );
+    } finally {
+      setIsSavingHours(false);
+    }
   }
 
   return (
     <div className="grid gap-6">
       <SectionHeader
         label="Horarios"
-        title="Horario de atencion"
-        description="Si no hay horario configurado, TAKU considera el numero siempre activo."
+        title="Horario de atencion por numero"
+        description="Cada numero de WhatsApp puede tener su propio horario. TAKU usa este horario para decidir cuando responde el bot."
         action={
-          <Button onClick={() => void saveHours()}>Guardar horario</Button>
+          <Button
+            disabled={!selectedAccountId || isSavingHours}
+            onClick={() => void saveHours()}
+          >
+            {isSavingHours ? "Guardando..." : "Guardar horario"}
+          </Button>
         }
       />
       {message ? (
@@ -4081,22 +4158,43 @@ function HoursSectionConnected({
       ) : null}
       <div className="grid gap-6 xl:grid-cols-[0.75fr_1.25fr]">
         <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold text-slate-950">Estado actual</h2>
+          <h2 className="font-semibold text-slate-950">Numero configurado</h2>
+          <div className="mt-5 grid gap-4">
+            <Field label="Numero de WhatsApp">
+              <Select value={selectedAccountId} onChange={setSelectedAccountId}>
+                <option value="">Selecciona numero</option>
+                {data.accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayName} ·{" "}
+                    {account.phoneNumber ?? "Sin vincular"}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {data.accounts.length === 0 ? (
+              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Primero agrega un numero de WhatsApp.
+              </p>
+            ) : null}
+          </div>
           <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-5">
             <Badge
-              tone={
-                data.hours?.currentStatus?.isOpen === false ? "warn" : "dark"
-              }
+              tone={selectedAccount?.status === "connected" ? "dark" : "warn"}
             >
-              {data.hours?.currentStatus?.label ?? "Siempre activo"}
+              {selectedAccount
+                ? statusLabel(selectedAccount.status)
+                : "Sin numero"}
             </Badge>
             <p className="mt-3 text-2xl font-semibold text-slate-950">
-              {data.hours?.currentStatus?.isOpen === false
-                ? "Fuera de horario"
-                : "Activo para responder"}
+              {selectedAccount?.displayName ?? "Selecciona un numero"}
             </p>
             <p className="mt-2 text-sm text-slate-600">
               Zona horaria: {data.hours?.timezone ?? "America/Mexico_City"}
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              {isLoadingHours
+                ? "Cargando horario..."
+                : "Este horario aplica solo a este numero."}
             </p>
           </div>
         </section>
