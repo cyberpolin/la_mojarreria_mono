@@ -1478,6 +1478,9 @@ function NumbersSection({
   const [savingAutomationId, setSavingAutomationId] = useState<string | null>(
     null,
   );
+  const [automationByAccountId, setAutomationByAccountId] = useState<
+    Record<string, boolean>
+  >({});
   const selected =
     data.accounts.find((account) => account.id === selectedId) ??
     data.accounts[0] ??
@@ -1485,6 +1488,16 @@ function NumbersSection({
   const disconnectingAccount =
     data.accounts.find((account) => account.id === disconnectingId) ?? null;
   const selectedIsConnected = selected?.status === "connected";
+
+  useEffect(() => {
+    setAutomationByAccountId(() => {
+      const next: Record<string, boolean> = {};
+      for (const account of data.accounts) {
+        next[account.id] = Boolean(account.automationEnabled);
+      }
+      return next;
+    });
+  }, [data.accounts]);
 
   useEffect(() => {
     if (!selectedId || !qr || selectedIsConnected) {
@@ -1629,6 +1642,11 @@ function NumbersSection({
   async function toggleAutomation(accountId: string, enabled: boolean) {
     setMessage(null);
     setSavingAutomationId(accountId);
+    const previous = automationByAccountId[accountId];
+    setAutomationByAccountId((current) => ({
+      ...current,
+      [accountId]: enabled,
+    }));
     try {
       await takuApi("/bot-settings", {
         method: "PATCH",
@@ -1649,6 +1667,10 @@ function NumbersSection({
           ? error.message
           : "No se pudo actualizar la automatizacion.",
       );
+      setAutomationByAccountId((current) => ({
+        ...current,
+        [accountId]: previous ?? !enabled,
+      }));
     } finally {
       setSavingAutomationId(null);
     }
@@ -1716,12 +1738,16 @@ function NumbersSection({
                     <div className="flex min-w-[220px] items-center gap-3">
                       <Switch
                         compact
-                        checked={number.automationEnabled}
+                        checked={
+                          automationByAccountId[number.id] ??
+                          Boolean(number.automationEnabled)
+                        }
                         disabled={savingAutomationId === number.id}
                         label={
                           savingAutomationId === number.id
                             ? "Guardando"
-                            : number.automationEnabled
+                            : (automationByAccountId[number.id] ??
+                                Boolean(number.automationEnabled))
                               ? "Activa"
                               : "Inactiva"
                         }
