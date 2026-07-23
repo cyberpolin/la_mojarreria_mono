@@ -54,12 +54,17 @@ export function whatsappAccountView(
   account: WhatsAppAccount,
   database?: Database,
 ) {
-  const settings = database?.botSettings.find(
+  const accountSettings = database?.botSettings.find(
     (item) =>
       item.workspaceId === account.workspaceId &&
-      (item.whatsappAccountId === account.id ||
-        item.whatsappAccountId === null),
+      item.whatsappAccountId === account.id,
   );
+  const workspaceSettings = database?.botSettings.find(
+    (item) =>
+      item.workspaceId === account.workspaceId &&
+      item.whatsappAccountId === null,
+  );
+  const settings = accountSettings ?? workspaceSettings;
   return {
     id: account.id,
     displayName: account.displayName,
