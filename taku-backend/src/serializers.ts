@@ -126,6 +126,7 @@ export function conversationView(
           name: contact.name,
           phoneNumber: contact.phoneNumber,
           profilePictureUrl: contact.profilePictureUrl,
+          notes: contact.notes,
         }
       : null,
     whatsappAccount: account

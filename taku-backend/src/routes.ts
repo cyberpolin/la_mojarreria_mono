@@ -3481,8 +3481,17 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         );
         conversation.unreadCount = 0;
         conversation.updatedAt = now();
-        return { id: conversation.id, unreadCount: conversation.unreadCount };
+        return {
+          id: conversation.id,
+          unreadCount: conversation.unreadCount,
+          updatedAt: conversation.updatedAt,
+        };
       });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        data,
+      );
       ok(res, data);
     }),
   );

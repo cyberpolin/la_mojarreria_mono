@@ -58,7 +58,12 @@ type WhatsAppAccount = {
 type Conversation = {
   id: string;
   status: string;
-  contact: { id: string; name: string | null; phoneNumber: string } | null;
+  contact: {
+    id: string;
+    name: string | null;
+    phoneNumber: string;
+    notes?: string | null;
+  } | null;
   whatsappAccount: {
     id: string;
     displayName: string;
@@ -1009,16 +1014,43 @@ function ConversationsSection({
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [localConversations, setLocalConversations] = useState<Conversation[]>(
+    data.conversations,
+  );
+  const [contactName, setContactName] = useState("");
+  const [contactNotes, setContactNotes] = useState("");
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const [isSavingAutomationBlock, setIsSavingAutomationBlock] = useState(false);
   const selected =
-    data.conversations.find((conversation) => conversation.id === selectedId) ??
-    data.conversations[0] ??
+    localConversations.find((conversation) => conversation.id === selectedId) ??
+    localConversations[0] ??
     null;
+  const selectedPhone = selected?.contact?.phoneNumber ?? "";
+  const selectedBlockedContact =
+    data.blockedContacts.find(
+      (contact) =>
+        contact.phoneNumber.replace(/\D/g, "") ===
+        selectedPhone.replace(/\D/g, ""),
+    ) ?? null;
+
+  useEffect(() => {
+    setLocalConversations(data.conversations);
+  }, [data.conversations]);
 
   useEffect(() => {
     if (!selected && selectedId) setSelectedId(null);
-    if (!selectedId && data.conversations[0])
-      setSelectedId(data.conversations[0].id);
-  }, [data.conversations, selected, selectedId]);
+    if (!selectedId && localConversations[0])
+      setSelectedId(localConversations[0].id);
+  }, [localConversations, selected, selectedId]);
+
+  useEffect(() => {
+    setContactName(selected?.contact?.name ?? "");
+    setContactNotes(selected?.contact?.notes ?? "");
+  }, [
+    selected?.contact?.id,
+    selected?.contact?.name,
+    selected?.contact?.notes,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1047,6 +1079,27 @@ function ConversationsSection({
     };
   }, [selected]);
 
+  useEffect(() => {
+    if (!selected || selected.unreadCount <= 0) return;
+    const conversationId = selected.id;
+    setLocalConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, unreadCount: 0 }
+          : conversation,
+      ),
+    );
+    void takuApi(`/conversations/${conversationId}/read`, {
+      method: "POST",
+    }).catch((caught) => {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo marcar la conversacion como leida.",
+      );
+    });
+  }, [selected?.id, selected?.unreadCount]);
+
   async function sendMessage() {
     if (!selected || !draft.trim()) return;
     setIsSending(true);
@@ -1068,6 +1121,66 @@ function ConversationsSection({
       );
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function saveContact() {
+    if (!selected?.contact) return;
+    setIsSavingContact(true);
+    setError(null);
+    try {
+      await takuApi(`/contacts/${selected.contact.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: contactName.trim(),
+          notes: contactNotes,
+        }),
+      });
+      onRefresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo guardar el contacto.",
+      );
+    } finally {
+      setIsSavingContact(false);
+    }
+  }
+
+  async function toggleAutomationBlock(enabled: boolean) {
+    if (!selected?.contact?.phoneNumber) return;
+    setIsSavingAutomationBlock(true);
+    setError(null);
+    try {
+      if (selectedBlockedContact) {
+        await takuApi(
+          `/automation-blocked-contacts/${selectedBlockedContact.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ enabled }),
+          },
+        );
+      } else {
+        await takuApi("/automation-blocked-contacts", {
+          method: "POST",
+          body: JSON.stringify({
+            phoneNumber: selected.contact.phoneNumber,
+            label: selected.contact.name ?? contactName.trim(),
+            reason: "Bloqueado desde conversaciones",
+            enabled,
+          }),
+        });
+      }
+      onRefresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo actualizar la automatizacion del contacto.",
+      );
+    } finally {
+      setIsSavingAutomationBlock(false);
     }
   }
 
@@ -1119,7 +1232,7 @@ function ConversationsSection({
             <h2 className="font-semibold text-slate-950">Lista</h2>
           </div>
           <div className="divide-y divide-slate-200">
-            {data.conversations.map((conversation) => (
+            {localConversations.map((conversation) => (
               <button
                 type="button"
                 key={conversation.id}
@@ -1163,7 +1276,7 @@ function ConversationsSection({
                 </div>
               </button>
             ))}
-            {data.conversations.length === 0 ? (
+            {localConversations.length === 0 ? (
               <div className="p-4 text-sm text-slate-500">
                 No hay conversaciones todavia.
               </div>
@@ -1276,7 +1389,11 @@ function ConversationsSection({
           </dl>
           <div className="mt-6 grid gap-3">
             <Field label="Nombre del contacto">
-              <Input placeholder="Nombre del cliente" />
+              <Input
+                placeholder="Nombre del cliente"
+                value={contactName}
+                onChange={setContactName}
+              />
             </Field>
             <Field label="Telefono" hint="Solo lectura en MVP">
               <Input
@@ -1285,9 +1402,32 @@ function ConversationsSection({
               />
             </Field>
             <Field label="Notas internas">
-              <TextArea placeholder="Notas visibles solo para el equipo" />
+              <TextArea
+                placeholder="Notas visibles solo para el equipo"
+                value={contactNotes}
+                onChange={setContactNotes}
+              />
             </Field>
-            <Button>Guardar cambios</Button>
+            <Switch
+              checked={selectedBlockedContact?.enabled ?? false}
+              disabled={!selected?.contact || isSavingAutomationBlock}
+              label={
+                isSavingAutomationBlock
+                  ? "Guardando bloqueo..."
+                  : "Nunca responder automaticamente"
+              }
+              onChange={(enabled) => void toggleAutomationBlock(enabled)}
+            />
+            <p className="text-xs leading-5 text-slate-500">
+              Si esta activo, TAKU seguira guardando la conversacion pero no
+              respondera con reglas ni bot a este contacto.
+            </p>
+            <Button
+              disabled={!selected?.contact || isSavingContact}
+              onClick={() => void saveContact()}
+            >
+              {isSavingContact ? "Guardando..." : "Guardar cambios"}
+            </Button>
           </div>
         </aside>
       </div>
