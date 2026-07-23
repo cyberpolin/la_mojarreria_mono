@@ -2712,6 +2712,14 @@ function AutomationSectionConnected({
   const [creatingBot, setCreatingBot] = useState(false);
   const [creatingRule, setCreatingRule] = useState(false);
   const [assigningBot, setAssigningBot] = useState(false);
+  const [savingBotStatusId, setSavingBotStatusId] = useState<string | null>(
+    null,
+  );
+  const [deletingBotId, setDeletingBotId] = useState<string | null>(null);
+  const activeBots = useMemo(
+    () => data.bots.filter((bot) => bot.status === "active"),
+    [data.bots],
+  );
 
   useEffect(() => {
     setSettings(settingsFormFromBotSettings(data.botSettings));
@@ -2735,17 +2743,25 @@ function AutomationSectionConnected({
       (assignment) => assignment.whatsappAccountId === assignmentPhone,
     );
     if (currentAssignment) {
-      setAssignmentBot(currentAssignment.botId);
+      setAssignmentBot(
+        activeBots.some((bot) => bot.id === currentAssignment.botId)
+          ? currentAssignment.botId
+          : "",
+      );
       setAssignmentMode(currentAssignment.mode);
       return;
     }
-    if (!assignmentBot && data.bots[0]) {
-      setAssignmentBot(data.bots[0].id);
+    if (assignmentBot && !activeBots.some((bot) => bot.id === assignmentBot)) {
+      setAssignmentBot("");
+      return;
+    }
+    if (!assignmentBot && activeBots[0]) {
+      setAssignmentBot(activeBots[0].id);
     }
     if (!currentAssignment) {
       setAssignmentMode("outside_business_hours");
     }
-  }, [assignmentBot, assignmentPhone, data.assignments, data.bots]);
+  }, [activeBots, assignmentBot, assignmentPhone, data.assignments]);
 
   useEffect(() => {
     if (!assignmentPhone) {
@@ -2868,6 +2884,52 @@ function AutomationSectionConnected({
       );
     } finally {
       setCreatingBot(false);
+    }
+  }
+
+  async function updateBotStatus(bot: TakuBot, status: "active" | "paused") {
+    setMessage(null);
+    setSavingBotStatusId(bot.id);
+    try {
+      await takuApi(`/bots/${bot.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: bot.name,
+          instructions: bot.instructions,
+          status,
+        }),
+      });
+      setMessage(status === "active" ? "Bot reactivado." : "Bot pausado.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el bot.",
+      );
+    } finally {
+      setSavingBotStatusId(null);
+    }
+  }
+
+  async function deleteBot(bot: TakuBot) {
+    const confirmed = window.confirm(
+      `Eliminar el bot "${bot.name}"? Sus asignaciones quedaran desactivadas.`,
+    );
+    if (!confirmed) return;
+    setMessage(null);
+    setDeletingBotId(bot.id);
+    try {
+      await takuApi(`/bots/${bot.id}`, { method: "DELETE" });
+      if (assignmentBot === bot.id) setAssignmentBot("");
+      setMessage("Bot eliminado y asignaciones desactivadas.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo eliminar el bot.",
+      );
+    } finally {
+      setDeletingBotId(null);
     }
   }
 
@@ -3054,16 +3116,21 @@ function AutomationSectionConnected({
           <Badge>{data.bots.length}</Badge>
         </div>
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
               <tr>
-                {["Nombre", "Estado", "Assistant", "Client ID", "Token"].map(
-                  (head) => (
-                    <th key={head} className="px-4 py-3">
-                      {head}
-                    </th>
-                  ),
-                )}
+                {[
+                  "Nombre",
+                  "Estado",
+                  "Assistant",
+                  "Client ID",
+                  "Token",
+                  "Acciones",
+                ].map((head) => (
+                  <th key={head} className="px-4 py-3">
+                    {head}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -3083,6 +3150,41 @@ function AutomationSectionConnected({
                   </td>
                   <td className="px-4 py-3 text-slate-600">
                     {bot.hasClientToken ? "Configurado" : "Falta"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="ghost"
+                        disabled={
+                          savingBotStatusId === bot.id ||
+                          deletingBotId === bot.id
+                        }
+                        onClick={() =>
+                          void updateBotStatus(
+                            bot,
+                            bot.status === "active" ? "paused" : "active",
+                          )
+                        }
+                      >
+                        {savingBotStatusId === bot.id
+                          ? "Guardando..."
+                          : bot.status === "active"
+                            ? "Desactivar"
+                            : "Reactivar"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={
+                          savingBotStatusId === bot.id ||
+                          deletingBotId === bot.id
+                        }
+                        onClick={() => void deleteBot(bot)}
+                      >
+                        {deletingBotId === bot.id
+                          ? "Eliminando..."
+                          : "Eliminar"}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -3242,16 +3344,16 @@ function AutomationSectionConnected({
             <Field label="Bot">
               <Select value={assignmentBot} onChange={setAssignmentBot}>
                 <option value="">Selecciona bot</option>
-                {data.bots.map((bot) => (
+                {activeBots.map((bot) => (
                   <option key={bot.id} value={bot.id}>
                     {bot.name}
                   </option>
                 ))}
               </Select>
             </Field>
-            {data.bots.length === 0 ? (
+            {activeBots.length === 0 ? (
               <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Primero crea un bot.
+                Primero crea o reactiva un bot.
               </p>
             ) : null}
             <Field label="Horario en que responde el bot">

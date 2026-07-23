@@ -27,6 +27,7 @@
     "dev:taku-api": "pnpm --filter @taku/backend dev",
     "list:taku-services": "bash ./scripts/list-taku-services.sh",
     "check:taku-services": "bash ./scripts/check-taku-service-config.sh",
+    "logs:taku-flow": "bash ./scripts/taku-flow-logs.sh",
     "dev:mobile": "pnpm --filter @mojarreria/mobile start",
     "seed:taku-wa-superowner": "pnpm --filter @mojarreria/wa-service seed:standalone-superowner",
     "seed:products": "pnpm --filter @mojarreria/api run seed:products",

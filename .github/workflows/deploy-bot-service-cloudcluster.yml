@@ -283,6 +283,7 @@ jobs:
           cp scripts/check-taku-service-config.sh /tmp/taku-bot-service-infra/scripts/check-taku-service-config.sh
           cp scripts/ensure-taku-service-certs.sh /tmp/taku-bot-service-infra/scripts/ensure-taku-service-certs.sh
           cp scripts/enable-taku-nginx-sites.sh /tmp/taku-bot-service-infra/scripts/enable-taku-nginx-sites.sh
+          cp scripts/taku-flow-logs.sh /tmp/taku-bot-service-infra/scripts/taku-flow-logs.sh
           chmod +x /tmp/taku-bot-service-infra/scripts/*.sh
           tar -czf taku-bot-service-infra.tar.gz -C /tmp taku-bot-service-infra
           ls -lh taku-bot-service-infra.tar.gz
@@ -403,6 +404,7 @@ jobs:
             tar -xzf /tmp/taku-bot-service-infra.tar.gz -C /tmp
             (
               cd /tmp/taku-bot-service-infra
+              run_sudo install -m 0755 scripts/taku-flow-logs.sh /usr/local/bin/taku-flow-logs
               echo "Checking standalone bot-service nginx config"
               TAKU_SERVICES="TAKU_BOT_SERVICE" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
               TAKU_SERVICES="TAKU_BOT_SERVICE" scripts/list-taku-services.sh

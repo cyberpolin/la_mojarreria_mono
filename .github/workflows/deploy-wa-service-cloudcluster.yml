@@ -240,6 +240,7 @@ jobs:
           cp scripts/check-taku-service-config.sh /tmp/taku-wa-service-infra/scripts/check-taku-service-config.sh
           cp scripts/ensure-taku-service-certs.sh /tmp/taku-wa-service-infra/scripts/ensure-taku-service-certs.sh
           cp scripts/enable-taku-nginx-sites.sh /tmp/taku-wa-service-infra/scripts/enable-taku-nginx-sites.sh
+          cp scripts/taku-flow-logs.sh /tmp/taku-wa-service-infra/scripts/taku-flow-logs.sh
           chmod +x /tmp/taku-wa-service-infra/scripts/*.sh
           tar -czf taku-wa-service-infra.tar.gz -C /tmp taku-wa-service-infra
           ls -lh taku-wa-service-infra.tar.gz
@@ -361,6 +362,7 @@ jobs:
             tar -xzf /tmp/taku-wa-service-infra.tar.gz -C /tmp
             (
               cd /tmp/taku-wa-service-infra
+              run_sudo install -m 0755 scripts/taku-flow-logs.sh /usr/local/bin/taku-flow-logs
               echo "Checking standalone wa-service nginx config"
               TAKU_SERVICES="TAKU_WA_SERVICE" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
               TAKU_SERVICES="TAKU_WA_SERVICE" scripts/list-taku-services.sh

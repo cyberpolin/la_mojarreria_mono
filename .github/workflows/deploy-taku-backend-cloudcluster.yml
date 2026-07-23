@@ -250,6 +250,7 @@ jobs:
           cp scripts/check-taku-service-config.sh /tmp/taku-backend-infra/scripts/check-taku-service-config.sh
           cp scripts/ensure-taku-service-certs.sh /tmp/taku-backend-infra/scripts/ensure-taku-service-certs.sh
           cp scripts/enable-taku-nginx-sites.sh /tmp/taku-backend-infra/scripts/enable-taku-nginx-sites.sh
+          cp scripts/taku-flow-logs.sh /tmp/taku-backend-infra/scripts/taku-flow-logs.sh
           chmod +x /tmp/taku-backend-infra/scripts/*.sh
           tar -czf taku-backend-infra.tar.gz -C /tmp taku-backend-infra
           ls -lh taku-backend-infra.tar.gz
@@ -343,6 +344,7 @@ jobs:
               tar -xzf /tmp/taku-backend-infra.tar.gz -C /tmp
               (
                 cd /tmp/taku-backend-infra
+                run_sudo install -m 0755 scripts/taku-flow-logs.sh /usr/local/bin/taku-flow-logs
                 TAKU_SERVICES="TAKU_BACKEND" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
                 TAKU_SERVICES="TAKU_BACKEND" scripts/list-taku-services.sh
                 run_sudo timeout 300s env TAKU_SERVICES="TAKU_BACKEND" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh

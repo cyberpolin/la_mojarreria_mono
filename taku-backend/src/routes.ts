@@ -4332,6 +4332,57 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.delete(
+    "/bots/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const result = await store.update((database) => {
+        const botIndex = database.bots.findIndex(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (botIndex < 0)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        const [bot] = database.bots.splice(botIndex, 1);
+        let disabledAssignments = 0;
+        for (const assignment of database.botAssignments) {
+          if (
+            assignment.workspaceId === context.workspace.id &&
+            assignment.botId === req.params.id
+          ) {
+            assignment.enabled = false;
+            assignment.mode = "disabled";
+            assignment.updatedAt = now();
+            disabledAssignments += 1;
+          }
+        }
+        return {
+          bot,
+          disabledAssignments,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot.deleted",
+        entityType: "bot",
+        entityId: req.params.id,
+        metadata: { disabledAssignments: result.disabledAssignments },
+      });
+      ok(res, {
+        deleted: true,
+        id: req.params.id,
+        disabledAssignments: result.disabledAssignments,
+      });
+    }),
+  );
+
   router.get(
     "/bot-assignments",
     requireRole(ownerAdmin),
@@ -4387,6 +4438,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             status: 404,
             code: "BOT_NOT_FOUND",
             message: "Bot no encontrado.",
+          });
+        if (bot.status !== "active")
+          throw new ApiError({
+            status: 400,
+            code: "BOT_NOT_ACTIVE",
+            message: "Solo puedes asignar bots activos.",
           });
         let item = database.botAssignments.find(
           (found) =>
