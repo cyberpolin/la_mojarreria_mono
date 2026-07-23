@@ -2744,10 +2744,18 @@ function AutomationSectionConnected({
     null,
   );
   const [deletingBotId, setDeletingBotId] = useState<string | null>(null);
+  const [editingBotId, setEditingBotId] = useState<string | null>(null);
+  const [editBotName, setEditBotName] = useState("");
+  const [editBotInstructions, setEditBotInstructions] = useState("");
+  const [editBotStatus, setEditBotStatus] = useState<
+    "draft" | "active" | "paused"
+  >("active");
+  const [savingBotEdit, setSavingBotEdit] = useState(false);
   const activeBots = useMemo(
     () => data.bots.filter((bot) => bot.status === "active"),
     [data.bots],
   );
+  const editingBot = data.bots.find((bot) => bot.id === editingBotId) ?? null;
 
   useEffect(() => {
     setSettings(settingsFormFromBotSettings(data.botSettings));
@@ -2940,6 +2948,43 @@ function AutomationSectionConnected({
     }
   }
 
+  function startEditingBot(bot: TakuBot) {
+    setEditingBotId(bot.id);
+    setEditBotName(bot.name);
+    setEditBotInstructions(bot.instructions);
+    setEditBotStatus(
+      bot.status === "draft" || bot.status === "paused" ? bot.status : "active",
+    );
+  }
+
+  async function saveBotEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingBot) return;
+    setMessage(null);
+    setSavingBotEdit(true);
+    try {
+      await takuApi(`/bots/${editingBot.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editBotName.trim(),
+          instructions: editBotInstructions.trim(),
+          status: editBotStatus,
+        }),
+      });
+      setMessage("Bot actualizado.");
+      setEditingBotId(null);
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el bot.",
+      );
+    } finally {
+      setSavingBotEdit(false);
+    }
+  }
+
   async function deleteBot(bot: TakuBot) {
     const confirmed = window.confirm(
       `Eliminar el bot "${bot.name}"? Sus asignaciones quedaran desactivadas.`,
@@ -2950,6 +2995,7 @@ function AutomationSectionConnected({
     try {
       await takuApi(`/bots/${bot.id}`, { method: "DELETE" });
       if (assignmentBot === bot.id) setAssignmentBot("");
+      if (editingBotId === bot.id) setEditingBotId(null);
       setMessage("Bot eliminado y asignaciones desactivadas.");
       onRefresh();
     } catch (error) {
@@ -3265,6 +3311,13 @@ function AutomationSectionConnected({
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="ghost"
+                        disabled={savingBotEdit || deletingBotId === bot.id}
+                        onClick={() => startEditingBot(bot)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        variant="ghost"
                         disabled={
                           savingBotStatusId === bot.id ||
                           deletingBotId === bot.id
@@ -3301,6 +3354,73 @@ function AutomationSectionConnected({
             </tbody>
           </table>
         </div>
+        {editingBot ? (
+          <form
+            onSubmit={saveBotEdit}
+            className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-950">Editar bot</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Cambia nombre, instrucciones o estado. Las instrucciones se
+                  sincronizan con Bot Service.
+                </p>
+              </div>
+              <Badge>{editingBot.name}</Badge>
+            </div>
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_220px]">
+              <Field label="Nombre">
+                <Input
+                  placeholder="Ej. Ventas automaticas"
+                  value={editBotName}
+                  onChange={setEditBotName}
+                />
+              </Field>
+              <Field label="Estado">
+                <Select
+                  value={editBotStatus}
+                  onChange={(status) =>
+                    setEditBotStatus(status as "draft" | "active" | "paused")
+                  }
+                >
+                  <option value="active">Activo</option>
+                  <option value="paused">Pausado</option>
+                  <option value="draft">Borrador</option>
+                </Select>
+              </Field>
+              <div className="lg:col-span-2">
+                <Field label="Instrucciones">
+                  <TextArea
+                    rows={8}
+                    placeholder="Responde breve, pide nombre y pasa a un agente si falta informacion."
+                    value={editBotInstructions}
+                    onChange={setEditBotInstructions}
+                  />
+                </Field>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button
+                type="submit"
+                disabled={
+                  savingBotEdit ||
+                  !editBotName.trim() ||
+                  !editBotInstructions.trim()
+                }
+              >
+                {savingBotEdit ? "Guardando..." : "Guardar cambios"}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={savingBotEdit}
+                onClick={() => setEditingBotId(null)}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </form>
+        ) : null}
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5">
