@@ -125,6 +125,16 @@ type AutomationRule = {
   whatsappAccountId: string | null;
 };
 
+type AutomationBlockedContact = {
+  id: string;
+  phoneNumber: string;
+  label: string | null;
+  reason: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type BusinessHoursPayload = {
   timezone: string;
   currentStatus?: { isOpen: boolean; label: string; nextChangeAt?: string };
@@ -154,6 +164,7 @@ type TakuData = {
   assignments: BotAssignment[];
   botSettings: BotSettings | null;
   rules: AutomationRule[];
+  blockedContacts: AutomationBlockedContact[];
   hours: BusinessHoursPayload | null;
   users: UserRow[];
 };
@@ -166,6 +177,7 @@ const emptyData: TakuData = {
   assignments: [],
   botSettings: null,
   rules: [],
+  blockedContacts: [],
   hours: null,
   users: [],
 };
@@ -590,6 +602,7 @@ function useTakuData(refreshKey: number) {
           assignments,
           botSettings,
           rulesData,
+          blockedContacts,
           hours,
           usersData,
         ] = await Promise.all([
@@ -600,6 +613,10 @@ function useTakuData(refreshKey: number) {
           optional(takuList<BotAssignment>("/bot-assignments"), []),
           optional(takuApi<BotSettings>("/bot-settings"), null),
           optional(takuList<AutomationRule>("/automation-rules"), []),
+          optional(
+            takuList<AutomationBlockedContact>("/automation-blocked-contacts"),
+            [],
+          ),
           optional(takuApi<BusinessHoursPayload>("/business-hours"), null),
           optional(takuList<UserRow>("/users"), []),
         ]);
@@ -612,6 +629,7 @@ function useTakuData(refreshKey: number) {
             assignments,
             botSettings,
             rules: rulesData,
+            blockedContacts,
             hours,
             users: usersData,
           });
@@ -2694,6 +2712,9 @@ function AutomationSectionConnected({
   const [keyword, setKeyword] = useState("");
   const [responseText, setResponseText] = useState("");
   const [matchType, setMatchType] = useState("contains");
+  const [blockedPhoneNumber, setBlockedPhoneNumber] = useState("");
+  const [blockedLabel, setBlockedLabel] = useState("");
+  const [blockedReason, setBlockedReason] = useState("");
   const [assignmentPhone, setAssignmentPhone] = useState("");
   const [assignmentBot, setAssignmentBot] = useState("");
   const [assignmentMode, setAssignmentMode] = useState(
@@ -2711,6 +2732,13 @@ function AutomationSectionConnected({
   const [savingNumberSettings, setSavingNumberSettings] = useState(false);
   const [creatingBot, setCreatingBot] = useState(false);
   const [creatingRule, setCreatingRule] = useState(false);
+  const [creatingBlockedContact, setCreatingBlockedContact] = useState(false);
+  const [savingBlockedContactId, setSavingBlockedContactId] = useState<
+    string | null
+  >(null);
+  const [deletingBlockedContactId, setDeletingBlockedContactId] = useState<
+    string | null
+  >(null);
   const [assigningBot, setAssigningBot] = useState(false);
   const [savingBotStatusId, setSavingBotStatusId] = useState<string | null>(
     null,
@@ -2957,6 +2985,88 @@ function AutomationSectionConnected({
       );
     } finally {
       setCreatingRule(false);
+    }
+  }
+
+  async function createBlockedContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setCreatingBlockedContact(true);
+    try {
+      await takuApi("/automation-blocked-contacts", {
+        method: "POST",
+        body: JSON.stringify({
+          phoneNumber: blockedPhoneNumber.trim(),
+          label: blockedLabel.trim(),
+          reason: blockedReason.trim(),
+          enabled: true,
+        }),
+      });
+      setBlockedPhoneNumber("");
+      setBlockedLabel("");
+      setBlockedReason("");
+      setMessage("Numero agregado a la lista de no responder.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo bloquear el numero.",
+      );
+    } finally {
+      setCreatingBlockedContact(false);
+    }
+  }
+
+  async function updateBlockedContact(
+    contact: AutomationBlockedContact,
+    enabled: boolean,
+  ) {
+    setMessage(null);
+    setSavingBlockedContactId(contact.id);
+    try {
+      await takuApi(`/automation-blocked-contacts/${contact.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      });
+      setMessage(
+        enabled
+          ? "Bloqueo activado para el numero."
+          : "Bloqueo desactivado para el numero.",
+      );
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el bloqueo.",
+      );
+    } finally {
+      setSavingBlockedContactId(null);
+    }
+  }
+
+  async function deleteBlockedContact(contact: AutomationBlockedContact) {
+    const confirmed = window.confirm(
+      `Quitar ${contact.phoneNumber} de la lista de no responder?`,
+    );
+    if (!confirmed) return;
+    setMessage(null);
+    setDeletingBlockedContactId(contact.id);
+    try {
+      await takuApi(`/automation-blocked-contacts/${contact.id}`, {
+        method: "DELETE",
+      });
+      setMessage("Numero removido de la lista de no responder.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo eliminar el bloqueo.",
+      );
+    } finally {
+      setDeletingBlockedContactId(null);
     }
   }
 
@@ -3409,6 +3519,123 @@ function AutomationSectionConnected({
           </div>
         </form>
       </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-950">Nunca responder</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Numeros que TAKU puede recibir y guardar en conversaciones, pero
+              nunca contestara con reglas ni bot.
+            </p>
+          </div>
+          <Badge>{data.blockedContacts.length}</Badge>
+        </div>
+
+        <form
+          onSubmit={createBlockedContact}
+          className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]"
+        >
+          <Field label="Numero">
+            <Input
+              placeholder="5219931175435"
+              value={blockedPhoneNumber}
+              onChange={setBlockedPhoneNumber}
+            />
+          </Field>
+          <Field label="Nombre o etiqueta">
+            <Input
+              placeholder="Proveedor, socio, equipo interno"
+              value={blockedLabel}
+              onChange={setBlockedLabel}
+            />
+          </Field>
+          <Field label="Motivo">
+            <Input
+              placeholder="No automatizar este contacto"
+              value={blockedReason}
+              onChange={setBlockedReason}
+            />
+          </Field>
+          <div className="flex items-end">
+            <Button
+              type="submit"
+              disabled={
+                blockedPhoneNumber.replace(/\D/g, "").length < 8 ||
+                creatingBlockedContact
+              }
+            >
+              {creatingBlockedContact ? "Agregando..." : "Agregar"}
+            </Button>
+          </div>
+        </form>
+
+        <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[780px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+              <tr>
+                {["Numero", "Etiqueta", "Motivo", "Estado", "Acciones"].map(
+                  (head) => (
+                    <th key={head} className="px-4 py-3">
+                      {head}
+                    </th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {data.blockedContacts.map((contact) => (
+                <tr key={contact.id}>
+                  <td className="px-4 py-3 font-medium text-slate-950">
+                    {contact.phoneNumber}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {contact.label ?? "-"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {contact.reason ?? "-"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Switch
+                      compact
+                      checked={contact.enabled}
+                      disabled={savingBlockedContactId === contact.id}
+                      label={
+                        savingBlockedContactId === contact.id
+                          ? "Guardando"
+                          : contact.enabled
+                            ? "Activo"
+                            : "Inactivo"
+                      }
+                      onChange={(enabled) =>
+                        void updateBlockedContact(contact, enabled)
+                      }
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Button
+                      variant="secondary"
+                      disabled={deletingBlockedContactId === contact.id}
+                      onClick={() => void deleteBlockedContact(contact)}
+                    >
+                      {deletingBlockedContactId === contact.id
+                        ? "Eliminando..."
+                        : "Eliminar"}
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {data.blockedContacts.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-sm text-slate-500" colSpan={5}>
+                    No hay numeros excluidos de respuestas automaticas.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5">
         <h2 className="font-semibold text-slate-950">Asignaciones y reglas</h2>

@@ -43,6 +43,7 @@ import { whatsappClient } from "./services/whatsappClient.js";
 import { id, now, type JsonStore } from "./store/jsonStore.js";
 import type {
   AutomationRule,
+  AutomationBlockedContact,
   AdminRole,
   BotAssignmentMode,
   BusinessHour,
@@ -568,6 +569,27 @@ function assignmentCanRespond(mode: BotAssignmentMode, isOpen: boolean) {
   return true;
 }
 
+function normalizePhoneNumber(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function findBlockedAutomationContact(
+  database: Database,
+  workspaceId: string,
+  phoneNumber: string,
+) {
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  if (!normalizedPhone) return null;
+  return (
+    database.automationBlockedContacts.find(
+      (item) =>
+        item.workspaceId === workspaceId &&
+        item.enabled &&
+        normalizePhoneNumber(item.phoneNumber) === normalizedPhone,
+    ) ?? null
+  );
+}
+
 function afterHoursResponderValid(
   value: unknown,
 ): value is "static_message" | "assigned_bot" | "none" {
@@ -774,6 +796,29 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           assignmentId: null,
           decision: "blocked",
           reason: "workspace_not_active",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+      return;
+    }
+    const blockedContact = findBlockedAutomationContact(
+      database,
+      params.workspaceId,
+      params.from,
+    );
+    if (blockedContact) {
+      await store.update((current) => {
+        current.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "ignored",
+          reason: `blocked_contact:${blockedContact.id}`,
           responseText: null,
           createdAt: now(),
         });
@@ -4082,6 +4127,167 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         userId: context.user.id,
         action: "automation_rule.deleted",
         entityType: "automation_rule",
+        entityId: req.params.id,
+        metadata: null,
+      });
+      ok(res, { id: req.params.id, deleted: true });
+    }),
+  );
+
+  router.get(
+    "/automation-blocked-contacts",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const search = readOptionalString(req.query.search)?.toLowerCase();
+      const rows = database.automationBlockedContacts
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          search
+            ? `${item.phoneNumber} ${item.label ?? ""} ${item.reason ?? ""}`
+                .toLowerCase()
+                .includes(search)
+            : true,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/automation-blocked-contacts",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const phoneNumber = requireString(req.body?.phoneNumber, "phoneNumber");
+      const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+      if (normalizedPhoneNumber.length < 8)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Numero invalido.",
+        });
+      const label = readOptionalString(req.body?.label) ?? null;
+      const reason = readOptionalString(req.body?.reason) ?? null;
+      const enabled =
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const item = await store.update((database) => {
+        const existing = database.automationBlockedContacts.find(
+          (blocked) =>
+            blocked.workspaceId === context.workspace.id &&
+            normalizePhoneNumber(blocked.phoneNumber) === normalizedPhoneNumber,
+        );
+        if (existing) {
+          existing.phoneNumber = normalizedPhoneNumber;
+          existing.label = label;
+          existing.reason = reason;
+          existing.enabled = enabled;
+          existing.updatedAt = now();
+          return existing;
+        }
+        const blockedContact: AutomationBlockedContact = {
+          id: id("automation_blocked_contact"),
+          workspaceId: context.workspace.id,
+          phoneNumber: normalizedPhoneNumber,
+          label,
+          reason,
+          enabled,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.automationBlockedContacts.push(blockedContact);
+        return blockedContact;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_blocked_contact.upserted",
+        entityType: "automation_blocked_contact",
+        entityId: item.id,
+        metadata: null,
+      });
+      ok(res, item, 201);
+    }),
+  );
+
+  router.patch(
+    "/automation-blocked-contacts/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const item = await store.update((database) => {
+        const blockedContact = database.automationBlockedContacts.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!blockedContact)
+          throw new ApiError({
+            status: 404,
+            code: "BLOCKED_CONTACT_NOT_FOUND",
+            message: "Numero bloqueado no encontrado.",
+          });
+        if ("phoneNumber" in req.body) {
+          const phoneNumber = requireString(
+            req.body?.phoneNumber,
+            "phoneNumber",
+          );
+          const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+          if (normalizedPhoneNumber.length < 8)
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Numero invalido.",
+            });
+          blockedContact.phoneNumber = normalizedPhoneNumber;
+        }
+        if ("label" in req.body)
+          blockedContact.label = readOptionalString(req.body?.label) ?? null;
+        if ("reason" in req.body)
+          blockedContact.reason = readOptionalString(req.body?.reason) ?? null;
+        if (typeof req.body?.enabled === "boolean")
+          blockedContact.enabled = req.body.enabled;
+        blockedContact.updatedAt = now();
+        return blockedContact;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_blocked_contact.updated",
+        entityType: "automation_blocked_contact",
+        entityId: item.id,
+        metadata: null,
+      });
+      ok(res, item);
+    }),
+  );
+
+  router.delete(
+    "/automation-blocked-contacts/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      await store.update((database) => {
+        const index = database.automationBlockedContacts.findIndex(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (index < 0)
+          throw new ApiError({
+            status: 404,
+            code: "BLOCKED_CONTACT_NOT_FOUND",
+            message: "Numero bloqueado no encontrado.",
+          });
+        database.automationBlockedContacts.splice(index, 1);
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_blocked_contact.deleted",
+        entityType: "automation_blocked_contact",
         entityId: req.params.id,
         metadata: null,
       });

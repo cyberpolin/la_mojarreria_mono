@@ -9,6 +9,7 @@ import type {
   AuditLog,
   BotAssignment,
   AutomationRule,
+  AutomationBlockedContact,
   TakuBot,
   BotSettings,
   BusinessHour,
@@ -53,6 +54,7 @@ function createEmptyDatabase(): Database {
     bots: [],
     botAssignments: [],
     automationRules: [],
+    automationBlockedContacts: [],
     automationDecisionLogs: [],
     preferences: [],
     auditLogs: [],
@@ -77,6 +79,7 @@ function ensureDatabaseCollections(database: Database) {
   target.bots ??= [];
   target.botAssignments ??= [];
   target.automationRules ??= [];
+  target.automationBlockedContacts ??= [];
   target.automationDecisionLogs ??= [];
   target.preferences ??= [];
   target.auditLogs ??= [];
@@ -304,6 +307,7 @@ function createTestSeed(): Database {
       updatedAt: timestamp,
     },
   ];
+  const automationBlockedContacts: AutomationBlockedContact[] = [];
   const preferences: Preferences = {
     id: "preferences_workspace",
     workspaceId: workspace.id,
@@ -333,6 +337,7 @@ function createTestSeed(): Database {
     bots,
     botAssignments,
     automationRules,
+    automationBlockedContacts,
     automationDecisionLogs: [],
     preferences: [preferences],
     auditLogs: [],
@@ -465,6 +470,11 @@ function ensureTestData(database: Database) {
   changed =
     addMissingById(database.automationRules, testSeed.automationRules) ||
     changed;
+  changed =
+    addMissingById(
+      database.automationBlockedContacts,
+      testSeed.automationBlockedContacts,
+    ) || changed;
   changed =
     addMissingById(database.preferences, testSeed.preferences) || changed;
   return changed;

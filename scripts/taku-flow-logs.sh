@@ -104,7 +104,8 @@ print_json_summary() {
         botSettings: pick(db.botSettings).length,
         botAssignments: pick(db.botAssignments).length,
         bots: pick(db.bots).length,
-        automationDecisionLogs: pick(db.automationDecisionLogs).length
+        automationDecisionLogs: pick(db.automationDecisionLogs).length,
+        automationBlockedContacts: pick(db.automationBlockedContacts).length,
       },
       whatsappAccounts: pick(db.whatsappAccounts).map((item) => ({
         id: item.id,
@@ -131,6 +132,14 @@ print_json_summary() {
         botId: item.botId,
         enabled: item.enabled,
         mode: item.mode,
+        updatedAt: item.updatedAt
+      })),
+      automationBlockedContacts: pick(db.automationBlockedContacts).map((item) => ({
+        id: item.id,
+        phoneNumber: item.phoneNumber,
+        label: item.label,
+        enabled: item.enabled,
+        reason: item.reason,
         updatedAt: item.updatedAt
       })),
       bots: pick(db.bots).map((item) => ({

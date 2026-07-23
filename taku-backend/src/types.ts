@@ -211,6 +211,17 @@ export type AutomationRule = {
   updatedAt: string;
 };
 
+export type AutomationBlockedContact = {
+  id: string;
+  workspaceId: string;
+  phoneNumber: string;
+  label: string | null;
+  reason: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AutomationDecisionLog = {
   id: string;
   workspaceId: string;
@@ -300,6 +311,7 @@ export type Database = {
   bots: TakuBot[];
   botAssignments: BotAssignment[];
   automationRules: AutomationRule[];
+  automationBlockedContacts: AutomationBlockedContact[];
   automationDecisionLogs: AutomationDecisionLog[];
   preferences: Preferences[];
   auditLogs: AuditLog[];
