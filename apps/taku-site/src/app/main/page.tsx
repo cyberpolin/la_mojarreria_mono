@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   getWorkspaceSession,
   takuApi,
@@ -217,6 +217,27 @@ const navItems: Array<{
   },
   { id: "auth", label: "Acceso publico", roles: ["owner", "admin", "agent"] },
 ];
+
+function isSectionId(value: string | undefined): value is SectionId {
+  return Boolean(value && navItems.some((item) => item.id === value));
+}
+
+function sectionFromPathname(pathname: string): SectionId {
+  const [, root, rawSection] = pathname.split("/");
+  if (root !== "main") return "home";
+  if (!rawSection) return "home";
+  const aliases: Record<string, SectionId> = {
+    dashboard: "home",
+    "whatsapp-accounts": "numbers",
+    "business-hours": "hours",
+  };
+  const section = aliases[rawSection] ?? rawSection;
+  return isSectionId(section) ? section : "home";
+}
+
+function pathForSection(section: SectionId) {
+  return `/main/${section}`;
+}
 
 const metrics = [
   ["Conversaciones abiertas", "28"],
@@ -4123,9 +4144,12 @@ function dashboardRoleForAdmin(adminRole: string | undefined): Role {
 
 export default function MainDashboardMockPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [session, setSession] = useState<WorkspaceSession | null>(null);
   const [hasAdminBackup, setHasAdminBackup] = useState(false);
-  const [section, setSection] = useState<SectionId>("home");
+  const [section, setSection] = useState<SectionId>(() =>
+    sectionFromPathname(pathname),
+  );
   const [automationAccountId, setAutomationAccountId] = useState<string | null>(
     null,
   );
@@ -4143,10 +4167,20 @@ export default function MainDashboardMockPage() {
   }, []);
 
   useEffect(() => {
+    setSection(sectionFromPathname(pathname));
+  }, [pathname]);
+
+  function navigateSection(nextSection: SectionId) {
+    setSection(nextSection);
+    router.push(pathForSection(nextSection));
+  }
+
+  useEffect(() => {
+    if (!session) return;
     if (!navItems.find((nav) => nav.id === section)?.roles.includes(role)) {
-      setSection("home");
+      navigateSection("home");
     }
-  }, [role, section]);
+  }, [role, section, session]);
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -4200,7 +4234,7 @@ export default function MainDashboardMockPage() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setSection(item.id)}
+                onClick={() => navigateSection(item.id)}
                 className={cx(
                   "min-h-11 rounded-lg px-3 text-left text-sm font-semibold",
                   section === item.id
@@ -4268,11 +4302,11 @@ export default function MainDashboardMockPage() {
                 role,
                 data,
                 () => setRefreshKey((current) => current + 1),
-                setSection,
+                navigateSection,
                 automationAccountId,
                 (accountId) => {
                   setAutomationAccountId(accountId);
-                  setSection("automation");
+                  navigateSection("automation");
                 },
               )
             )}

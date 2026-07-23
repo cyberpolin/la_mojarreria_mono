@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   getAppSession,
   getAdminSession,
@@ -32,19 +32,25 @@ type AdminWorkspace = {
   lastActivityAt: string | null;
 };
 
-const nav = [
-  "Overview",
-  "Workspaces",
-  "WhatsApp Accounts",
-  "Users",
-  "Webhooks",
-  "Logs",
-  "Usage",
-  "Plans",
-  "Billing",
-  "Admin Users",
-  "Settings",
+const nav: Array<{ label: string; slug: string }> = [
+  { label: "Overview", slug: "overview" },
+  { label: "Workspaces", slug: "workspaces" },
+  { label: "WhatsApp Accounts", slug: "whatsapp-accounts" },
+  { label: "Users", slug: "users" },
+  { label: "Webhooks", slug: "webhooks" },
+  { label: "Logs", slug: "logs" },
+  { label: "Usage", slug: "usage" },
+  { label: "Plans", slug: "plans" },
+  { label: "Billing", slug: "billing" },
+  { label: "Admin Users", slug: "admin-users" },
+  { label: "Settings", slug: "settings" },
 ];
+
+function adminSectionFromPathname(pathname: string) {
+  const [, root, rawSection] = pathname.split("/");
+  if (root !== "admin") return nav[0]!;
+  return nav.find((item) => item.slug === rawSection) ?? nav[0]!;
+}
 
 function Badge({
   children,
@@ -68,6 +74,8 @@ function Badge({
 
 export default function AdminDashboardPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const selectedSection = adminSectionFromPathname(pathname);
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +130,7 @@ export default function AdminDashboardPage() {
         { method: "POST" },
       );
       saveOwnerModeSession(session);
-      router.push("/main");
+      router.push("/main/home");
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -148,7 +156,7 @@ export default function AdminDashboardPage() {
         { method: "POST" },
       );
       saveOwnerModeSession(session);
-      router.push("/main");
+      router.push("/main/home");
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -191,17 +199,18 @@ export default function AdminDashboardPage() {
           </div>
 
           <nav className="grid gap-1 p-4">
-            {nav.map((item, index) => (
+            {nav.map((item) => (
               <button
-                key={item}
+                key={item.slug}
                 type="button"
+                onClick={() => router.push(`/admin/${item.slug}`)}
                 className={
-                  index === 0
+                  selectedSection.slug === item.slug
                     ? "min-h-11 rounded-lg bg-slate-950 px-3 text-left text-sm font-semibold text-white"
                     : "min-h-11 rounded-lg px-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
                 }
               >
-                {item}
+                {item.label}
               </button>
             ))}
           </nav>
@@ -215,7 +224,7 @@ export default function AdminDashboardPage() {
                   Panel interno
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold text-slate-950">
-                  Overview global
+                  {selectedSection.label}
                 </h1>
               </div>
               <div className="flex flex-wrap items-center gap-2">
