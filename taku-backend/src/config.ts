@@ -18,6 +18,22 @@ function numberValue(name: string, fallback: number): number {
   return value;
 }
 
+function booleanValue(name: string, fallback: boolean): boolean {
+  const rawValue = process.env[name]?.trim().toLowerCase();
+  if (!rawValue) return fallback;
+  if (["1", "true", "yes", "on"].includes(rawValue)) return true;
+  if (["0", "false", "no", "off"].includes(rawValue)) return false;
+  throw new Error(`${name} must be a boolean`);
+}
+
+function nonNegativeNumberValue(name: string, fallback: number): number {
+  const value = numberValue(name, fallback);
+  if (value < 0) {
+    throw new Error(`${name} must be greater than or equal to 0`);
+  }
+  return value;
+}
+
 function stringList(name: string, fallback: string[]): string[] {
   const rawValue = process.env[name]?.trim();
   if (!rawValue) return fallback;
@@ -92,6 +108,34 @@ export const config = {
   botServiceApiKey: process.env.BOT_SERVICE_API_KEY?.trim() ?? "",
   botServiceWebhookSecret:
     process.env.BOT_SERVICE_WEBHOOK_SECRET?.trim() ?? "dev-bot-webhook-secret",
+  automationReplyMinDelayMs: nonNegativeNumberValue(
+    "TAKU_AUTOMATION_REPLY_MIN_DELAY_MS",
+    2_000,
+  ),
+  automationReplyMaxDelayMs: nonNegativeNumberValue(
+    "TAKU_AUTOMATION_REPLY_MAX_DELAY_MS",
+    35_000,
+  ),
+  automationReplyFastInboundWindowMs: nonNegativeNumberValue(
+    "TAKU_AUTOMATION_REPLY_FAST_INBOUND_WINDOW_MS",
+    10_000,
+  ),
+  automationReplySlowInboundWindowMs: nonNegativeNumberValue(
+    "TAKU_AUTOMATION_REPLY_SLOW_INBOUND_WINDOW_MS",
+    120_000,
+  ),
+  botResponderDetectionEnabled: booleanValue(
+    "TAKU_BOT_RESPONDER_DETECTION_ENABLED",
+    true,
+  ),
+  botResponderScoreThresholdPercent: nonNegativeNumberValue(
+    "TAKU_BOT_RESPONDER_SCORE_THRESHOLD_PERCENT",
+    75,
+  ),
+  botResponderProbeCooldownMs: nonNegativeNumberValue(
+    "TAKU_BOT_RESPONDER_PROBE_COOLDOWN_MS",
+    6 * 60 * 60 * 1000,
+  ),
 } as const;
 
 export const isDemoSeedEnvironment =

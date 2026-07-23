@@ -39,6 +39,11 @@ import {
   workspaceWithRole,
 } from "./serializers.js";
 import { botClient } from "./services/botClient.js";
+import {
+  analyzeBotResponderProbability,
+  isBotResponderConfirmation,
+  isBotResponderDenial,
+} from "./services/botResponderDetector.js";
 import { whatsappClient } from "./services/whatsappClient.js";
 import { id, now, type JsonStore } from "./store/jsonStore.js";
 import type {
@@ -46,6 +51,7 @@ import type {
   AutomationBlockedContact,
   AdminRole,
   BotAssignmentMode,
+  BotSettings,
   BusinessHour,
   ConversationStatus,
   Database,
@@ -547,6 +553,79 @@ function findEffectiveBotSettings(
   );
 }
 
+const botResponderProbeMessage =
+  "Para evitar una conversacion automatica entre bots: ¿eres un bot o sistema automatizado? Responde SI BOT o NO HUMANO.";
+
+function findRecentBotResponderProbe(
+  database: Database,
+  params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+  },
+) {
+  const inboundMessage = database.messages.find(
+    (message) => message.id === params.inboundMessageId,
+  );
+  if (!inboundMessage) return null;
+  const inboundTime = new Date(inboundMessage.createdAt).getTime();
+  const cooldownStartedAt = inboundTime - config.botResponderProbeCooldownMs;
+  const probe =
+    database.automationDecisionLogs
+      .filter(
+        (log) =>
+          log.workspaceId === params.workspaceId &&
+          log.whatsappAccountId === params.accountId &&
+          log.conversationId === params.conversationId &&
+          log.reason.startsWith("bot_responder_probe:"),
+      )
+      .filter((log) => {
+        const createdAt = new Date(log.createdAt).getTime();
+        return createdAt < inboundTime && createdAt >= cooldownStartedAt;
+      })
+      .sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt),
+      )[0] ?? null;
+  if (!probe) return null;
+  const probeTime = new Date(probe.createdAt).getTime();
+  const resolvedAfterProbe = database.automationDecisionLogs.some((log) => {
+    const createdAt = new Date(log.createdAt).getTime();
+    return (
+      log.workspaceId === params.workspaceId &&
+      log.whatsappAccountId === params.accountId &&
+      log.conversationId === params.conversationId &&
+      createdAt > probeTime &&
+      createdAt < inboundTime &&
+      (log.reason === "bot_responder_denied" ||
+        log.reason.startsWith("bot_responder_confirmed:"))
+    );
+  });
+  return resolvedAfterProbe ? null : probe;
+}
+
+function copyEffectiveSettingsForAccount(
+  effectiveSettings: BotSettings | null,
+  workspaceId: string,
+  whatsappAccountId: string,
+): BotSettings {
+  return {
+    id: id("bot_settings"),
+    workspaceId,
+    whatsappAccountId,
+    enabled: false,
+    afterHoursEnabled: effectiveSettings?.afterHoursEnabled ?? false,
+    afterHoursResponder:
+      effectiveSettings?.afterHoursResponder ?? "static_message",
+    afterHoursMessage: effectiveSettings?.afterHoursMessage ?? null,
+    rulesEnabled: effectiveSettings?.rulesEnabled ?? false,
+    aiEnabled: effectiveSettings?.aiEnabled ?? false,
+    externalBotId: effectiveSettings?.externalBotId ?? null,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+}
+
 function findMatchingAutomationRule(
   database: Database,
   workspaceId: string,
@@ -630,6 +709,141 @@ function applyRemoteWhatsAppStatus(
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function calculateAutomationReplyDelayMs(
+  messages: Message[],
+  conversationId: string,
+  inboundMessageId: string,
+) {
+  const minDelay = Math.min(
+    config.automationReplyMinDelayMs,
+    config.automationReplyMaxDelayMs,
+  );
+  const maxDelay = Math.max(
+    config.automationReplyMinDelayMs,
+    config.automationReplyMaxDelayMs,
+  );
+  if (maxDelay <= 0) return 0;
+
+  const inboundMessages = messages
+    .filter(
+      (message) =>
+        message.conversationId === conversationId &&
+        message.direction === "inbound",
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const currentIndex = inboundMessages.findIndex(
+    (message) => message.id === inboundMessageId,
+  );
+  const current = inboundMessages[currentIndex];
+  const previous = currentIndex > 0 ? inboundMessages[currentIndex - 1] : null;
+  if (!current || !previous) return minDelay;
+
+  const responseWindowMs =
+    new Date(current.createdAt).getTime() -
+    new Date(previous.createdAt).getTime();
+  if (!Number.isFinite(responseWindowMs) || responseWindowMs < 0) {
+    return minDelay;
+  }
+
+  const fastWindow = Math.min(
+    config.automationReplyFastInboundWindowMs,
+    config.automationReplySlowInboundWindowMs,
+  );
+  const slowWindow = Math.max(
+    config.automationReplyFastInboundWindowMs,
+    config.automationReplySlowInboundWindowMs,
+  );
+  if (slowWindow <= fastWindow) {
+    return responseWindowMs <= fastWindow ? maxDelay : minDelay;
+  }
+  if (responseWindowMs <= fastWindow) return maxDelay;
+  if (responseWindowMs >= slowWindow) return minDelay;
+
+  const ratio = (responseWindowMs - fastWindow) / (slowWindow - fastWindow);
+  return Math.round(maxDelay - ratio * (maxDelay - minDelay));
+}
+
+async function logAutomationDelayCancellation(
+  store: JsonStore,
+  params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+    reason: string;
+  },
+) {
+  await store.update((database) => {
+    database.automationDecisionLogs.push({
+      id: id("automation_decision"),
+      workspaceId: params.workspaceId,
+      whatsappAccountId: params.accountId,
+      conversationId: params.conversationId,
+      messageId: params.inboundMessageId,
+      botId: null,
+      assignmentId: null,
+      decision: "ignored",
+      reason: params.reason,
+      responseText: null,
+      createdAt: now(),
+    });
+  });
+}
+
+async function waitForAutomationReplyWindow(
+  store: JsonStore,
+  params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+  },
+) {
+  const snapshot = await store.read();
+  const delayMs = calculateAutomationReplyDelayMs(
+    snapshot.messages,
+    params.conversationId,
+    params.inboundMessageId,
+  );
+  if (delayMs > 0) await wait(delayMs);
+
+  const latest = await store.read();
+  const latestInbound = latest.messages
+    .filter(
+      (message) =>
+        message.conversationId === params.conversationId &&
+        message.direction === "inbound",
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  if (latestInbound?.id !== params.inboundMessageId) {
+    await logAutomationDelayCancellation(store, {
+      ...params,
+      reason: "reply_delay_cancelled:newer_inbound",
+    });
+    return null;
+  }
+
+  const inboundMessage = latest.messages.find(
+    (message) => message.id === params.inboundMessageId,
+  );
+  const humanReply = latest.messages.some(
+    (message) =>
+      message.conversationId === params.conversationId &&
+      message.direction === "outbound" &&
+      (!inboundMessage ||
+        message.createdAt.localeCompare(inboundMessage.createdAt) > 0),
+  );
+  if (humanReply) {
+    await logAutomationDelayCancellation(store, {
+      ...params,
+      reason: "reply_delay_cancelled:human_reply",
+    });
+    return null;
+  }
+
+  return latest;
 }
 
 function signWebhookBody(body: unknown, secret: string, timestamp: string) {
@@ -769,6 +983,122 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     );
   }
 
+  async function handleBotResponderDetection(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    inboundMessageId: string;
+    from: string;
+    text: string;
+    database: Database;
+  }) {
+    if (!config.botResponderDetectionEnabled) return "continue" as const;
+
+    const recentProbe = findRecentBotResponderProbe(params.database, params);
+    if (recentProbe && isBotResponderConfirmation(params.text)) {
+      await store.update((database) => {
+        const effectiveSettings = findEffectiveBotSettings(
+          database,
+          params.workspaceId,
+          params.accountId,
+        );
+        let accountSettings = database.botSettings.find(
+          (setting) =>
+            setting.workspaceId === params.workspaceId &&
+            setting.whatsappAccountId === params.accountId,
+        );
+        if (!accountSettings) {
+          accountSettings = copyEffectiveSettingsForAccount(
+            effectiveSettings,
+            params.workspaceId,
+            params.accountId,
+          );
+          database.botSettings.push(accountSettings);
+        }
+        accountSettings.enabled = false;
+        accountSettings.updatedAt = now();
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "blocked",
+          reason: "bot_responder_confirmed:auto_disabled_account",
+          responseText: null,
+          createdAt: now(),
+        });
+        database.auditLogs.push({
+          id: id("audit"),
+          workspaceId: params.workspaceId,
+          userId: null,
+          action: "automation.disabled_bot_responder",
+          entityType: "whatsapp_account",
+          entityId: params.accountId,
+          metadata: {
+            conversationId: params.conversationId,
+            inboundMessageId: params.inboundMessageId,
+            probeLogId: recentProbe.id,
+          },
+          createdAt: now(),
+        });
+      });
+      return "stop" as const;
+    }
+
+    if (recentProbe) {
+      await store.update((database) => {
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "ignored",
+          reason: isBotResponderDenial(params.text)
+            ? "bot_responder_denied"
+            : "bot_responder_probe_pending",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+      return isBotResponderDenial(params.text)
+        ? ("continue" as const)
+        : ("stop" as const);
+    }
+
+    const result = analyzeBotResponderProbability({
+      messages: params.database.messages,
+      conversationId: params.conversationId,
+      inboundMessageId: params.inboundMessageId,
+      text: params.text,
+    });
+    const threshold = Math.min(
+      100,
+      Math.max(0, config.botResponderScoreThresholdPercent),
+    );
+    if (result.scorePercent < threshold) return "continue" as const;
+
+    await sendAutomationReply({
+      workspaceId: params.workspaceId,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      contactId: params.contactId,
+      inboundMessageId: params.inboundMessageId,
+      to: params.from,
+      text: botResponderProbeMessage,
+      botId: null,
+      assignmentId: null,
+      reason: `bot_responder_probe:score=${result.scorePercent};reasons=${result.reasons.join("|")}`,
+    });
+    return "stop" as const;
+  }
+
   async function runAutomationDecision(params: {
     workspaceId: string;
     accountId: string;
@@ -778,12 +1108,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     from: string;
     text: string;
   }) {
-    const database = await store.read();
-    const workspaceRecord = database.workspaces.find(
+    let database = await store.read();
+    let workspaceRecord = database.workspaces.find(
       (item) => item.id === params.workspaceId,
     );
-    const account = findAccount(database, params.workspaceId, params.accountId);
-    const settings = findEffectiveBotSettings(
+    let account = findAccount(database, params.workspaceId, params.accountId);
+    let settings = findEffectiveBotSettings(
       database,
       params.workspaceId,
       params.accountId,
@@ -829,6 +1159,32 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       });
       return;
     }
+    if (!account.enabled || !settings?.enabled) return;
+
+    const initialBotResponderDecision = await handleBotResponderDetection({
+      ...params,
+      database,
+    });
+    if (initialBotResponderDecision === "stop") return;
+
+    const delayedDatabase = await waitForAutomationReplyWindow(store, {
+      workspaceId: params.workspaceId,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      inboundMessageId: params.inboundMessageId,
+    });
+    if (!delayedDatabase) return;
+    database = delayedDatabase;
+    workspaceRecord =
+      database.workspaces.find((item) => item.id === params.workspaceId) ??
+      undefined;
+    account = findAccount(database, params.workspaceId, params.accountId);
+    settings = findEffectiveBotSettings(
+      database,
+      params.workspaceId,
+      params.accountId,
+    );
+    if (!workspaceRecord || workspaceRecord.status === "suspended") return;
     if (!account.enabled || !settings?.enabled) return;
 
     const isOpen = isBusinessOpen(
@@ -1238,6 +1594,17 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         takuWaBaseUrl: config.takuWaBaseUrl,
         takuWaClientDomain: config.takuWaClientDomain,
         botServiceBaseUrl: config.botServiceBaseUrl,
+        automationReplyDelay: {
+          minMs: config.automationReplyMinDelayMs,
+          maxMs: config.automationReplyMaxDelayMs,
+          fastInboundWindowMs: config.automationReplyFastInboundWindowMs,
+          slowInboundWindowMs: config.automationReplySlowInboundWindowMs,
+        },
+        botResponderDetection: {
+          enabled: config.botResponderDetectionEnabled,
+          scoreThresholdPercent: config.botResponderScoreThresholdPercent,
+          probeCooldownMs: config.botResponderProbeCooldownMs,
+        },
       },
       variables: [
         {
@@ -1324,6 +1691,45 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           name: "BOT_SERVICE_WEBHOOK_SECRET",
           configured: configured(config.botServiceWebhookSecret),
           required: true,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_MIN_DELAY_MS",
+          configured: Number.isFinite(config.automationReplyMinDelayMs),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_MAX_DELAY_MS",
+          configured: Number.isFinite(config.automationReplyMaxDelayMs),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_FAST_INBOUND_WINDOW_MS",
+          configured: Number.isFinite(
+            config.automationReplyFastInboundWindowMs,
+          ),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_SLOW_INBOUND_WINDOW_MS",
+          configured: Number.isFinite(
+            config.automationReplySlowInboundWindowMs,
+          ),
+          required: false,
+        },
+        {
+          name: "TAKU_BOT_RESPONDER_DETECTION_ENABLED",
+          configured: typeof config.botResponderDetectionEnabled === "boolean",
+          required: false,
+        },
+        {
+          name: "TAKU_BOT_RESPONDER_SCORE_THRESHOLD_PERCENT",
+          configured: Number.isFinite(config.botResponderScoreThresholdPercent),
+          required: false,
+        },
+        {
+          name: "TAKU_BOT_RESPONDER_PROBE_COOLDOWN_MS",
+          configured: Number.isFinite(config.botResponderProbeCooldownMs),
+          required: false,
         },
       ],
     });
