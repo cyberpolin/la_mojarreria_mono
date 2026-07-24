@@ -711,6 +711,44 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveAccountTimezone(
+  workspace: { timezone: string },
+  account: { timezone?: string | null },
+) {
+  return account.timezone || workspace.timezone || "America/Mexico_City";
+}
+
+function formatBusinessDateTime(timezone: string, date = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("es-MX", {
+      timeZone: timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("es-MX", {
+      timeZone: "America/Mexico_City",
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(date);
+  }
+}
+
+function businessTimeContextMessage(params: {
+  workspaceName: string;
+  accountName: string;
+  timezone: string;
+}) {
+  const currentDateTime = formatBusinessDateTime(params.timezone);
+  return {
+    role: "system" as const,
+    content:
+      `Contexto de tiempo del negocio: fecha y hora actual para ${params.workspaceName}, ` +
+      `numero ${params.accountName}: ${currentDateTime}. ` +
+      `Zona horaria efectiva: ${params.timezone}. Usa este contexto para interpretar hoy, manana, horarios y fuera de horario.`,
+  };
+}
+
 function calculateAutomationReplyDelayMs(
   messages: Message[],
   conversationId: string,
@@ -1274,11 +1312,19 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               : ("assistant" as const),
           content: item.body ?? "",
         }));
+      const timezone = resolveAccountTimezone(workspaceRecord, account);
       const completion = await botClient.createCompletion({
         clientId: bot.clientId,
         clientToken: bot.clientToken,
         assistantId: bot.externalAssistantId,
-        history,
+        history: [
+          businessTimeContextMessage({
+            workspaceName: workspaceRecord.name,
+            accountName: account.displayName,
+            timezone,
+          }),
+          ...history,
+        ],
         messages: [{ role: "user", content: params.text }],
       });
       const reply = completion.choices?.[0]?.message?.content?.trim();

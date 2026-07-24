@@ -47,6 +47,7 @@ type WhatsAppAccount = {
   description: string | null;
   phoneNumber: string | null;
   status: string;
+  timezone: string;
   automationEnabled?: boolean;
   enabled: boolean;
   useWorkspaceBusinessHours: boolean;
@@ -283,6 +284,21 @@ const phoneNumbers = [
     lastDisconnect: "-",
     automation: "General",
   },
+];
+
+const timezoneOptions = [
+  "America/Mexico_City",
+  "America/Cancun",
+  "America/Monterrey",
+  "America/Mazatlan",
+  "America/Chihuahua",
+  "America/Hermosillo",
+  "America/Tijuana",
+  "America/Bogota",
+  "America/Lima",
+  "America/New_York",
+  "America/Los_Angeles",
+  "UTC",
 ];
 
 const conversations = [
@@ -1017,14 +1033,25 @@ function ConversationsSection({
   const [localConversations, setLocalConversations] = useState<Conversation[]>(
     data.conversations,
   );
+  const [accountFilter, setAccountFilter] = useState("all");
   const [contactName, setContactName] = useState("");
   const [contactNotes, setContactNotes] = useState("");
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [isSavingAutomationBlock, setIsSavingAutomationBlock] = useState(false);
+  const visibleConversations = useMemo(
+    () =>
+      accountFilter === "all"
+        ? localConversations
+        : localConversations.filter(
+            (conversation) =>
+              conversation.whatsappAccount?.id === accountFilter,
+          ),
+    [accountFilter, localConversations],
+  );
   const selected =
-    localConversations.find((conversation) => conversation.id === selectedId) ??
-    localConversations[0] ??
-    null;
+    visibleConversations.find(
+      (conversation) => conversation.id === selectedId,
+    ) ?? null;
   const selectedPhone = selected?.contact?.phoneNumber ?? "";
   const selectedBlockedContact =
     data.blockedContacts.find(
@@ -1072,10 +1099,18 @@ function ConversationsSection({
   }, [data.conversations, selectedId]);
 
   useEffect(() => {
-    if (!selected && selectedId) setSelectedId(null);
-    if (!selectedId && localConversations[0])
-      setSelectedId(localConversations[0].id);
-  }, [localConversations, selected, selectedId]);
+    if (
+      selectedId &&
+      !visibleConversations.some(
+        (conversation) => conversation.id === selectedId,
+      )
+    ) {
+      setSelectedId(visibleConversations[0]?.id ?? null);
+      return;
+    }
+    if (!selectedId && visibleConversations[0])
+      setSelectedId(visibleConversations[0].id);
+  }, [selectedId, visibleConversations]);
 
   useEffect(() => {
     setContactName(selected?.contact?.name ?? "");
@@ -1241,6 +1276,14 @@ function ConversationsSection({
             placeholder="Buscar por nombre, telefono o mensaje..."
             className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200 lg:max-w-sm"
           />
+          <Select value={accountFilter} onChange={setAccountFilter}>
+            <option value="all">Todos los numeros</option>
+            {data.accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.displayName} · {account.phoneNumber ?? "Sin vincular"}
+              </option>
+            ))}
+          </Select>
         </div>
       </div>
 
@@ -1250,7 +1293,7 @@ function ConversationsSection({
             <h2 className="font-semibold text-slate-950">Lista</h2>
           </div>
           <div className="divide-y divide-slate-200">
-            {localConversations.map((conversation) => (
+            {visibleConversations.map((conversation) => (
               <button
                 type="button"
                 key={conversation.id}
@@ -1294,9 +1337,9 @@ function ConversationsSection({
                 </div>
               </button>
             ))}
-            {localConversations.length === 0 ? (
+            {visibleConversations.length === 0 ? (
               <div className="p-4 text-sm text-slate-500">
-                No hay conversaciones todavia.
+                No hay conversaciones para este numero.
               </div>
             ) : null}
           </div>
@@ -1464,6 +1507,7 @@ function NumbersSection({
 }) {
   const [displayName, setDisplayName] = useState("");
   const [description, setDescription] = useState("");
+  const [timezone, setTimezone] = useState("America/Mexico_City");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [qr, setQr] = useState<{
     payload?: string | null;
@@ -1481,6 +1525,10 @@ function NumbersSection({
   const [automationByAccountId, setAutomationByAccountId] = useState<
     Record<string, boolean>
   >({});
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editTimezone, setEditTimezone] = useState("America/Mexico_City");
+  const [savingSelected, setSavingSelected] = useState(false);
   const selected =
     data.accounts.find((account) => account.id === selectedId) ??
     data.accounts[0] ??
@@ -1488,6 +1536,17 @@ function NumbersSection({
   const disconnectingAccount =
     data.accounts.find((account) => account.id === disconnectingId) ?? null;
   const selectedIsConnected = selected?.status === "connected";
+
+  useEffect(() => {
+    setEditDisplayName(selected?.displayName ?? "");
+    setEditDescription(selected?.description ?? "");
+    setEditTimezone(selected?.timezone ?? "America/Mexico_City");
+  }, [
+    selected?.description,
+    selected?.displayName,
+    selected?.id,
+    selected?.timezone,
+  ]);
 
   useEffect(() => {
     setAutomationByAccountId(() => {
@@ -1550,12 +1609,13 @@ function NumbersSection({
           body: JSON.stringify({
             displayName,
             description,
-            timezone: "America/Mexico_City",
+            timezone,
           }),
         },
       );
       setDisplayName("");
       setDescription("");
+      setTimezone("America/Mexico_City");
       setMessage(
         response.provisioningWarning
           ? "Numero creado. WhatsApp Service no pudo preparar la conexion todavia; intenta pedir el QR en unos segundos."
@@ -1625,18 +1685,31 @@ function NumbersSection({
 
   async function updateSelected() {
     if (!selected) return;
-    await takuApi(`/whatsapp-accounts/${selected.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        displayName: selected.displayName,
-        description: selected.description,
-        enabled: selected.enabled,
-        useWorkspaceBusinessHours: selected.useWorkspaceBusinessHours,
-        useWorkspaceBotSettings: selected.useWorkspaceBotSettings,
-      }),
-    });
-    setMessage("Cambios guardados.");
-    onRefresh();
+    setSavingSelected(true);
+    setMessage(null);
+    try {
+      await takuApi(`/whatsapp-accounts/${selected.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          displayName: editDisplayName,
+          description: editDescription,
+          timezone: editTimezone,
+          enabled: selected.enabled,
+          useWorkspaceBusinessHours: selected.useWorkspaceBusinessHours,
+          useWorkspaceBotSettings: selected.useWorkspaceBotSettings,
+        }),
+      });
+      setMessage("Cambios del numero guardados.");
+      onRefresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar el numero.",
+      );
+    } finally {
+      setSavingSelected(false);
+    }
   }
 
   async function toggleAutomation(accountId: string, enabled: boolean) {
@@ -1799,7 +1872,7 @@ function NumbersSection({
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-3">
         <form
           onSubmit={createNumber}
           className="rounded-lg border border-slate-200 bg-white p-5"
@@ -1823,8 +1896,12 @@ function NumbersSection({
               />
             </Field>
             <Field label="Zona horaria">
-              <Select>
-                <option>America/Mexico_City</option>
+              <Select value={timezone} onChange={setTimezone}>
+                {timezoneOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
               </Select>
             </Field>
             <Switch checked label="Usar horario general de la empresa" />
@@ -1919,6 +1996,53 @@ function NumbersSection({
               </Button>
             </div>
           </div>
+        </section>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <h2 className="font-semibold text-slate-950">Configurar numero</h2>
+          {selected ? (
+            <div className="mt-5 grid gap-4">
+              <Field label="Nombre del numero">
+                <Input
+                  placeholder="Ej. Ventas"
+                  value={editDisplayName}
+                  onChange={setEditDisplayName}
+                />
+              </Field>
+              <Field label="Descripcion interna">
+                <TextArea
+                  placeholder="Descripcion visible para el equipo"
+                  value={editDescription}
+                  onChange={setEditDescription}
+                />
+              </Field>
+              <Field
+                label="Zona horaria"
+                hint="TAKU envia esta hora al bot en cada respuesta automatica."
+              >
+                <Select value={editTimezone} onChange={setEditTimezone}>
+                  {timezoneOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Numero: {selected.phoneNumber ?? "Sin vincular"}
+              </div>
+              <Button
+                disabled={!editDisplayName.trim() || savingSelected}
+                onClick={() => void updateSelected()}
+              >
+                {savingSelected ? "Guardando..." : "Guardar numero"}
+              </Button>
+            </div>
+          ) : (
+            <p className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              Selecciona un numero para editar su zona horaria.
+            </p>
+          )}
         </section>
       </div>
 

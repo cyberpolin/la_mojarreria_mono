@@ -71,6 +71,7 @@ export function whatsappAccountView(
     description: account.description,
     phoneNumber: account.phoneNumber,
     status: account.status,
+    timezone: account.timezone,
     automationEnabled: settings?.enabled ?? false,
     useWorkspaceBusinessHours: account.useWorkspaceBusinessHours,
     useWorkspaceBotSettings: account.useWorkspaceBotSettings,
