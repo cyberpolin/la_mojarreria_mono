@@ -20,7 +20,7 @@ const plans = [
     price: "$19/mes",
     description: "Ideal para restaurantes, consultorios, talleres y tiendas.",
     cta: "Empezar Starter",
-    href: "/signup",
+    href: "/payment?plan=starter",
     featured: false,
     details: [
       "2 numeros de WhatsApp",
@@ -36,7 +36,7 @@ const plans = [
     price: "$59/mes",
     description: "El plan recomendado para equipos que ya atienden volumen.",
     cta: "Elegir Business",
-    href: "/signup",
+    href: "/payment?plan=business",
     featured: true,
     details: [
       "5 numeros de WhatsApp",
@@ -52,7 +52,7 @@ const plans = [
     price: "$149/mes",
     description: "Para empresas con operacion amplia e integraciones.",
     cta: "Hablar con ventas",
-    href: "/signup",
+    href: "/payment?plan=enterprise",
     featured: false,
     details: [
       "Numeros practicamente ilimitados",

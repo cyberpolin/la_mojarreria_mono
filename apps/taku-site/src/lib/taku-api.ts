@@ -77,6 +77,65 @@ export async function takuList<T>(path: string): Promise<T[]> {
   return takuApi<T[]>(path);
 }
 
+export type PaginatedResult<T> = {
+  items: T[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+export async function takuPaginated<T>(
+  path: string,
+  init: RequestInit = {},
+  retryOnUnauthorized = true,
+): Promise<PaginatedResult<T>> {
+  const session = await getFreshWorkspaceSession();
+  if (!session) throw new Error("Sesion requerida.");
+
+  const response = await fetch(`${getBackendApiBaseUrl()}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${session.accessToken}`,
+      "x-workspace-id": session.currentWorkspace.id,
+      ...(init.headers ?? {}),
+    },
+  });
+  const payload = (await response.json().catch(() => null)) as ApiPayload<
+    T[]
+  > | null;
+  if (response.status === 401 && retryOnUnauthorized) {
+    const refreshed = await refreshWorkspaceSession(session);
+    if (refreshed) {
+      return takuPaginated<T>(path, init, false);
+    }
+  }
+  if (!response.ok || !payload?.ok || !payload.data) {
+    throw new TakuApiError({
+      status: response.status,
+      code: payload?.error?.code,
+      message:
+        payload?.error?.message ??
+        `Request failed with HTTP ${response.status}`,
+    });
+  }
+  const pagination = payload.pagination;
+  const total = pagination?.total ?? payload.data.length;
+  const pageSize = pagination?.pageSize ?? payload.data.length;
+  return {
+    items: payload.data,
+    pagination: {
+      page: pagination?.page ?? 1,
+      pageSize,
+      total,
+      totalPages: pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1,
+    },
+  };
+}
+
 async function getFreshWorkspaceSession() {
   const session = getWorkspaceSession();
   if (!session) return null;

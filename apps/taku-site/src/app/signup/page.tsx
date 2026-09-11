@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { z } from "zod";
+import { getBackendApiBaseUrl, saveAppSession } from "@/lib/auth";
 
 const signupSchema = z
   .object({
@@ -24,6 +26,21 @@ const signupSchema = z
 
 type SignupErrors = Partial<Record<keyof z.infer<typeof signupSchema>, string>>;
 
+type SignupPlan = "free" | "starter" | "business" | "enterprise";
+
+type SignupResponse = {
+  ok: boolean;
+  data?: Parameters<typeof saveAppSession>[0];
+  error?: { message?: string };
+};
+
+function readSignupPlan(value: string | null): SignupPlan {
+  if (value === "starter" || value === "business" || value === "enterprise") {
+    return value;
+  }
+  return "free";
+}
+
 function getSignupErrors(error: z.ZodError<z.infer<typeof signupSchema>>) {
   const errors: SignupErrors = {};
   for (const issue of error.issues) {
@@ -41,16 +58,21 @@ function getSignupErrors(error: z.ZodError<z.infer<typeof signupSchema>>) {
   return errors;
 }
 
-export default function SignupPage() {
+function SignupContent() {
+  const searchParams = useSearchParams();
+  const selectedPlan = readSignupPlan(searchParams.get("plan"));
+  const paymentIntentId = searchParams.get("paymentIntent");
+  const initialEmail = searchParams.get("email") ?? "";
   const [workspaceName, setWorkspaceName] = useState("");
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [errors, setErrors] = useState<SignupErrors>({});
   const [message, setMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
 
@@ -68,7 +90,44 @@ export default function SignupPage() {
     }
 
     setErrors({});
-    setMessage("La pantalla esta lista. Falta conectar el endpoint de signup.");
+    if (selectedPlan !== "free" && !paymentIntentId) {
+      setMessage("Completa el pago antes de crear esta cuenta.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${getBackendApiBaseUrl()}/public/signup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceName: validation.data.workspaceName,
+          name: validation.data.name,
+          email: validation.data.email,
+          password: validation.data.password,
+          plan: selectedPlan,
+          ...(paymentIntentId ? { paidPaymentIntentId: paymentIntentId } : {}),
+        }),
+      });
+      const payload = (await response
+        .json()
+        .catch(() => null)) as SignupResponse | null;
+      if (!response.ok || !payload?.ok || !payload.data) {
+        throw new Error(
+          payload?.error?.message ?? `Signup failed HTTP ${response.status}`,
+        );
+      }
+      saveAppSession(payload.data);
+      window.location.href = "/main";
+    } catch (requestError) {
+      setMessage(
+        requestError instanceof Error
+          ? requestError.message
+          : "No se pudo crear la cuenta.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function clearError(field: keyof SignupErrors) {
@@ -97,6 +156,18 @@ export default function SignupPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="mt-8 grid gap-4">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            Plan:{" "}
+            <span className="font-semibold text-slate-950">{selectedPlan}</span>
+            {selectedPlan !== "free" ? (
+              <span>
+                {" "}
+                · Pago{" "}
+                {paymentIntentId ? "confirmado para activar" : "requerido"}
+              </span>
+            ) : null}
+          </div>
+
           <label className="grid gap-2 text-sm font-medium text-slate-700">
             Empresa
             <input
@@ -203,9 +274,10 @@ export default function SignupPage() {
 
           <button
             type="submit"
+            disabled={isSubmitting}
             className="inline-flex min-h-11 items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
           >
-            Crear cuenta
+            {isSubmitting ? "Creando..." : "Crear cuenta"}
           </button>
         </form>
 
@@ -219,5 +291,23 @@ export default function SignupPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-screen place-items-center bg-slate-100 px-4 py-10 text-slate-950">
+          <section className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-6 shadow-xl shadow-slate-950/5">
+            <p className="text-sm font-medium text-slate-700">
+              Cargando registro...
+            </p>
+          </section>
+        </main>
+      }
+    >
+      <SignupContent />
+    </Suspense>
   );
 }

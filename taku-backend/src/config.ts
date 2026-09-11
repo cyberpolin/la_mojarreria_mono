@@ -108,6 +108,14 @@ export const config = {
   botServiceApiKey: process.env.BOT_SERVICE_API_KEY?.trim() ?? "",
   botServiceWebhookSecret:
     process.env.BOT_SERVICE_WEBHOOK_SECRET?.trim() ?? "dev-bot-webhook-secret",
+  mercadoPagoAccessToken: process.env.MERCADOPAGO_ACCESS_TOKEN?.trim() ?? "",
+  mercadoPagoCurrencyId: stringValue("MERCADOPAGO_CURRENCY_ID", "USD"),
+  planStarterAmountUsd: nonNegativeNumberValue("TAKU_PLAN_STARTER_USD", 19),
+  planBusinessAmountUsd: nonNegativeNumberValue("TAKU_PLAN_BUSINESS_USD", 59),
+  planEnterpriseAmountUsd: nonNegativeNumberValue(
+    "TAKU_PLAN_ENTERPRISE_USD",
+    149,
+  ),
   automationReplyMinDelayMs: nonNegativeNumberValue(
     "TAKU_AUTOMATION_REPLY_MIN_DELAY_MS",
     2_000,

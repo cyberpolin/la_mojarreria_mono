@@ -44,6 +44,10 @@ import {
   isBotResponderConfirmation,
   isBotResponderDenial,
 } from "./services/botResponderDetector.js";
+import {
+  createMercadoPagoCardPayment,
+  MercadoPagoRequestError,
+} from "./services/mercadoPagoClient.js";
 import { whatsappClient } from "./services/whatsappClient.js";
 import { id, now, type JsonStore } from "./store/jsonStore.js";
 import type {
@@ -58,11 +62,13 @@ import type {
   MatchType,
   Message,
   MessageType,
+  PaymentIntent,
   Preferences,
   Role,
   TakuBotStatus,
   WhatsAppAccount,
   WhatsAppStatus,
+  WorkspacePlan,
 } from "./types.js";
 import type { Realtime } from "./realtime.js";
 
@@ -89,6 +95,15 @@ function statusValid(value: unknown): value is ConversationStatus {
     value === "pending" ||
     value === "closed" ||
     value === "archived"
+  );
+}
+
+function workspacePlanValid(value: unknown): value is WorkspacePlan {
+  return (
+    value === "free" ||
+    value === "starter" ||
+    value === "business" ||
+    value === "enterprise"
   );
 }
 
@@ -333,6 +348,121 @@ function createClientSessionForUser(
     currentWorkspace,
     workspaces,
   };
+}
+
+type CardPaymentPayload = {
+  plan: Exclude<WorkspacePlan, "free">;
+  token: string;
+  paymentMethodId: string;
+  issuerId: string | number | null;
+  installments: number;
+  payer: { email: string };
+};
+
+function planAmountUsd(plan: WorkspacePlan) {
+  if (plan === "starter") return config.planStarterAmountUsd;
+  if (plan === "business") return config.planBusinessAmountUsd;
+  if (plan === "enterprise") return config.planEnterpriseAmountUsd;
+  return 0;
+}
+
+function planLabel(plan: WorkspacePlan) {
+  if (plan === "starter") return "Starter";
+  if (plan === "business") return "Business";
+  if (plan === "enterprise") return "Enterprise";
+  return "Free";
+}
+
+function paidWorkspacePlanValid(
+  value: unknown,
+): value is Exclude<WorkspacePlan, "free"> {
+  return value === "starter" || value === "business" || value === "enterprise";
+}
+
+function slugFromName(name: string) {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return slug || `workspace-${randomUUID().slice(0, 8)}`;
+}
+
+function uniqueWorkspaceSlug(database: Database, name: string) {
+  const base = slugFromName(name);
+  let slug = base;
+  let index = 2;
+  while (database.workspaces.some((workspace) => workspace.slug === slug)) {
+    slug = `${base}-${index}`;
+    index += 1;
+  }
+  return slug;
+}
+
+function readCardPaymentPayload(body: unknown): CardPaymentPayload | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const plan = record.plan;
+  const token = readOptionalString(record.token);
+  const paymentMethodId =
+    readOptionalString(record.paymentMethodId) ??
+    readOptionalString(record.payment_method_id);
+  const rawIssuerId = record.issuerId ?? record.issuer_id;
+  const issuerId =
+    typeof rawIssuerId === "string" || typeof rawIssuerId === "number"
+      ? rawIssuerId
+      : null;
+  const installmentsRaw = Number(record.installments ?? 1);
+  const payer = record.payer;
+  const payerEmail =
+    payer && typeof payer === "object"
+      ? readOptionalString((payer as Record<string, unknown>).email)
+      : null;
+  if (
+    !paidWorkspacePlanValid(plan) ||
+    !token ||
+    !paymentMethodId ||
+    !Number.isFinite(installmentsRaw) ||
+    installmentsRaw < 1 ||
+    !payerEmail ||
+    !isEmail(payerEmail)
+  ) {
+    return null;
+  }
+  return {
+    plan,
+    token,
+    paymentMethodId,
+    issuerId,
+    installments: Math.trunc(installmentsRaw),
+    payer: { email: payerEmail.toLowerCase() },
+  };
+}
+
+function createPaymentIntent(params: {
+  database: Database;
+  plan: Exclude<WorkspacePlan, "free">;
+  email: string;
+}) {
+  const timestamp = now();
+  const intent: PaymentIntent = {
+    id: id("payint"),
+    workspaceId: null,
+    email: params.email,
+    plan: params.plan,
+    status: "pending",
+    amountUsd: planAmountUsd(params.plan),
+    provider: "mercadopago",
+    providerPaymentId: null,
+    paidAt: null,
+    attachedAt: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  params.database.paymentIntents.push(intent);
+  return intent;
 }
 
 function ensureAdminOwnerUser(
@@ -1640,6 +1770,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         takuWaBaseUrl: config.takuWaBaseUrl,
         takuWaClientDomain: config.takuWaClientDomain,
         botServiceBaseUrl: config.botServiceBaseUrl,
+        mercadoPagoCurrencyId: config.mercadoPagoCurrencyId,
+        planAmountsUsd: {
+          starter: config.planStarterAmountUsd,
+          business: config.planBusinessAmountUsd,
+          enterprise: config.planEnterpriseAmountUsd,
+        },
         automationReplyDelay: {
           minMs: config.automationReplyMinDelayMs,
           maxMs: config.automationReplyMaxDelayMs,
@@ -1737,6 +1873,31 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           name: "BOT_SERVICE_WEBHOOK_SECRET",
           configured: configured(config.botServiceWebhookSecret),
           required: true,
+        },
+        {
+          name: "MERCADOPAGO_ACCESS_TOKEN",
+          configured: configured(config.mercadoPagoAccessToken),
+          required: true,
+        },
+        {
+          name: "MERCADOPAGO_CURRENCY_ID",
+          configured: configured(config.mercadoPagoCurrencyId),
+          required: true,
+        },
+        {
+          name: "TAKU_PLAN_STARTER_USD",
+          configured: Number.isFinite(config.planStarterAmountUsd),
+          required: false,
+        },
+        {
+          name: "TAKU_PLAN_BUSINESS_USD",
+          configured: Number.isFinite(config.planBusinessAmountUsd),
+          required: false,
+        },
+        {
+          name: "TAKU_PLAN_ENTERPRISE_USD",
+          configured: Number.isFinite(config.planEnterpriseAmountUsd),
+          required: false,
         },
         {
           name: "TAKU_AUTOMATION_REPLY_MIN_DELAY_MS",
@@ -2317,8 +2478,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           status === "cancelled"
         )
           workspaceItem.status = status;
-        if (plan === "starter" || plan === "business" || plan === "enterprise")
-          workspaceItem.plan = plan;
+        if (workspacePlanValid(plan)) workspaceItem.plan = plan;
         if (timezone) workspaceItem.timezone = timezone;
         workspaceItem.updatedAt = now();
         return workspaceItem;
@@ -2714,6 +2874,217 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         });
       }
       ok(res, { message: "Contraseña actualizada correctamente." });
+    }),
+  );
+
+  router.post(
+    "/public/billing/card-payment",
+    rateLimit({
+      key: (req) => `public-card-payment:${req.ip}`,
+      limit: 10,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const payload = readCardPaymentPayload(req.body);
+      if (!payload) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_PAYMENT_PAYLOAD",
+          message: "Datos de pago invalidos.",
+        });
+      }
+      if (!config.mercadoPagoAccessToken) {
+        throw new ApiError({
+          status: 503,
+          code: "MERCADOPAGO_NOT_CONFIGURED",
+          message: "Mercado Pago no esta configurado.",
+        });
+      }
+
+      const intent = await store.update((database) =>
+        createPaymentIntent({
+          database,
+          plan: payload.plan,
+          email: payload.payer.email,
+        }),
+      );
+
+      try {
+        const payment = await createMercadoPagoCardPayment({
+          accessToken: config.mercadoPagoAccessToken,
+          token: payload.token,
+          transactionAmount: intent.amountUsd,
+          installments: payload.installments,
+          paymentMethodId: payload.paymentMethodId,
+          issuerId: payload.issuerId,
+          payer: payload.payer,
+          description: `TAKU ${planLabel(payload.plan)}`,
+          externalReference: intent.id,
+          idempotencyKey: randomUUID(),
+        });
+
+        const updatedIntent = await store.update((database) => {
+          const found = database.paymentIntents.find(
+            (item) => item.id === intent.id,
+          );
+          if (!found) return intent;
+          found.providerPaymentId = payment.id;
+          found.updatedAt = now();
+          if (payment.status === "approved") {
+            found.status = "paid";
+            found.paidAt = payment.dateApproved ?? now();
+          }
+          return found;
+        });
+
+        if (payment.status !== "approved") {
+          res.status(402).json({
+            ok: false,
+            error: `Payment is ${payment.status}`,
+            paymentStatus: payment.status,
+            paymentStatusDetail: payment.statusDetail,
+            paymentIntent: updatedIntent,
+          });
+          return;
+        }
+
+        res.status(201).json({
+          ok: true,
+          paymentIntent: updatedIntent,
+          paymentStatus: payment.status,
+        });
+      } catch (error) {
+        if (error instanceof MercadoPagoRequestError) {
+          res.status(402).json({
+            ok: false,
+            error: error.message,
+            providerStatus: error.status,
+            providerError: error.error,
+            providerCauses: error.causes,
+            paymentIntent: intent,
+          });
+          return;
+        }
+        throw error;
+      }
+    }),
+  );
+
+  router.get(
+    "/public/billing/intents/:id",
+    asyncHandler(async (req, res) => {
+      const database = await store.read();
+      const intent =
+        database.paymentIntents.find((item) => item.id === req.params.id) ??
+        null;
+      if (!intent) {
+        throw new ApiError({
+          status: 404,
+          code: "PAYMENT_INTENT_NOT_FOUND",
+          message: "Pago no encontrado.",
+        });
+      }
+      res.json({ ok: true, paymentIntent: intent });
+    }),
+  );
+
+  router.post(
+    "/public/signup",
+    rateLimit({
+      key: (req) => `public-signup:${req.ip}:${String(req.body?.email ?? "")}`,
+      limit: 8,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const workspaceName = requireString(
+        req.body?.workspaceName,
+        "workspaceName",
+      );
+      const name = requireString(req.body?.name, "name");
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const password = requireString(req.body?.password, "password");
+      const plan = workspacePlanValid(req.body?.plan) ? req.body.plan : "free";
+      const paidPaymentIntentId =
+        readOptionalString(req.body?.paidPaymentIntentId) ?? null;
+      if (!isEmail(email) || password.length < 8) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Email o password invalido.",
+        });
+      }
+
+      const session = await store.update((database) => {
+        if (database.users.some((user) => user.email.toLowerCase() === email)) {
+          throw new ApiError({
+            status: 409,
+            code: "USER_ALREADY_EXISTS",
+            message: "Ya existe una cuenta con ese email.",
+          });
+        }
+        let paidIntent: PaymentIntent | null = null;
+        if (plan !== "free") {
+          paidIntent =
+            database.paymentIntents.find(
+              (item) => item.id === paidPaymentIntentId,
+            ) ?? null;
+          if (
+            !paidIntent ||
+            paidIntent.status !== "paid" ||
+            paidIntent.plan !== plan ||
+            paidIntent.email.toLowerCase() !== email
+          ) {
+            throw new ApiError({
+              status: 402,
+              code: "PAYMENT_REQUIRED",
+              message: "Completa el pago antes de crear esta cuenta.",
+            });
+          }
+        }
+
+        const timestamp = now();
+        const workspace = {
+          id: id("workspace"),
+          name: workspaceName,
+          slug: uniqueWorkspaceSlug(database, workspaceName),
+          status: "active" as const,
+          plan,
+          timezone: "America/Mexico_City",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        const user = {
+          id: id("user"),
+          name,
+          email,
+          passwordHash: hashPassword(password),
+          status: "active" as const,
+          lastLoginAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        database.workspaces.push(workspace);
+        database.users.push(user);
+        database.memberships.push({
+          id: id("membership"),
+          workspaceId: workspace.id,
+          userId: user.id,
+          role: "owner",
+          status: "active",
+          invitationSentAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        ensureWorkspaceDefaults(database, workspace.id);
+        if (paidIntent) {
+          paidIntent.status = "attached";
+          paidIntent.workspaceId = workspace.id;
+          paidIntent.attachedAt = timestamp;
+          paidIntent.updatedAt = timestamp;
+        }
+        return createClientSessionForUser(database, user.id, workspace.id);
+      });
+      ok(res, session, 201);
     }),
   );
 

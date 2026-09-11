@@ -2,6 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { ConversationsInbox } from "@/components/inbox/ConversationsInbox";
+import {
+  conversationIdFromPathname,
+  pathForConversation,
+} from "@/components/inbox/helpers";
 import {
   getWorkspaceSession,
   takuApi,
@@ -79,14 +84,6 @@ type Conversation = {
   } | null;
   unreadCount: number;
   lastMessageAt: string | null;
-};
-
-type Message = {
-  id: string;
-  direction: string;
-  body: string | null;
-  status: string;
-  createdAt: string;
 };
 
 type TakuBot = {
@@ -1020,479 +1017,24 @@ function HomeSection({
 
 function ConversationsSection({
   data,
+  conversationId,
+  onSelectConversation,
   onRefresh,
 }: {
   data: TakuData;
+  conversationId: string | null;
+  onSelectConversation: (conversationId: string | null) => void;
   onRefresh: () => void;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [localConversations, setLocalConversations] = useState<Conversation[]>(
-    data.conversations,
-  );
-  const [accountFilter, setAccountFilter] = useState("all");
-  const [contactName, setContactName] = useState("");
-  const [contactNotes, setContactNotes] = useState("");
-  const [isSavingContact, setIsSavingContact] = useState(false);
-  const [isSavingAutomationBlock, setIsSavingAutomationBlock] = useState(false);
-  const visibleConversations = useMemo(
-    () =>
-      accountFilter === "all"
-        ? localConversations
-        : localConversations.filter(
-            (conversation) =>
-              conversation.whatsappAccount?.id === accountFilter,
-          ),
-    [accountFilter, localConversations],
-  );
-  const selected =
-    visibleConversations.find(
-      (conversation) => conversation.id === selectedId,
-    ) ?? null;
-  const selectedPhone = selected?.contact?.phoneNumber ?? "";
-  const selectedBlockedContact =
-    data.blockedContacts.find(
-      (contact) =>
-        contact.phoneNumber.replace(/\D/g, "") ===
-        selectedPhone.replace(/\D/g, ""),
-    ) ?? null;
-
-  function clearLocalUnread(conversationId: string) {
-    setLocalConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, unreadCount: 0 }
-          : conversation,
-      ),
-    );
-  }
-
-  function markConversationRead(conversationId: string) {
-    clearLocalUnread(conversationId);
-    void takuApi(`/conversations/${conversationId}/read`, {
-      method: "POST",
-    }).catch((caught) => {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "No se pudo marcar la conversacion como leida.",
-      );
-    });
-  }
-
-  function selectConversation(conversationId: string) {
-    setSelectedId(conversationId);
-    markConversationRead(conversationId);
-  }
-
-  useEffect(() => {
-    setLocalConversations(
-      data.conversations.map((conversation) =>
-        conversation.id === selectedId
-          ? { ...conversation, unreadCount: 0 }
-          : conversation,
-      ),
-    );
-  }, [data.conversations, selectedId]);
-
-  useEffect(() => {
-    if (
-      selectedId &&
-      !visibleConversations.some(
-        (conversation) => conversation.id === selectedId,
-      )
-    ) {
-      setSelectedId(visibleConversations[0]?.id ?? null);
-      return;
-    }
-    if (!selectedId && visibleConversations[0])
-      setSelectedId(visibleConversations[0].id);
-  }, [selectedId, visibleConversations]);
-
-  useEffect(() => {
-    setContactName(selected?.contact?.name ?? "");
-    setContactNotes(selected?.contact?.notes ?? "");
-  }, [
-    selected?.contact?.id,
-    selected?.contact?.name,
-    selected?.contact?.notes,
-  ]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadMessages() {
-      if (!selected) {
-        setMessages([]);
-        return;
-      }
-      try {
-        const rows = await takuList<Message>(
-          `/conversations/${selected.id}/messages?pageSize=100`,
-        );
-        if (!cancelled) setMessages(rows);
-      } catch (caught) {
-        if (!cancelled)
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "No se pudieron cargar mensajes.",
-          );
-      }
-    }
-    void loadMessages();
-    return () => {
-      cancelled = true;
-    };
-  }, [selected]);
-
-  useEffect(() => {
-    if (!selected || selected.unreadCount <= 0) return;
-    markConversationRead(selected.id);
-  }, [selected?.id, selected?.unreadCount]);
-
-  async function sendMessage() {
-    if (!selected || !draft.trim()) return;
-    setIsSending(true);
-    setError(null);
-    try {
-      await takuApi(`/conversations/${selected.id}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ type: "text", body: draft.trim() }),
-      });
-      setDraft("");
-      onRefresh();
-      const rows = await takuList<Message>(
-        `/conversations/${selected.id}/messages?pageSize=100`,
-      );
-      setMessages(rows);
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "No se pudo enviar mensaje.",
-      );
-    } finally {
-      setIsSending(false);
-    }
-  }
-
-  async function saveContact() {
-    if (!selected?.contact) return;
-    setIsSavingContact(true);
-    setError(null);
-    try {
-      await takuApi(`/contacts/${selected.contact.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: contactName.trim(),
-          notes: contactNotes,
-        }),
-      });
-      onRefresh();
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "No se pudo guardar el contacto.",
-      );
-    } finally {
-      setIsSavingContact(false);
-    }
-  }
-
-  async function toggleAutomationBlock(enabled: boolean) {
-    if (!selected?.contact?.phoneNumber) return;
-    setIsSavingAutomationBlock(true);
-    setError(null);
-    try {
-      if (selectedBlockedContact) {
-        await takuApi(
-          `/automation-blocked-contacts/${selectedBlockedContact.id}`,
-          {
-            method: "PATCH",
-            body: JSON.stringify({ enabled }),
-          },
-        );
-      } else {
-        await takuApi("/automation-blocked-contacts", {
-          method: "POST",
-          body: JSON.stringify({
-            phoneNumber: selected.contact.phoneNumber,
-            label: selected.contact.name ?? contactName.trim(),
-            reason: "Bloqueado desde conversaciones",
-            enabled,
-          }),
-        });
-      }
-      onRefresh();
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "No se pudo actualizar la automatizacion del contacto.",
-      );
-    } finally {
-      setIsSavingAutomationBlock(false);
-    }
-  }
-
   return (
-    <div className="grid gap-6">
-      <SectionHeader
-        label="Conversaciones"
-        title="Bandeja compartida de WhatsApp"
-        description="Filtra, atiende, asigna y responde conversaciones desde el navegador."
-        action={<Button variant="secondary">Ver sin responder</Button>}
-      />
-
-      <div className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {[
-              "Todas",
-              "Abiertas",
-              "Sin responder",
-              "Asignadas a mi",
-              "Sin asignar",
-              "Cerradas",
-              "Archivadas",
-            ].map((filter, index) => (
-              <button
-                key={filter}
-                type="button"
-                className={cx(
-                  "min-h-10 rounded-full px-4 text-sm font-semibold",
-                  index === 2
-                    ? "bg-slate-950 text-white"
-                    : "border border-slate-300 bg-white text-slate-700 hover:border-slate-950",
-                )}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
-          <input
-            placeholder="Buscar por nombre, telefono o mensaje..."
-            className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200 lg:max-w-sm"
-          />
-          <Select value={accountFilter} onChange={setAccountFilter}>
-            <option value="all">Todos los numeros</option>
-            {data.accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.displayName} · {account.phoneNumber ?? "Sin vincular"}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
-
-      <div className="grid min-h-[680px] gap-4 xl:grid-cols-[320px_1fr_320px]">
-        <aside className="rounded-lg border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 p-4">
-            <h2 className="font-semibold text-slate-950">Lista</h2>
-          </div>
-          <div className="divide-y divide-slate-200">
-            {visibleConversations.map((conversation) => (
-              <button
-                type="button"
-                key={conversation.id}
-                onClick={() => selectConversation(conversation.id)}
-                className={cx(
-                  "grid w-full gap-2 p-4 text-left hover:bg-slate-50",
-                  selected?.id === conversation.id && "bg-slate-100",
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-950">
-                      {conversation.contact?.name ??
-                        conversation.contact?.phoneNumber ??
-                        "Contacto"}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {conversation.contact?.phoneNumber ?? "-"}
-                    </p>
-                  </div>
-                  {conversation.unreadCount ? (
-                    <Badge tone="dark">{conversation.unreadCount}</Badge>
-                  ) : null}
-                </div>
-                <p className="line-clamp-2 text-sm text-slate-600">
-                  {conversation.lastMessage?.body ?? "Sin mensajes"}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <span>
-                    {conversation.whatsappAccount?.displayName ?? "-"}
-                  </span>
-                  <span>{formatDate(conversation.lastMessageAt)}</span>
-                  <Badge
-                    tone={conversation.unreadCount > 0 ? "warn" : "default"}
-                  >
-                    {conversation.status}
-                  </Badge>
-                  {conversation.lastMessage?.direction === "bot" ? (
-                    <Badge>Bot</Badge>
-                  ) : null}
-                </div>
-              </button>
-            ))}
-            {visibleConversations.length === 0 ? (
-              <div className="p-4 text-sm text-slate-500">
-                No hay conversaciones para este numero.
-              </div>
-            ) : null}
-          </div>
-        </aside>
-
-        <section className="flex min-h-[680px] flex-col rounded-lg border border-slate-200 bg-white">
-          <div className="flex items-center justify-between border-b border-slate-200 p-4">
-            <div>
-              <h2 className="font-semibold text-slate-950">
-                {selected?.contact?.name ??
-                  selected?.contact?.phoneNumber ??
-                  "Conversacion"}
-              </h2>
-              <p className="text-sm text-slate-500">
-                Respondiendo desde:{" "}
-                {selected?.whatsappAccount?.displayName ?? "-"} (
-                {selected?.contact?.phoneNumber ?? "-"})
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="secondary">Asignar</Button>
-              <Button variant="secondary">Cerrar</Button>
-            </div>
-          </div>
-          <div className="flex-1 space-y-4 bg-slate-50 p-4">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cx(
-                  "max-w-[78%] rounded-lg p-3",
-                  message.direction === "inbound"
-                    ? "border border-slate-200 bg-white text-slate-800"
-                    : "ml-auto bg-slate-950 text-white",
-                )}
-              >
-                <p
-                  className={cx(
-                    "text-xs font-semibold",
-                    message.direction === "inbound"
-                      ? "text-slate-500"
-                      : "text-slate-300",
-                  )}
-                >
-                  {message.direction === "inbound"
-                    ? "Cliente"
-                    : message.direction === "bot"
-                      ? "Bot"
-                      : "Equipo"}{" "}
-                  · {formatDate(message.createdAt)}
-                </p>
-                <p className="mt-2 text-sm">{message.body}</p>
-                <p className="mt-2 text-xs opacity-70">{message.status}</p>
-              </div>
-            ))}
-            {messages.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">
-                Selecciona una conversacion para ver mensajes.
-              </div>
-            ) : null}
-          </div>
-          <div className="border-t border-slate-200 p-4">
-            {error ? (
-              <div className="mb-3 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
-                {error}
-              </div>
-            ) : null}
-            <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-              <TextArea
-                placeholder="Escribe un mensaje..."
-                rows={2}
-                value={draft}
-                onChange={setDraft}
-              />
-              <Button variant="secondary">Adjuntar</Button>
-              <Button disabled={!selected || isSending} onClick={sendMessage}>
-                {isSending ? "Enviando..." : "Enviar"}
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        <aside className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="font-semibold text-slate-950">
-            Detalles del contacto
-          </h2>
-          <dl className="mt-4 grid gap-3 text-sm">
-            {[
-              ["Nombre", selected?.contact?.name ?? "-"],
-              ["Telefono", selected?.contact?.phoneNumber ?? "-"],
-              [
-                "Numero receptor",
-                selected?.whatsappAccount?.displayName ?? "-",
-              ],
-              ["Estado", selected?.status ?? "-"],
-              [
-                "Agente asignado",
-                selected?.assignedUser?.name ?? "Sin asignar",
-              ],
-              ["Ultima actividad", formatDate(selected?.lastMessageAt)],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-                  {label}
-                </dt>
-                <dd className="mt-1 text-slate-800">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <div className="mt-6 grid gap-3">
-            <Field label="Nombre del contacto">
-              <Input
-                placeholder="Nombre del cliente"
-                value={contactName}
-                onChange={setContactName}
-              />
-            </Field>
-            <Field label="Telefono" hint="Solo lectura en MVP">
-              <Input
-                placeholder={selected?.contact?.phoneNumber ?? "-"}
-                readOnly
-              />
-            </Field>
-            <Field label="Notas internas">
-              <TextArea
-                placeholder="Notas visibles solo para el equipo"
-                value={contactNotes}
-                onChange={setContactNotes}
-              />
-            </Field>
-            <Switch
-              checked={selectedBlockedContact?.enabled ?? false}
-              disabled={!selected?.contact || isSavingAutomationBlock}
-              label={
-                isSavingAutomationBlock
-                  ? "Guardando bloqueo..."
-                  : "Nunca responder automaticamente"
-              }
-              onChange={(enabled) => void toggleAutomationBlock(enabled)}
-            />
-            <p className="text-xs leading-5 text-slate-500">
-              Si esta activo, TAKU seguira guardando la conversacion pero no
-              respondera con reglas ni bot a este contacto.
-            </p>
-            <Button
-              disabled={!selected?.contact || isSavingContact}
-              onClick={() => void saveContact()}
-            >
-              {isSavingContact ? "Guardando..." : "Guardar cambios"}
-            </Button>
-          </div>
-        </aside>
-      </div>
-    </div>
+    <ConversationsInbox
+      accounts={data.accounts}
+      users={data.users}
+      blockedContacts={data.blockedContacts}
+      conversationId={conversationId}
+      onSelectConversation={onSelectConversation}
+      onRefreshWorkspace={onRefresh}
+    />
   );
 }
 
@@ -4492,11 +4034,20 @@ function renderSection(
   onSection: (section: SectionId) => void,
   automationAccountId: string | null,
   onConfigureAutomation: (accountId: string) => void,
+  conversationId: string | null,
+  onSelectConversation: (conversationId: string | null) => void,
 ) {
   if (section === "home")
     return <HomeSection role={role} data={data} onSection={onSection} />;
   if (section === "conversations")
-    return <ConversationsSection data={data} onRefresh={onRefresh} />;
+    return (
+      <ConversationsSection
+        data={data}
+        conversationId={conversationId}
+        onSelectConversation={onSelectConversation}
+        onRefresh={onRefresh}
+      />
+    );
   if (section === "numbers")
     return (
       <NumbersSection
@@ -4696,6 +4247,8 @@ export default function MainDashboardMockPage() {
                   setAutomationAccountId(accountId);
                   navigateSection("automation");
                 },
+                conversationIdFromPathname(pathname),
+                (id) => router.push(pathForConversation(id)),
               )
             )}
           </div>

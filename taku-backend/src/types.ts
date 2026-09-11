@@ -6,7 +6,7 @@ export type AdminRole =
   | "billing_admin"
   | "readonly_admin";
 export type WorkspaceStatus = "trial" | "active" | "suspended" | "cancelled";
-export type WorkspacePlan = "starter" | "business" | "enterprise";
+export type WorkspacePlan = "free" | "starter" | "business" | "enterprise";
 export type UserStatus = "active" | "disabled" | "invited";
 export type AdminUserStatus = "active" | "disabled" | "invited";
 export type WhatsAppStatus =
@@ -260,6 +260,21 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type PaymentIntent = {
+  id: string;
+  workspaceId: string | null;
+  email: string;
+  plan: WorkspacePlan;
+  status: "pending" | "paid" | "attached";
+  amountUsd: number;
+  provider: "mercadopago";
+  providerPaymentId: string | null;
+  paidAt: string | null;
+  attachedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AdminUser = {
   id: string;
   name: string;
@@ -313,6 +328,7 @@ export type Database = {
   automationRules: AutomationRule[];
   automationBlockedContacts: AutomationBlockedContact[];
   automationDecisionLogs: AutomationDecisionLog[];
+  paymentIntents: PaymentIntent[];
   preferences: Preferences[];
   auditLogs: AuditLog[];
   refreshTokens: Array<{

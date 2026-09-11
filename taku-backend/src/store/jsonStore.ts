@@ -18,6 +18,7 @@ import type {
   Database,
   Membership,
   Message,
+  PaymentIntent,
   Preferences,
   User,
   WhatsAppAccount,
@@ -56,6 +57,7 @@ function createEmptyDatabase(): Database {
     automationRules: [],
     automationBlockedContacts: [],
     automationDecisionLogs: [],
+    paymentIntents: [],
     preferences: [],
     auditLogs: [],
     refreshTokens: [],
@@ -81,6 +83,7 @@ function ensureDatabaseCollections(database: Database) {
   target.automationRules ??= [];
   target.automationBlockedContacts ??= [];
   target.automationDecisionLogs ??= [];
+  target.paymentIntents ??= [];
   target.preferences ??= [];
   target.auditLogs ??= [];
   target.refreshTokens ??= [];
@@ -339,6 +342,7 @@ function createTestSeed(): Database {
     automationRules,
     automationBlockedContacts,
     automationDecisionLogs: [],
+    paymentIntents: [] as PaymentIntent[],
     preferences: [preferences],
     auditLogs: [],
     refreshTokens: [],
