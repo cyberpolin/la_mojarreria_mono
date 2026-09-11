@@ -9,6 +9,7 @@ import {
   isAccountConnected,
   messageStatusLabel,
 } from "./helpers";
+import { LinkedMessageText } from "./LinkedMessageText";
 import type { InboxConversation, InboxMessage } from "./types";
 import { Badge, Button, TextArea } from "./ui";
 
@@ -56,7 +57,15 @@ function MessageBubble({ message }: { message: InboxMessage }) {
       >
         {directionLabel(message.direction)} · {formatDate(message.createdAt)}
       </p>
-      <p className="mt-2 whitespace-pre-wrap text-sm">{message.body}</p>
+      <LinkedMessageText
+        text={message.body}
+        className="mt-2 whitespace-pre-wrap break-words text-sm"
+        linkClassName={
+          isInbound || isBot || failed
+            ? "break-all underline"
+            : "break-all underline text-white"
+        }
+      />
       {messageStatusLabel(message.status) ? (
         <p className="mt-2 text-xs opacity-70">
           {messageStatusLabel(message.status)}

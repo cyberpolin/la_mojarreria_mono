@@ -7,7 +7,8 @@ export type ConversationFilterId =
   | "mine"
   | "unassigned"
   | "closed"
-  | "archived";
+  | "archived"
+  | "blocked";
 
 export type WhatsAppAccountStatus =
   | "pending"
@@ -49,6 +50,7 @@ export type InboxConversation = {
   lastMessageAt: string | null;
   createdAt?: string;
   updatedAt?: string;
+  blocked?: boolean;
 };
 
 export type InboxMessage = {

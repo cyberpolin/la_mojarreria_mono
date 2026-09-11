@@ -22,6 +22,7 @@ const filters: Array<{ id: ConversationFilterId; label: string }> = [
   { id: "unassigned", label: "Sin asignar" },
   { id: "closed", label: "Cerradas" },
   { id: "archived", label: "Archivadas" },
+  { id: "blocked", label: "Bloqueados" },
 ];
 
 export function ConversationList({

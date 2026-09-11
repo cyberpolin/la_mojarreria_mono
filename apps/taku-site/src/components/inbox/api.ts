@@ -158,6 +158,13 @@ export async function updateContact(
   });
 }
 
+export async function fetchBlockedContacts() {
+  const result = await takuPaginated<InboxBlockedContact>(
+    "/automation-blocked-contacts?pageSize=100",
+  );
+  return result.items.filter((item) => item.enabled);
+}
+
 export async function createAutomationBlock(params: {
   phoneNumber: string;
   label: string;

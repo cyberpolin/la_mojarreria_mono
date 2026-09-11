@@ -190,13 +190,13 @@ export function ConversationRail({
               label={
                 isSavingAutomationBlock
                   ? "Guardando bloqueo..."
-                  : "Bloquear automatizacion"
+                  : "Bloquear telefono"
               }
               onChange={onToggleAutomation}
             />
             <p className="text-xs leading-5 text-slate-500">
-              Si esta activo, TAKU guarda la conversacion pero no responde con
-              reglas ni bot a este contacto.
+              Si esta activo, los mensajes de este numero se guardan en
+              Bloqueados sin aviso ni respuesta automatica.
             </p>
           </section>
         </div>

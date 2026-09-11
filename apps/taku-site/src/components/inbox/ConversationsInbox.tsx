@@ -140,6 +140,8 @@ export function ConversationsInbox({
       ) {
         return false;
       }
+      if (query.filter === "blocked") return Boolean(conversation.blocked);
+      if (conversation.blocked) return false;
       if (query.search.trim()) {
         const haystack =
           `${conversation.contact?.name ?? ""} ${conversation.contact?.phoneNumber ?? ""} ${conversation.lastMessage?.body ?? ""}`.toLowerCase();

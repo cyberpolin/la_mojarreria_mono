@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 export function MobileAuthGate({ next }: { next: string }) {
@@ -22,5 +24,59 @@ export function MobilePhoneFrame({ children }: { children: ReactNode }) {
         {children}
       </div>
     </main>
+  );
+}
+
+export function MobileContextMenu({
+  title,
+  items,
+  onClose,
+}: {
+  title?: string;
+  items: Array<{
+    label: string;
+    danger?: boolean;
+    onSelect: () => void;
+  }>;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-20 flex items-end bg-slate-950/40 p-4">
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label="Cerrar menu"
+        onClick={onClose}
+      />
+      <div className="relative z-10 w-full overflow-hidden rounded-2xl bg-white shadow-xl">
+        {title ? (
+          <p className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
+            {title}
+          </p>
+        ) : null}
+        {items.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={() => {
+              item.onSelect();
+              onClose();
+            }}
+            className={`flex min-h-12 w-full items-center px-4 text-left text-sm font-medium ${
+              item.danger ? "text-slate-950" : "text-slate-800"
+            } hover:bg-slate-50`}
+          >
+            {item.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex min-h-12 w-full items-center border-t border-slate-100 px-4 text-left text-sm font-semibold text-slate-500 hover:bg-slate-50"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }

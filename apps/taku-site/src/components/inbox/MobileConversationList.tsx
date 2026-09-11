@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
-import { createConversation, fetchConversations } from "./api";
+import {
+  createAutomationBlock,
+  createConversation,
+  fetchBlockedContacts,
+  fetchConversations,
+  updateAutomationBlock,
+} from "./api";
 import {
   accountStatusLabel,
   conversationTitle,
@@ -18,13 +24,21 @@ import {
   sortConversationsUnreadFirst,
   upsertConversation,
 } from "./helpers";
-import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
+import {
+  MobileAuthGate,
+  MobileContextMenu,
+  MobilePhoneFrame,
+} from "./mobile-shell";
 import {
   playIncomingSound,
   unlockIncomingSound,
   useArmIncomingSound,
 } from "./playIncomingSound";
-import type { InboxConversation, InboxWhatsAppAccount } from "./types";
+import type {
+  InboxBlockedContact,
+  InboxConversation,
+  InboxWhatsAppAccount,
+} from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
 
 const POLL_INTERVAL_MS = 6000;
@@ -66,7 +80,15 @@ export function MobileConversationList({
   const [newPhone, setNewPhone] = useState("");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [soundReady, setSoundReady] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [blockedOpen, setBlockedOpen] = useState(false);
+  const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
+    [],
+  );
+  const [blockedLoading, setBlockedLoading] = useState(false);
+  const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
+  const longPressRef = useRef<number | null>(null);
+  const didLongPressRef = useRef(false);
   useArmIncomingSound();
 
   const seenInboundRef = useRef<Map<string, string>>(new Map());
@@ -141,6 +163,7 @@ export function MobileConversationList({
       if (account && incoming && incoming.whatsappAccount?.id !== account.id) {
         return;
       }
+      if (incoming?.blocked) return;
 
       if (
         incoming &&

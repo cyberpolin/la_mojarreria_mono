@@ -71,6 +71,58 @@ export function digitsPhone(value: string) {
   return value.replace(/\D/g, "");
 }
 
+const MESSAGE_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+const TRAILING_URL_PUNCTUATION = /[.,;:!?)]+]$/;
+
+export type MessageTextPart =
+  | { type: "text"; value: string }
+  | { type: "link"; value: string; href: string };
+
+function trimUrlMatch(raw: string) {
+  let value = raw;
+  while (value && TRAILING_URL_PUNCTUATION.test(value)) {
+    value = value.slice(0, -1);
+  }
+  return value;
+}
+
+export function hrefForMessageUrl(value: string) {
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
+export function splitMessageLinks(text: string): MessageTextPart[] {
+  const parts: MessageTextPart[] = [];
+  const pattern = new RegExp(MESSAGE_URL_REGEX.source, MESSAGE_URL_REGEX.flags);
+  let lastIndex = 0;
+  let match = pattern.exec(text);
+  while (match) {
+    const raw = match[0];
+    const url = trimUrlMatch(raw);
+    const start = match.index;
+    if (start > lastIndex) {
+      parts.push({ type: "text", value: text.slice(lastIndex, start) });
+    }
+    if (url) {
+      parts.push({
+        type: "link",
+        value: url,
+        href: hrefForMessageUrl(url),
+      });
+    }
+    lastIndex = start + url.length;
+    if (raw.length > url.length) {
+      lastIndex = start + raw.length;
+      const leftover = raw.slice(url.length);
+      if (leftover) parts.push({ type: "text", value: leftover });
+    }
+    match = pattern.exec(text);
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: "text", value: text.slice(lastIndex) });
+  }
+  return parts.length > 0 ? parts : [{ type: "text", value: text }];
+}
+
 export function accountPhoneSlug(account: InboxWhatsAppAccount) {
   return digitsPhone(account.phoneNumber ?? "") || account.id;
 }
@@ -232,6 +284,7 @@ export function buildConversationQuery(params: {
   if (params.filter === "unread") query.set("unread", "true");
   if (params.filter === "mine") query.set("assignedTo", "me");
   if (params.filter === "unassigned") query.set("assignedTo", "unassigned");
+  if (params.filter === "blocked") query.set("blocked", "true");
   if (params.accountId !== "all")
     query.set("whatsappAccountId", params.accountId);
   if (params.search.trim()) query.set("search", params.search.trim());

@@ -1642,7 +1642,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           database.messages.push(message);
           conversation.lastMessageBody = text;
           conversation.lastMessageAt = message.createdAt;
-          conversation.unreadCount += 1;
+          if (
+            !findBlockedAutomationContact(database, account.workspaceId, from)
+          ) {
+            conversation.unreadCount += 1;
+          }
           conversation.updatedAt = now();
           return {
             workspaceId: account.workspaceId,
@@ -4243,6 +4247,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         })
         .map((item) => conversationView(item, database))
         .filter((item) => {
+          if (readOptionalString(req.query.phone)) return true;
+          const blockedOnly = req.query.blocked === "true";
+          return blockedOnly ? item.blocked : !item.blocked;
+        })
+        .filter((item) => {
           if (!search) return true;
           return `${item.contact?.name ?? ""} ${item.contact?.phoneNumber ?? ""} ${item.lastMessage?.body ?? ""}`
             .toLowerCase()
@@ -5082,7 +5091,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
 
   router.get(
     "/automation-blocked-contacts",
-    requireRole(ownerAdmin),
+    requireRole(allRoles),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
       const database = await store.read();
@@ -5104,7 +5113,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
 
   router.post(
     "/automation-blocked-contacts",
-    requireRole(ownerAdmin),
+    requireRole(allRoles),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
       const phoneNumber = requireString(req.body?.phoneNumber, "phoneNumber");
@@ -5160,7 +5169,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
 
   router.patch(
     "/automation-blocked-contacts/:id",
-    requireRole(ownerAdmin),
+    requireRole(allRoles),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
       const item = await store.update((database) => {
@@ -5212,7 +5221,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
 
   router.delete(
     "/automation-blocked-contacts/:id",
-    requireRole(ownerAdmin),
+    requireRole(allRoles),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
       await store.update((database) => {

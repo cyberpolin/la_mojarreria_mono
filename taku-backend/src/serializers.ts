@@ -101,6 +101,21 @@ export function contactView(contact: Contact, database?: Database) {
   };
 }
 
+function isPhoneBlocked(
+  database: Database,
+  workspaceId: string,
+  phoneNumber: string | undefined,
+) {
+  const wanted = (phoneNumber ?? "").replace(/\D/g, "");
+  if (!wanted) return false;
+  return database.automationBlockedContacts.some(
+    (item) =>
+      item.workspaceId === workspaceId &&
+      item.enabled &&
+      item.phoneNumber.replace(/\D/g, "") === wanted,
+  );
+}
+
 export function conversationView(
   conversation: Conversation,
   database: Database,
@@ -152,6 +167,11 @@ export function conversationView(
     lastMessageAt: conversation.lastMessageAt,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
+    blocked: isPhoneBlocked(
+      database,
+      conversation.workspaceId,
+      contact?.phoneNumber,
+    ),
   };
 }
 

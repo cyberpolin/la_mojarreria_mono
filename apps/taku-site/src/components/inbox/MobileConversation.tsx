@@ -28,6 +28,7 @@ import type {
   InboxMessage,
   InboxWhatsAppAccount,
 } from "./types";
+import { LinkedMessageText } from "./LinkedMessageText";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import {
   playIncomingSound,
@@ -74,7 +75,15 @@ function MobileBubble({ message }: { message: InboxMessage }) {
           Bot
         </p>
       ) : null}
-      <p className="whitespace-pre-wrap text-sm leading-5">{message.body}</p>
+      <LinkedMessageText
+        text={message.body}
+        className="whitespace-pre-wrap break-words text-sm leading-5"
+        linkClassName={
+          isInbound || isBot || failed
+            ? "break-all underline"
+            : "break-all underline text-white"
+        }
+      />
       <p
         className={cx(
           "mt-1 text-right text-[10px]",
