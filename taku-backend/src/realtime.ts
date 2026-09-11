@@ -7,7 +7,7 @@ import type { JsonStore } from "./store/jsonStore.js";
 export function createRealtimeServer(httpServer: HttpServer, store: JsonStore) {
   const io = new Server(httpServer, {
     cors: {
-      origin: config.allowedOrigins,
+      origin: [...config.allowedOrigins],
       credentials: true,
     },
   });

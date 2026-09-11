@@ -57,6 +57,7 @@ import type {
   BotAssignmentMode,
   BotSettings,
   BusinessHour,
+  Conversation,
   ConversationStatus,
   Database,
   MatchType,
@@ -4103,6 +4104,105 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.post(
+    "/conversations",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const phone = requireString(req.body?.phoneNumber, "phoneNumber").replace(
+        /\D/g,
+        "",
+      );
+      if (phone.length < 8)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Ingresa un telefono valido.",
+        });
+      const name = readOptionalString(req.body?.name) ?? null;
+      const requestedAccountId = readOptionalString(
+        req.body?.whatsappAccountId,
+      );
+      const result = await store.update((database) => {
+        const accounts = database.whatsappAccounts.filter(
+          (item) => item.workspaceId === context.workspace.id && item.enabled,
+        );
+        const account = requestedAccountId
+          ? findAccount(database, context.workspace.id, requestedAccountId)
+          : (accounts.find((item) => item.status === "connected") ??
+            accounts[0]);
+        if (!account)
+          throw new ApiError({
+            status: 409,
+            code: "WHATSAPP_ACCOUNT_NOT_FOUND",
+            message: "No hay un numero de WhatsApp para iniciar el chat.",
+          });
+
+        let contact = database.contacts.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.phoneNumber.replace(/\D/g, "") === phone,
+        );
+        if (!contact) {
+          contact = {
+            id: id("contact"),
+            workspaceId: context.workspace.id,
+            phoneNumber: phone,
+            name,
+            profilePictureUrl: null,
+            notes: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.contacts.push(contact);
+        } else if (name && !contact.name) {
+          contact.name = name;
+          contact.updatedAt = now();
+        }
+
+        const existing = database.conversations
+          .filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.contactId === contact.id,
+          )
+          .sort((left, right) =>
+            (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+          )[0];
+        if (existing) {
+          return {
+            created: false,
+            conversation: conversationView(existing, database),
+          };
+        }
+
+        const conversation: Conversation = {
+          id: id("conversation"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: account.id,
+          contactId: contact.id,
+          status: "open",
+          lastMessageBody: null,
+          lastMessageAt: now(),
+          assignedUserId: context.user.id,
+          unreadCount: 0,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.conversations.push(conversation);
+        return {
+          created: true,
+          conversation: conversationView(conversation, database),
+        };
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        result.conversation,
+      );
+      ok(res, result.conversation, result.created ? 201 : 200);
+    }),
+  );
+
   router.get(
     "/conversations",
     asyncHandler(async (req, res) => {
@@ -4131,6 +4231,15 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         .filter((item) =>
           req.query.unread === "true" ? item.unreadCount > 0 : true,
         )
+        .filter((item) => {
+          const phone = readOptionalString(req.query.phone);
+          if (!phone) return true;
+          const wanted = phone.replace(/\D/g, "");
+          const contact = database.contacts.find(
+            (entry) => entry.id === item.contactId,
+          );
+          return (contact?.phoneNumber ?? "").replace(/\D/g, "") === wanted;
+        })
         .map((item) => conversationView(item, database))
         .filter((item) => {
           if (!search) return true;

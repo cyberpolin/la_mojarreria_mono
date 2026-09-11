@@ -182,9 +182,9 @@
       "email": "owner@owner.com",
       "passwordHash": "scrypt:eba68ef287d27a0109aa98d2e34c561d:283dfbc84723ecbf2a81eef1cbffbab116ec8d7a0f320b87bcb4148d2a6c7d5af0855639c47251563ba16a450ff5266fe15a8bdf1906f98eeba1676701e2df10",
       "status": "active",
-      "lastLoginAt": "2026-07-05T05:46:33.453Z",
+      "lastLoginAt": "2026-09-11T00:50:22.775Z",
       "createdAt": "2026-07-05T05:45:10.608Z",
-      "updatedAt": "2026-07-05T05:46:33.453Z"
+      "updatedAt": "2026-09-11T00:50:22.775Z"
     },
     {
       "id": "user_admin",
@@ -299,9 +299,9 @@
       "lastMessageBody": "Necesito una cotizacion",
       "lastMessageAt": "2026-07-05T05:45:10.608Z",
       "assignedUserId": "user_admin",
-      "unreadCount": 1,
+      "unreadCount": 0,
       "createdAt": "2026-07-05T05:45:10.608Z",
-      "updatedAt": "2026-07-05T05:45:10.608Z"
+      "updatedAt": "2026-09-11T00:50:38.084Z"
     }
   ],
   "messages": [
@@ -470,6 +470,42 @@
       "metadata": {
         "unified": true
       }
+    },
+    {
+      "id": "audit_5c29d256-9a9e-4ba0-a03d-9ff7d9bdd424",
+      "createdAt": "2026-09-11T00:45:37.077Z",
+      "workspaceId": "workspace_demo",
+      "userId": "user_owner",
+      "action": "auth.login",
+      "entityType": "user",
+      "entityId": "user_owner",
+      "metadata": {
+        "unified": true
+      }
+    },
+    {
+      "id": "audit_66ba7781-eaa9-48b0-a187-de0d6c4d93b8",
+      "createdAt": "2026-09-11T00:49:02.977Z",
+      "workspaceId": "workspace_demo",
+      "userId": "user_owner",
+      "action": "auth.login",
+      "entityType": "user",
+      "entityId": "user_owner",
+      "metadata": {
+        "unified": true
+      }
+    },
+    {
+      "id": "audit_c3cc39b5-a9c2-43e5-af73-dc407d56c457",
+      "createdAt": "2026-09-11T00:50:22.776Z",
+      "workspaceId": "workspace_demo",
+      "userId": "user_owner",
+      "action": "auth.login",
+      "entityType": "user",
+      "entityId": "user_owner",
+      "metadata": {
+        "unified": true
+      }
     }
   ],
   "refreshTokens": [
@@ -488,6 +524,35 @@
       "expiresAt": "2026-08-04T05:46:33.453Z",
       "revokedAt": null,
       "createdAt": "2026-07-05T05:46:33.453Z"
+    },
+    {
+      "id": "refresh_8cd16e4c-9c8f-4330-ad4c-f6fc36b10e78",
+      "userId": "user_owner",
+      "tokenHash": "562ca896f300cb101ba83258b8d279e80d12713a281330ddab961c57ed1946ba",
+      "expiresAt": "2026-10-11T00:45:37.075Z",
+      "revokedAt": null,
+      "createdAt": "2026-09-11T00:45:37.075Z"
+    },
+    {
+      "id": "refresh_da618b73-e7d3-4084-8fc8-f73c0a53d767",
+      "userId": "user_owner",
+      "tokenHash": "54cef76111af3089bbf194a52587b9ddb27b581ac3e5b2f3dda2308c816640dd",
+      "expiresAt": "2026-10-11T00:49:02.976Z",
+      "revokedAt": null,
+      "createdAt": "2026-09-11T00:49:02.976Z"
+    },
+    {
+      "id": "refresh_4cd32092-db65-4c90-8d19-ef48cdc87238",
+      "userId": "user_owner",
+      "tokenHash": "5d42b1ac12329040c70afe88144646ba158f4896fa480d06b016ba67102ef199",
+      "expiresAt": "2026-10-11T00:50:22.775Z",
+      "revokedAt": null,
+      "createdAt": "2026-09-11T00:50:22.775Z"
     }
-  ]
+  ],
+  "bots": [],
+  "botAssignments": [],
+  "automationBlockedContacts": [],
+  "automationDecisionLogs": [],
+  "paymentIntents": []
 }

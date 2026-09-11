@@ -89,6 +89,324 @@ function ensureDatabaseCollections(database: Database) {
   target.refreshTokens ??= [];
 }
 
+function minutesAgo(base: string, minutes: number) {
+  return new Date(Date.parse(base) - minutes * 60_000).toISOString();
+}
+
+function seedTextMessage(params: {
+  id: string;
+  workspaceId: string;
+  conversationId: string;
+  whatsappAccountId: string;
+  contactId: string;
+  direction: Message["direction"];
+  body: string;
+  status: Message["status"];
+  sentByUserId: string | null;
+  createdAt: string;
+}): Message {
+  return {
+    id: params.id,
+    workspaceId: params.workspaceId,
+    conversationId: params.conversationId,
+    whatsappAccountId: params.whatsappAccountId,
+    contactId: params.contactId,
+    externalMessageId: `${params.id}_ext`,
+    direction: params.direction,
+    type: "text",
+    body: params.body,
+    mediaUrl: null,
+    mediaMimeType: null,
+    mediaFilename: null,
+    status: params.status,
+    sentByUserId: params.sentByUserId,
+    createdAt: params.createdAt,
+    updatedAt: params.createdAt,
+  };
+}
+
+function createDemoConversationsSeed(params: {
+  workspaceId: string;
+  salesAccount: WhatsAppAccount;
+  supportAccount: WhatsAppAccount;
+  adminId: string;
+  agentId: string;
+  timestamp: string;
+}) {
+  const {
+    workspaceId,
+    salesAccount,
+    supportAccount,
+    adminId,
+    agentId,
+    timestamp,
+  } = params;
+
+  const juan: Contact = {
+    id: "contact_juan",
+    workspaceId,
+    phoneNumber: "5219931234567",
+    name: "Juan Perez",
+    profilePictureUrl: null,
+    notes: "Cliente frecuente. Prefiere atencion por la tarde.",
+    createdAt: minutesAgo(timestamp, 180),
+    updatedAt: timestamp,
+  };
+  const maria: Contact = {
+    id: "contact_maria",
+    workspaceId,
+    phoneNumber: "5219987654321",
+    name: "Maria Lopez",
+    profilePictureUrl: null,
+    notes: "Pedido de mojarras para el sabado.",
+    createdAt: minutesAgo(timestamp, 240),
+    updatedAt: minutesAgo(timestamp, 12),
+  };
+  const pedro: Contact = {
+    id: "contact_pedro",
+    workspaceId,
+    phoneNumber: "5215551234567",
+    name: "Pedro Sanchez",
+    profilePictureUrl: null,
+    notes: "Duda post-compra.",
+    createdAt: minutesAgo(timestamp, 300),
+    updatedAt: minutesAgo(timestamp, 40),
+  };
+  const ana: Contact = {
+    id: "contact_ana",
+    workspaceId,
+    phoneNumber: "5212223344556",
+    name: "Ana Ruiz",
+    profilePictureUrl: null,
+    notes: "Nueva lead de Instagram.",
+    createdAt: minutesAgo(timestamp, 90),
+    updatedAt: minutesAgo(timestamp, 5),
+  };
+
+  const juanConversation: Conversation = {
+    id: "conversation_juan_sales",
+    workspaceId,
+    whatsappAccountId: salesAccount.id,
+    contactId: juan.id,
+    status: "open",
+    lastMessageBody: "Perfecto, a las 2 pm esta bien",
+    lastMessageAt: minutesAgo(timestamp, 8),
+    assignedUserId: adminId,
+    unreadCount: 1,
+    createdAt: minutesAgo(timestamp, 180),
+    updatedAt: minutesAgo(timestamp, 8),
+  };
+  const mariaConversation: Conversation = {
+    id: "conversation_maria_sales",
+    workspaceId,
+    whatsappAccountId: salesAccount.id,
+    contactId: maria.id,
+    status: "open",
+    lastMessageBody: "Si, para 8 personas por favor",
+    lastMessageAt: minutesAgo(timestamp, 12),
+    assignedUserId: agentId,
+    unreadCount: 0,
+    createdAt: minutesAgo(timestamp, 240),
+    updatedAt: minutesAgo(timestamp, 12),
+  };
+  const pedroConversation: Conversation = {
+    id: "conversation_pedro_support",
+    workspaceId,
+    whatsappAccountId: supportAccount.id,
+    contactId: pedro.id,
+    status: "pending",
+    lastMessageBody: "El pedido llego incompleto",
+    lastMessageAt: minutesAgo(timestamp, 40),
+    assignedUserId: null,
+    unreadCount: 2,
+    createdAt: minutesAgo(timestamp, 300),
+    updatedAt: minutesAgo(timestamp, 40),
+  };
+  const anaConversation: Conversation = {
+    id: "conversation_ana_sales",
+    workspaceId,
+    whatsappAccountId: salesAccount.id,
+    contactId: ana.id,
+    status: "open",
+    lastMessageBody: "Hola, vi sus mojarras en Instagram",
+    lastMessageAt: minutesAgo(timestamp, 5),
+    assignedUserId: null,
+    unreadCount: 1,
+    createdAt: minutesAgo(timestamp, 90),
+    updatedAt: minutesAgo(timestamp, 5),
+  };
+
+  const messages: Message[] = [
+    seedTextMessage({
+      id: "message_inbound_1",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      direction: "inbound",
+      body: "Hola, necesito una cotizacion",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 50),
+    }),
+    seedTextMessage({
+      id: "message_juan_outbound_1",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      direction: "outbound",
+      body: "Claro Juan, para cuantas personas seria?",
+      status: "sent",
+      sentByUserId: adminId,
+      createdAt: minutesAgo(timestamp, 46),
+    }),
+    seedTextMessage({
+      id: "message_juan_bot_1",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      direction: "bot",
+      body: "Tambien puedes pedirnos el menu del dia cuando gustes.",
+      status: "sent",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 44),
+    }),
+    seedTextMessage({
+      id: "message_juan_inbound_2",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      direction: "inbound",
+      body: "Para 6 personas. Pueden para hoy?",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 20),
+    }),
+    seedTextMessage({
+      id: "message_juan_outbound_2",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      direction: "outbound",
+      body: "Si, las tenemos listas. Te agendo a las 2 pm.",
+      status: "sent",
+      sentByUserId: adminId,
+      createdAt: minutesAgo(timestamp, 15),
+    }),
+    seedTextMessage({
+      id: "message_juan_inbound_3",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      direction: "inbound",
+      body: "Perfecto, a las 2 pm esta bien",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 8),
+    }),
+    seedTextMessage({
+      id: "message_maria_inbound_1",
+      workspaceId,
+      conversationId: mariaConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: maria.id,
+      direction: "inbound",
+      body: "Buenas tardes, quieren mojarras para el sabado?",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 80),
+    }),
+    seedTextMessage({
+      id: "message_maria_outbound_1",
+      workspaceId,
+      conversationId: mariaConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: maria.id,
+      direction: "outbound",
+      body: "Hola Maria, si tenemos. Cuantas personas serian?",
+      status: "sent",
+      sentByUserId: agentId,
+      createdAt: minutesAgo(timestamp, 70),
+    }),
+    seedTextMessage({
+      id: "message_maria_inbound_2",
+      workspaceId,
+      conversationId: mariaConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: maria.id,
+      direction: "inbound",
+      body: "Si, para 8 personas por favor",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 12),
+    }),
+    seedTextMessage({
+      id: "message_pedro_inbound_1",
+      workspaceId,
+      conversationId: pedroConversation.id,
+      whatsappAccountId: supportAccount.id,
+      contactId: pedro.id,
+      direction: "inbound",
+      body: "Hola, pedi ayer y me falto una orden",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 55),
+    }),
+    seedTextMessage({
+      id: "message_pedro_system_1",
+      workspaceId,
+      conversationId: pedroConversation.id,
+      whatsappAccountId: supportAccount.id,
+      contactId: pedro.id,
+      direction: "system",
+      body: "Conversacion actualizada a pending.",
+      status: "created",
+      sentByUserId: adminId,
+      createdAt: minutesAgo(timestamp, 50),
+    }),
+    seedTextMessage({
+      id: "message_pedro_inbound_2",
+      workspaceId,
+      conversationId: pedroConversation.id,
+      whatsappAccountId: supportAccount.id,
+      contactId: pedro.id,
+      direction: "inbound",
+      body: "El pedido llego incompleto",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 40),
+    }),
+    seedTextMessage({
+      id: "message_ana_inbound_1",
+      workspaceId,
+      conversationId: anaConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: ana.id,
+      direction: "inbound",
+      body: "Hola, vi sus mojarras en Instagram",
+      status: "received",
+      sentByUserId: null,
+      createdAt: minutesAgo(timestamp, 5),
+    }),
+  ];
+
+  return {
+    contacts: [juan, maria, pedro, ana],
+    conversations: [
+      juanConversation,
+      mariaConversation,
+      pedroConversation,
+      anaConversation,
+    ],
+    messages,
+  };
+}
+
 function createTestSeed(): Database {
   const timestamp = now();
   const workspace: Workspace = {
@@ -199,49 +517,14 @@ function createTestSeed(): Database {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  const contact: Contact = {
-    id: "contact_juan",
+  const inboxSeed = createDemoConversationsSeed({
     workspaceId: workspace.id,
-    phoneNumber: "5219931234567",
-    name: "Juan Perez",
-    profilePictureUrl: null,
-    notes: "Cliente frecuente. Prefiere atencion por la tarde.",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  const conversation: Conversation = {
-    id: "conversation_juan_sales",
-    workspaceId: workspace.id,
-    whatsappAccountId: salesAccount.id,
-    contactId: contact.id,
-    status: "open",
-    lastMessageBody: "Necesito una cotizacion",
-    lastMessageAt: timestamp,
-    assignedUserId: admin.id,
-    unreadCount: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  const messages: Message[] = [
-    {
-      id: "message_inbound_1",
-      workspaceId: workspace.id,
-      conversationId: conversation.id,
-      whatsappAccountId: salesAccount.id,
-      contactId: contact.id,
-      externalMessageId: "wa_message_inbound_1",
-      direction: "inbound",
-      type: "text",
-      body: "Hola, necesito una cotizacion",
-      mediaUrl: null,
-      mediaMimeType: null,
-      mediaFilename: null,
-      status: "received",
-      sentByUserId: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-  ];
+    salesAccount,
+    supportAccount,
+    adminId: admin.id,
+    agentId: agent.id,
+    timestamp,
+  });
   const businessHours: BusinessHour[] = [0, 1, 2, 3, 4, 5, 6].map((day) => ({
     id: `business_hour_${day}`,
     workspaceId: workspace.id,
@@ -332,9 +615,9 @@ function createTestSeed(): Database {
     users: [owner, admin, agent],
     memberships,
     whatsappAccounts: [salesAccount, supportAccount],
-    contacts: [contact],
-    conversations: [conversation],
-    messages,
+    contacts: inboxSeed.contacts,
+    conversations: inboxSeed.conversations,
+    messages: inboxSeed.messages,
     businessHours,
     botSettings: [botSettings],
     bots,

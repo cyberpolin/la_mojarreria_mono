@@ -48,6 +48,12 @@ export type WorkspaceSession = {
 export type AppSession = AdminSession | WorkspaceSession;
 
 export function getBackendApiBaseUrl() {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return "http://localhost:4000/api";
+    }
+  }
   return (
     process.env.NEXT_PUBLIC_TAKU_BACKEND_API_BASE_URL ??
     "http://localhost:4000/api"
@@ -147,8 +153,21 @@ export function clearAdminSession() {
   window.localStorage.removeItem(ownerModeAdminBackupKey);
 }
 
-export function routeForSession(session: AppSession) {
-  if (session.sessionType === "client") return "/main";
+export function safeNextPath(value: string | null | undefined) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  if (
+    value === "/conversation-mobile" ||
+    value.startsWith("/conversation-mobile/") ||
+    value.startsWith("/main")
+  ) {
+    return value;
+  }
+  return null;
+}
+
+export function routeForSession(session: AppSession, next?: string | null) {
+  const safeNext = safeNextPath(next);
+  if (session.sessionType === "client") return safeNext ?? "/main";
   if (session.requiresPasswordChange) return "/update-password";
   if (
     session.adminUser.role === "super_owner" ||

@@ -25,6 +25,30 @@ export async function fetchConversation(conversationId: string) {
   return takuApi<InboxConversation>(`/conversations/${conversationId}`);
 }
 
+export async function createConversation(params: {
+  phoneNumber: string;
+  name?: string;
+}) {
+  return takuApi<InboxConversation>("/conversations", {
+    method: "POST",
+    body: JSON.stringify({
+      phoneNumber: params.phoneNumber,
+      name: params.name,
+    }),
+  });
+}
+
+export async function fetchConversationByPhone(phoneNumber: string) {
+  const query = new URLSearchParams({
+    phone: phoneNumber,
+    pageSize: "20",
+  });
+  const result = await takuPaginated<InboxConversation>(
+    `/conversations?${query.toString()}`,
+  );
+  return result.items[0] ?? null;
+}
+
 async function fetchMessagePage(params: {
   conversationId: string;
   page: number;

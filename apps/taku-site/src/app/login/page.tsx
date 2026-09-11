@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import {
   getAdminSession,
   getBackendApiBaseUrl,
   routeForAdminSession,
+  safeNextPath,
   saveAppSession,
   type AppSession,
 } from "@/lib/auth";
@@ -41,7 +42,17 @@ function validateLoginForm(params: { email: string; password: string }) {
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-slate-100" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
   const [email, setEmail] = useState("cyberpolin@gmail.com");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<LoginErrors>({});
@@ -83,7 +94,7 @@ export default function LoginPage() {
       }
 
       saveAppSession(payload.data);
-      router.replace(routeForAdminSession(payload.data));
+      router.replace(routeForAdminSession(payload.data, nextPath));
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "No se pudo iniciar sesion.",

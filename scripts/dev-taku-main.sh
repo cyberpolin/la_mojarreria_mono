@@ -44,6 +44,7 @@ cd "$ROOT_DIR"
   cd "$ROOT_DIR/apps/taku-site"
   load_env_file "$ROOT_DIR/.env"
   load_env_file "$ROOT_DIR/apps/taku-site/.env"
+  load_env_file "$ROOT_DIR/apps/taku-site/.env.local"
   pnpm dev
 ) &
 

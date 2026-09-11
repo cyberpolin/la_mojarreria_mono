@@ -88,10 +88,18 @@ export const config = {
     "TAKU_BACKEND_SUPERADMIN_PASSWORD",
     process.env.SUPERADMIN_PASSWORD?.trim() || "changeme",
   ),
-  allowedOrigins: stringList("TAKU_BACKEND_ALLOWED_ORIGINS", [
-    "http://localhost:3006",
-    "http://localhost:3003",
-  ]),
+  allowedOrigins: Array.from(
+    new Set([
+      ...stringList("TAKU_BACKEND_ALLOWED_ORIGINS", [
+        "http://localhost:3006",
+        "http://localhost:3003",
+      ]),
+      "http://localhost:3006",
+      "http://127.0.0.1:3006",
+      "http://localhost:3003",
+      "http://127.0.0.1:3003",
+    ]),
+  ),
   publicBaseUrl: stringValue(
     "TAKU_BACKEND_PUBLIC_BASE_URL",
     "https://api.taku.lat/api",

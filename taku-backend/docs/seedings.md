@@ -60,12 +60,23 @@ El dataset de prueba incluye:
 - memberships
 - cuentas de WhatsApp conectada y desconectada
 - contactos
-- conversaciones
+- conversaciones ficticias para el inbox y la vista mobile
 - mensajes
 - horarios de negocio
 - configuracion de bot
 - reglas de automatizacion
 - preferencias
+
+Conversaciones demo (vista mobile, un numero por URL):
+
+```txt
+http://localhost:3006/conversation-mobile/5219931234567   Juan Perez
+http://localhost:3006/conversation-mobile/5219987654321   Maria Lopez
+http://localhost:3006/conversation-mobile/5215551234567   Pedro Sanchez
+http://localhost:3006/conversation-mobile/5212223344556   Ana Ruiz
+```
+
+`addMissingById` agrega estos fixtures si faltan. No hace falta borrar el JSON si el backend ya existia; reinicia `pnpm dev:taku-backend`.
 
 Credenciales test:
 

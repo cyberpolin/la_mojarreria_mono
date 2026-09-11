@@ -12,7 +12,7 @@ export function createApp(store: JsonStore, realtime: Realtime) {
   app.disable("x-powered-by");
   app.use(
     cors({
-      origin: config.allowedOrigins,
+      origin: [...config.allowedOrigins],
       credentials: true,
       allowedHeaders: [
         "authorization",
