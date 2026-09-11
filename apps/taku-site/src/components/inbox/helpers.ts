@@ -152,6 +152,21 @@ export function mobileThreadPath(
     : `/conversation-mobile/${phone}`;
 }
 
+export function lastMessagePreview(conversation: InboxConversation) {
+  const last = conversation.lastMessage;
+  if (!last) return "Sin mensajes";
+  const prefix =
+    last.direction === "outbound"
+      ? "Tu: "
+      : last.direction === "bot"
+        ? "Bot: "
+        : "";
+  if (last.type === "location") {
+    return `${prefix}${last.body && last.body !== "Ubicacion" ? last.body : "Ubicacion"}`;
+  }
+  return `${prefix}${last.body ?? "Sin mensajes"}`;
+}
+
 export function conversationTitle(conversation: InboxConversation | null) {
   return (
     conversation?.contact?.name ??
@@ -320,6 +335,9 @@ export function readMessageFromEvent(value: unknown): InboxMessage | null {
     direction: typeof raw.direction === "string" ? raw.direction : "unknown",
     type: typeof raw.type === "string" ? raw.type : "text",
     body: typeof raw.body === "string" ? raw.body : null,
+    mediaUrl: typeof raw.mediaUrl === "string" ? raw.mediaUrl : null,
+    latitude: typeof raw.latitude === "number" ? raw.latitude : null,
+    longitude: typeof raw.longitude === "number" ? raw.longitude : null,
     status: typeof raw.status === "string" ? raw.status : "received",
     sentByUser:
       raw.sentByUser && typeof raw.sentByUser === "object"

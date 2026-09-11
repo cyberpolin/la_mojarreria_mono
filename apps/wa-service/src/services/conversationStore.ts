@@ -9,6 +9,10 @@ export type ConversationMessage = {
   text: string;
   direction: ConversationMessageDirection;
   timestamp: string;
+  type?: "text" | "location";
+  latitude?: number;
+  longitude?: number;
+  address?: string;
 };
 
 export type Conversation = {
@@ -77,6 +81,10 @@ export async function recordConversationMessage(params: {
   messageId: string;
   direction: ConversationMessageDirection;
   timestamp: string;
+  type?: ConversationMessage["type"];
+  latitude?: number;
+  longitude?: number;
+  address?: string;
 }): Promise<ConversationMessage> {
   return enqueueWrite(async () => {
     const data = await readData(params.filePath);
@@ -86,6 +94,10 @@ export async function recordConversationMessage(params: {
       text: params.text,
       direction: params.direction,
       timestamp: params.timestamp,
+      type: params.type,
+      latitude: params.latitude,
+      longitude: params.longitude,
+      address: params.address,
     };
 
     const existingMessage = data.messages.find(

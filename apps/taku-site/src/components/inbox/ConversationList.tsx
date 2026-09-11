@@ -6,6 +6,7 @@ import {
   conversationTitle,
   cx,
   formatTime,
+  lastMessagePreview,
 } from "./helpers";
 import type {
   ConversationFilterId,
@@ -141,7 +142,7 @@ export function ConversationList({
                 </div>
               </div>
               <p className="line-clamp-2 text-sm text-slate-600">
-                {conversation.lastMessage?.body ?? "Sin mensajes"}
+                {lastMessagePreview(conversation)}
               </p>
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <Badge>

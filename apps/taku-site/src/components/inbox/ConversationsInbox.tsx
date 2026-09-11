@@ -312,6 +312,7 @@ export function ConversationsInbox({
           ...existing,
           lastMessage: {
             body: message.body,
+            type: message.type,
             direction: message.direction,
             createdAt: message.createdAt,
           },

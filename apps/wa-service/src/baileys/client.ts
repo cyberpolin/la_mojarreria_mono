@@ -37,6 +37,10 @@ import {
   getTakuConnectionBotConfig,
   isTakuScheduleActive,
 } from "../services/takuApiClient.js";
+import {
+  formatLocationBody,
+  readLocationFromWhatsApp,
+} from "../utils/locationMessage.js";
 import { phoneFromWhatsAppJid, phoneToWhatsAppJid } from "../utils/phone.js";
 
 type MessagesUpsert = BaileysEventMap["messages.upsert"];
@@ -771,7 +775,10 @@ export class WhatsAppClient {
         ? phoneFromWhatsAppJid(remoteJid)
         : (message.key.senderPn?.split("@")[0] ??
           phoneFromWhatsAppJid(remoteJid));
-    const text = getMessageText(message.message);
+    const location = readLocationFromWhatsApp(message.message);
+    const text =
+      getMessageText(message.message) ??
+      (location ? formatLocationBody(location) : null);
     const messageId = message.key.id;
 
     if (messageId && message.message) {
@@ -795,6 +802,7 @@ export class WhatsAppClient {
         phone,
         direction,
         hasText: Boolean(text),
+        hasLocation: Boolean(location),
         active: this.desiredActive,
         connection: this.connectionStatus,
       },
@@ -806,6 +814,7 @@ export class WhatsAppClient {
         messageId,
         direction,
         hasText: Boolean(text),
+        hasLocation: Boolean(location),
         remoteJid,
       },
     });
@@ -817,6 +826,7 @@ export class WhatsAppClient {
           messageId,
           phone,
           hasText: Boolean(text),
+          hasLocation: Boolean(location),
         },
       });
       return;
@@ -830,12 +840,20 @@ export class WhatsAppClient {
       messageId,
       direction,
       timestamp,
+      type: location ? "location" : "text",
+      latitude: location?.latitude,
+      longitude: location?.longitude,
+      address: location?.address ?? location?.name,
     });
     recordDebugLog({
       event: "conversation_message_recorded",
       data: { messageId, phone, direction, timestamp },
     });
     if (direction === "outbound") {
+      return;
+    }
+
+    if (location && this.isDefaultConnection) {
       return;
     }
 
@@ -861,8 +879,13 @@ export class WhatsAppClient {
           phone,
           connectionId: this.connectionId,
           businessId: this.businessId,
+          type: location ? "location" : "text",
         },
       });
+
+      if (location) {
+        return;
+      }
 
       if (!this.desiredActive) {
         recordDebugLog({

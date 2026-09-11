@@ -158,7 +158,13 @@ export function conversationView(
       : null,
     lastMessage: lastMessage
       ? {
-          body: lastMessage.body,
+          body:
+            lastMessage.type === "location"
+              ? lastMessage.body?.trim() && lastMessage.body !== "Ubicacion"
+                ? lastMessage.body
+                : "Ubicacion"
+              : lastMessage.body,
+          type: lastMessage.type,
           direction: lastMessage.direction,
           createdAt: lastMessage.createdAt,
         }
@@ -188,6 +194,8 @@ export function messageView(message: Message, database: Database) {
     mediaUrl: message.mediaUrl,
     mediaMimeType: message.mediaMimeType,
     mediaFilename: message.mediaFilename,
+    latitude: message.latitude ?? null,
+    longitude: message.longitude ?? null,
     status: message.status,
     sentByUser: sentByUser
       ? { id: sentByUser.id, name: sentByUser.name }

@@ -29,6 +29,7 @@ import type {
   InboxWhatsAppAccount,
 } from "./types";
 import { LinkedMessageText } from "./LinkedMessageText";
+import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import {
   playIncomingSound,
@@ -75,15 +76,22 @@ function MobileBubble({ message }: { message: InboxMessage }) {
           Bot
         </p>
       ) : null}
-      <LinkedMessageText
-        text={message.body}
-        className="whitespace-pre-wrap break-words text-sm leading-5"
-        linkClassName={
-          isInbound || isBot || failed
-            ? "break-all underline"
-            : "break-all underline text-white"
-        }
-      />
+      {isLocationMessage(message) ? (
+        <LocationMessageCard
+          message={message}
+          inverted={!isInbound && !isBot && !failed}
+        />
+      ) : (
+        <LinkedMessageText
+          text={message.body}
+          className="whitespace-pre-wrap break-words text-sm leading-5"
+          linkClassName={
+            isInbound || isBot || failed
+              ? "break-all underline"
+              : "break-all underline text-white"
+          }
+        />
+      )}
       <p
         className={cx(
           "mt-1 text-right text-[10px]",

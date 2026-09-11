@@ -16,6 +16,7 @@ import {
   ok,
   paginated,
   parsePagination,
+  readOptionalNumber,
   readOptionalString,
   requireString,
   slicePage,
@@ -1544,7 +1545,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               ...rawPayload,
               from: rawPayload.phone,
               messageId: rawPayload.id,
-              type: "text",
+              type: readOptionalString(rawPayload.type) ?? "text",
             }
           : rawPayload;
       const result = await store.update((database) => {
@@ -1565,8 +1566,19 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           account.qrCode = null;
           account.updatedAt = now();
           const from = requireString(payload.from, "from");
-          const text = readOptionalString(payload.text) ?? "";
+          const latitude = readOptionalNumber(payload.latitude);
+          const longitude = readOptionalNumber(payload.longitude);
+          const incomingType =
+            readOptionalString(payload.type) ??
+            (latitude != null && longitude != null ? "location" : "text");
+          const text =
+            readOptionalString(payload.text) ??
+            (incomingType === "location" ? "Ubicacion" : "");
           const externalMessageId = readOptionalString(payload.messageId);
+          const mapsUrl =
+            latitude != null && longitude != null
+              ? `https://maps.google.com/?q=${latitude},${longitude}`
+              : null;
           if (
             externalMessageId &&
             database.messages.some(
@@ -1629,11 +1641,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             contactId: contact.id,
             externalMessageId: externalMessageId ?? null,
             direction: "inbound",
-            type: (readOptionalString(payload.type) ?? "text") as MessageType,
+            type: incomingType as MessageType,
             body: text,
-            mediaUrl: null,
-            mediaMimeType: null,
+            mediaUrl: mapsUrl,
+            mediaMimeType:
+              incomingType === "location" ? "application/geo" : null,
             mediaFilename: null,
+            latitude: latitude ?? null,
+            longitude: longitude ?? null,
             status: "received",
             sentByUserId: null,
             createdAt: now(),
@@ -1656,6 +1671,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             from,
             text,
             inboundMessageId: message.id,
+            type: incomingType,
             message: messageView(message, database),
             conversation: conversationView(conversation, database),
           };
@@ -1734,7 +1750,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         typeof result.contactId === "string" &&
         typeof result.inboundMessageId === "string" &&
         typeof result.from === "string" &&
-        typeof result.text === "string"
+        typeof result.text === "string" &&
+        result.type !== "location"
       ) {
         void runAutomationDecision({
           workspaceId: result.workspaceId,

@@ -141,6 +141,8 @@ export type Message = {
   mediaUrl: string | null;
   mediaMimeType: string | null;
   mediaFilename: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   status: MessageStatus;
   sentByUserId: string | null;
   createdAt: string;

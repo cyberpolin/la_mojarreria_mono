@@ -15,6 +15,7 @@ import {
   conversationTitle,
   cx,
   digitsPhone,
+  lastMessagePreview,
   formatTime,
   isFullConversation,
   mobileListPath,
@@ -191,6 +192,7 @@ export function MobileConversationList({
           ...existing,
           lastMessage: {
             body: message.body,
+            type: message.type,
             direction: message.direction,
             createdAt: message.createdAt,
           },
@@ -259,6 +261,71 @@ export function MobileConversationList({
     }
   }
 
+  async function loadBlocked() {
+    setBlockedLoading(true);
+    try {
+      const rows = await fetchBlockedContacts();
+      setBlockedContacts(rows);
+      setError(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudieron cargar los bloqueados.",
+      );
+    } finally {
+      setBlockedLoading(false);
+    }
+  }
+
+  async function blockConversation(conversation: InboxConversation) {
+    const phone = digitsPhone(conversation.contact?.phoneNumber ?? "");
+    if (!phone) return;
+    try {
+      await createAutomationBlock({
+        phoneNumber: phone,
+        label: conversationTitle(conversation),
+        enabled: true,
+      });
+      setConversations((current) =>
+        current.filter((item) => item.id !== conversation.id),
+      );
+      setError(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo bloquear el telefono.",
+      );
+    }
+  }
+
+  async function unblockContact(contact: InboxBlockedContact) {
+    try {
+      await updateAutomationBlock(contact.id, false);
+      setBlockedContacts((current) =>
+        current.filter((item) => item.id !== contact.id),
+      );
+      void loadList();
+      setError(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "No se pudo desbloquear.",
+      );
+    }
+  }
+
+  function openConversation(conversation: InboxConversation) {
+    if (didLongPressRef.current) return;
+    unlockIncomingSound();
+    router.push(
+      mobileThreadPath(
+        conversation.contact?.phoneNumber ?? "",
+        showAccountPicker ? account : null,
+      ),
+    );
+  }
+
   if (needsAuth) {
     return (
       <MobileAuthGate
@@ -297,20 +364,17 @@ export function MobileConversationList({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                unlockIncomingSound();
-                playIncomingSound();
-                setSoundReady(true);
-              }}
-              className="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-white"
-            >
-              {soundReady ? "Sonido on" : "Probar sonido"}
-            </button>
             <span className="text-[11px] text-slate-300">
               {socketStatus === "connected" ? "en linea" : "reconectando"}
             </span>
+            <button
+              type="button"
+              onClick={() => setHeaderMenuOpen(true)}
+              className="grid h-10 w-10 place-items-center text-lg font-semibold"
+              aria-label="Mas opciones"
+            >
+              ⋮
+            </button>
           </div>
         </div>
         <input
@@ -364,15 +428,29 @@ export function MobileConversationList({
             <button
               key={conversation.id}
               type="button"
-              onClick={() => {
-                unlockIncomingSound();
-                router.push(
-                  mobileThreadPath(
-                    conversation.contact?.phoneNumber ?? "",
-                    showAccountPicker ? account : null,
-                  ),
-                );
+              onPointerDown={() => {
+                didLongPressRef.current = false;
+                if (longPressRef.current)
+                  window.clearTimeout(longPressRef.current);
+                longPressRef.current = window.setTimeout(() => {
+                  didLongPressRef.current = true;
+                  setRowMenu(conversation);
+                }, 450);
               }}
+              onPointerUp={() => {
+                if (longPressRef.current)
+                  window.clearTimeout(longPressRef.current);
+              }}
+              onPointerLeave={() => {
+                if (longPressRef.current)
+                  window.clearTimeout(longPressRef.current);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                didLongPressRef.current = true;
+                setRowMenu(conversation);
+              }}
+              onClick={() => openConversation(conversation)}
               className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
             >
               <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-300 text-base font-semibold text-slate-700">
@@ -408,12 +486,7 @@ export function MobileConversationList({
                       unread ? "font-medium text-slate-800" : "text-slate-500",
                     )}
                   >
-                    {conversation.lastMessage?.direction === "outbound"
-                      ? "Tu: "
-                      : conversation.lastMessage?.direction === "bot"
-                        ? "Bot: "
-                        : ""}
-                    {conversation.lastMessage?.body ?? "Sin mensajes"}
+                    {lastMessagePreview(conversation)}
                   </p>
                   {unread ? (
                     <span className="grid min-h-5 min-w-5 place-items-center rounded-full bg-slate-900 px-1.5 text-[11px] font-semibold text-white">
@@ -489,6 +562,90 @@ export function MobileConversationList({
               {creating ? "Creando..." : "Iniciar chat"}
             </button>
           </form>
+        </div>
+      ) : null}
+
+      {headerMenuOpen ? (
+        <MobileContextMenu
+          items={[
+            { label: "ejemplo", onSelect: () => undefined },
+            {
+              label: "ver bloqueados",
+              onSelect: () => {
+                setBlockedOpen(true);
+                void loadBlocked();
+              },
+            },
+          ]}
+          onClose={() => setHeaderMenuOpen(false)}
+        />
+      ) : null}
+
+      {rowMenu ? (
+        <MobileContextMenu
+          title={conversationTitle(rowMenu)}
+          items={[
+            { label: "ejemplo", onSelect: () => undefined },
+            {
+              label: "Bloquear",
+              danger: true,
+              onSelect: () => {
+                void blockConversation(rowMenu);
+              },
+            },
+          ]}
+          onClose={() => setRowMenu(null)}
+        />
+      ) : null}
+
+      {blockedOpen ? (
+        <div className="absolute inset-0 z-10 flex flex-col bg-white">
+          <header className="flex items-center gap-2 bg-slate-900 px-2 py-3 text-white">
+            <button
+              type="button"
+              className="grid h-10 w-10 place-items-center text-lg"
+              onClick={() => setBlockedOpen(false)}
+              aria-label="Cerrar"
+            >
+              ←
+            </button>
+            <h2 className="text-base font-semibold">Bloqueados</h2>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {blockedLoading ? (
+              <p className="p-4 text-sm text-slate-500">Cargando...</p>
+            ) : null}
+            {error ? (
+              <p className="p-4 text-sm text-slate-700">{error}</p>
+            ) : null}
+            {!blockedLoading && blockedContacts.length === 0 ? (
+              <p className="p-4 text-sm text-slate-500">
+                No hay telefonos bloqueados.
+              </p>
+            ) : null}
+            {blockedContacts.map((contact) => (
+              <div
+                key={contact.id}
+                className="flex items-center gap-3 border-b border-slate-100 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-950">
+                    {contact.label || contact.phoneNumber}
+                  </p>
+                  <p className="truncate text-[13px] text-slate-500">
+                    {contact.phoneNumber}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void unblockContact(contact)}
+                  className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white"
+                >
+                  Desbloquear
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
     </MobilePhoneFrame>

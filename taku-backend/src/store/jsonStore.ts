@@ -125,6 +125,39 @@ function seedTextMessage(params: {
   };
 }
 
+function seedLocationMessage(params: {
+  id: string;
+  workspaceId: string;
+  conversationId: string;
+  whatsappAccountId: string;
+  contactId: string;
+  body: string;
+  latitude: number;
+  longitude: number;
+  createdAt: string;
+}): Message {
+  return {
+    id: params.id,
+    workspaceId: params.workspaceId,
+    conversationId: params.conversationId,
+    whatsappAccountId: params.whatsappAccountId,
+    contactId: params.contactId,
+    externalMessageId: `${params.id}_ext`,
+    direction: "inbound",
+    type: "location",
+    body: params.body,
+    mediaUrl: `https://maps.google.com/?q=${params.latitude},${params.longitude}`,
+    mediaMimeType: "application/geo",
+    mediaFilename: null,
+    latitude: params.latitude,
+    longitude: params.longitude,
+    status: "received",
+    sentByUserId: null,
+    createdAt: params.createdAt,
+    updatedAt: params.createdAt,
+  };
+}
+
 function createDemoConversationsSeed(params: {
   workspaceId: string;
   salesAccount: WhatsAppAccount;
@@ -189,12 +222,12 @@ function createDemoConversationsSeed(params: {
     whatsappAccountId: salesAccount.id,
     contactId: juan.id,
     status: "open",
-    lastMessageBody: "Perfecto, a las 2 pm esta bien",
-    lastMessageAt: minutesAgo(timestamp, 8),
+    lastMessageBody: "Plaza de Armas",
+    lastMessageAt: minutesAgo(timestamp, 3),
     assignedUserId: adminId,
     unreadCount: 1,
     createdAt: minutesAgo(timestamp, 180),
-    updatedAt: minutesAgo(timestamp, 8),
+    updatedAt: minutesAgo(timestamp, 3),
   };
   const mariaConversation: Conversation = {
     id: "conversation_maria_sales",
@@ -308,6 +341,17 @@ function createDemoConversationsSeed(params: {
       status: "received",
       sentByUserId: null,
       createdAt: minutesAgo(timestamp, 8),
+    }),
+    seedLocationMessage({
+      id: "message_juan_location_1",
+      workspaceId,
+      conversationId: juanConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: juan.id,
+      body: "Plaza de Armas",
+      latitude: 17.9869,
+      longitude: -92.9303,
+      createdAt: minutesAgo(timestamp, 3),
     }),
     seedTextMessage({
       id: "message_maria_inbound_1",

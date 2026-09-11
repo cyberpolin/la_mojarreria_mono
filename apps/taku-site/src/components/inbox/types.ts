@@ -43,6 +43,7 @@ export type InboxConversation = {
   assignedUser: { id: string; name: string } | null;
   lastMessage: {
     body: string | null;
+    type?: string;
     direction: string;
     createdAt: string;
   } | null;
@@ -59,6 +60,9 @@ export type InboxMessage = {
   direction: string;
   type?: string;
   body: string | null;
+  mediaUrl?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   status: string;
   sentByUser?: { id: string; name: string } | null;
   createdAt: string;
