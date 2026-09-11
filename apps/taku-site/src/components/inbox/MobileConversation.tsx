@@ -17,11 +17,17 @@ import {
   isAccountConnected,
   isFullConversation,
   messageStatusLabel,
+  mobileListPath,
+  mobileThreadPath,
   readConversationId,
   readMessageFromEvent,
   upsertMessage,
 } from "./helpers";
-import type { InboxConversation, InboxMessage } from "./types";
+import type {
+  InboxConversation,
+  InboxMessage,
+  InboxWhatsAppAccount,
+} from "./types";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import {
   playIncomingSound,
@@ -84,7 +90,15 @@ function MobileBubble({ message }: { message: InboxMessage }) {
   );
 }
 
-export function MobileConversation({ phone }: { phone: string }) {
+export function MobileConversation({
+  phone,
+  account = null,
+  scoped = false,
+}: {
+  phone: string;
+  account?: InboxWhatsAppAccount | null;
+  scoped?: boolean;
+}) {
   const router = useRouter();
   const lockedPhone = normalizePhoneParam(phone);
   const [conversation, setConversation] = useState<InboxConversation | null>(
@@ -110,7 +124,7 @@ export function MobileConversation({ phone }: { phone: string }) {
     }
     setNeedsAuth(false);
     try {
-      const next = await fetchConversationByPhone(lockedPhone);
+      const next = await fetchConversationByPhone(lockedPhone, account?.id);
       if (!next) {
         setConversation(null);
         setMessages([]);
@@ -147,7 +161,7 @@ export function MobileConversation({ phone }: { phone: string }) {
     } finally {
       setLoading(false);
     }
-  }, [lockedPhone]);
+  }, [account?.id, lockedPhone]);
 
   useEffect(() => {
     void loadThread();
@@ -248,7 +262,15 @@ export function MobileConversation({ phone }: { phone: string }) {
   }
 
   if (needsAuth) {
-    return <MobileAuthGate next={`/conversation-mobile/${lockedPhone}`} />;
+    return (
+      <MobileAuthGate
+        next={
+          scoped
+            ? mobileThreadPath(lockedPhone, account)
+            : `/conversation-mobile/${lockedPhone}`
+        }
+      />
+    );
   }
 
   const canSend = Boolean(
@@ -264,7 +286,11 @@ export function MobileConversation({ phone }: { phone: string }) {
       <header className="flex items-center gap-2 bg-slate-900 px-2 py-2 text-white">
         <button
           type="button"
-          onClick={() => router.push("/conversation-mobile")}
+          onClick={() =>
+            router.push(
+              scoped ? mobileListPath(account) : "/conversation-mobile",
+            )
+          }
           className="grid h-10 w-10 place-items-center text-lg"
           aria-label="Volver"
         >

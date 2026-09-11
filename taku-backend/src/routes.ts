@@ -4163,7 +4163,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           .filter(
             (item) =>
               item.workspaceId === context.workspace.id &&
-              item.contactId === contact.id,
+              item.contactId === contact.id &&
+              item.whatsappAccountId === account.id,
           )
           .sort((left, right) =>
             (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),

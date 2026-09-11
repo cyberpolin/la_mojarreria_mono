@@ -23,6 +23,7 @@ export type InboxWhatsAppAccount = {
   displayName: string;
   phoneNumber: string | null;
   status: string;
+  enabled?: boolean;
 };
 
 export type InboxContact = {

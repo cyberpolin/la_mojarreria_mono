@@ -5,6 +5,7 @@ import type {
   InboxBlockedContact,
   InboxConversation,
   InboxMessage,
+  InboxWhatsAppAccount,
 } from "./types";
 
 const MESSAGE_PAGE_SIZE = 50;
@@ -25,24 +26,39 @@ export async function fetchConversation(conversationId: string) {
   return takuApi<InboxConversation>(`/conversations/${conversationId}`);
 }
 
+export async function fetchWhatsAppAccounts() {
+  const result = await takuPaginated<InboxWhatsAppAccount>(
+    "/whatsapp-accounts?pageSize=100",
+  );
+  return result.items.filter(
+    (account) => account.status !== "disabled" && account.enabled !== false,
+  );
+}
+
 export async function createConversation(params: {
   phoneNumber: string;
   name?: string;
+  whatsappAccountId?: string;
 }) {
   return takuApi<InboxConversation>("/conversations", {
     method: "POST",
     body: JSON.stringify({
       phoneNumber: params.phoneNumber,
       name: params.name,
+      whatsappAccountId: params.whatsappAccountId,
     }),
   });
 }
 
-export async function fetchConversationByPhone(phoneNumber: string) {
+export async function fetchConversationByPhone(
+  phoneNumber: string,
+  accountId?: string,
+) {
   const query = new URLSearchParams({
     phone: phoneNumber,
     pageSize: "20",
   });
+  if (accountId) query.set("whatsappAccountId", accountId);
   const result = await takuPaginated<InboxConversation>(
     `/conversations?${query.toString()}`,
   );

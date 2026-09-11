@@ -5,11 +5,14 @@ import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { createConversation, fetchConversations } from "./api";
 import {
+  accountStatusLabel,
   conversationTitle,
   cx,
   digitsPhone,
   formatTime,
   isFullConversation,
+  mobileListPath,
+  mobileThreadPath,
   readConversationId,
   readMessageFromEvent,
   sortConversationsUnreadFirst,
@@ -21,7 +24,7 @@ import {
   unlockIncomingSound,
   useArmIncomingSound,
 } from "./playIncomingSound";
-import type { InboxConversation } from "./types";
+import type { InboxConversation, InboxWhatsAppAccount } from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
 
 const POLL_INTERVAL_MS = 6000;
@@ -46,12 +49,13 @@ function listTime(value: string | null | undefined) {
   return `Hace ${days} dias`;
 }
 
-function conversationHref(conversation: InboxConversation) {
-  const phone = digitsPhone(conversation.contact?.phoneNumber ?? "");
-  return phone ? `/conversation-mobile/${phone}` : "/conversation-mobile";
-}
-
-export function MobileConversationList() {
+export function MobileConversationList({
+  account = null,
+  showAccountPicker = false,
+}: {
+  account?: InboxWhatsAppAccount | null;
+  showAccountPicker?: boolean;
+}) {
   const router = useRouter();
   const [needsAuth, setNeedsAuth] = useState(false);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
@@ -79,7 +83,7 @@ export function MobileConversationList() {
       const rows = await fetchConversations({
         filter: "all",
         search: "",
-        accountId: "all",
+        accountId: account?.id ?? "all",
       });
       if (listReadyRef.current) {
         const heardNewInbound = rows.some((row) => {
@@ -106,7 +110,7 @@ export function MobileConversationList() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [account?.id]);
 
   useEffect(() => {
     void loadList();
@@ -127,20 +131,27 @@ export function MobileConversationList() {
   const handleMessageCreated = useCallback(
     (payload: unknown) => {
       const message = readMessageFromEvent(payload);
-      if (message?.direction === "inbound") playIncomingSound();
-
-      if (
+      const incoming =
         payload &&
         typeof payload === "object" &&
         "conversation" in payload &&
         isFullConversation((payload as { conversation: unknown }).conversation)
+          ? (payload as { conversation: InboxConversation }).conversation
+          : null;
+      if (account && incoming && incoming.whatsappAccount?.id !== account.id) {
+        return;
+      }
+
+      if (
+        incoming &&
+        message?.direction === "inbound" &&
+        (!account || incoming.whatsappAccount?.id === account.id)
       ) {
-        setConversations((current) =>
-          upsertConversation(
-            current,
-            (payload as { conversation: InboxConversation }).conversation,
-          ),
-        );
+        playIncomingSound();
+      }
+
+      if (incoming) {
+        setConversations((current) => upsertConversation(current, incoming));
         return;
       }
 
@@ -152,6 +163,7 @@ export function MobileConversationList() {
           void loadList();
           return current;
         }
+        if (message.direction === "inbound") playIncomingSound();
         return upsertConversation(current, {
           ...existing,
           lastMessage: {
@@ -167,16 +179,16 @@ export function MobileConversationList() {
         });
       });
     },
-    [loadList],
+    [account, loadList],
   );
 
   const socketStatus = useInboxRealtime({
     enabled: !needsAuth,
     onMessageCreated: handleMessageCreated,
     onConversationUpdated: (payload) => {
-      if (isFullConversation(payload)) {
-        setConversations((current) => upsertConversation(current, payload));
-      }
+      if (!isFullConversation(payload)) return;
+      if (account && payload.whatsappAccount?.id !== account.id) return;
+      setConversations((current) => upsertConversation(current, payload));
     },
     onReconnect: () => {
       void loadList();
@@ -205,13 +217,14 @@ export function MobileConversationList() {
       const conversation = await createConversation({
         phoneNumber: phone,
         name: phoneOverride ? undefined : newName.trim() || undefined,
+        whatsappAccountId: account?.id,
       });
       setComposerOpen(false);
       setNewPhone("");
       setNewName("");
       setQuery("");
       setConversations((current) => upsertConversation(current, conversation));
-      router.push(`/conversation-mobile/${phone}`);
+      router.push(mobileThreadPath(phone, showAccountPicker ? account : null));
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -223,13 +236,43 @@ export function MobileConversationList() {
     }
   }
 
-  if (needsAuth) return <MobileAuthGate next="/conversation-mobile" />;
+  if (needsAuth) {
+    return (
+      <MobileAuthGate
+        next={mobileListPath(showAccountPicker ? account : null)}
+      />
+    );
+  }
 
   return (
     <MobilePhoneFrame>
       <header className="bg-slate-900 px-4 pb-3 pt-4 text-white">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">WhatsApp</h1>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {showAccountPicker ? (
+              <button
+                type="button"
+                onClick={() => router.push("/conversation-mobile")}
+                className="grid h-10 w-8 shrink-0 place-items-center text-lg"
+                aria-label="Telefonos"
+              >
+                ←
+              </button>
+            ) : null}
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold">
+                {account && showAccountPicker
+                  ? account.displayName
+                  : "WhatsApp"}
+              </h1>
+              {account && showAccountPicker ? (
+                <p className="truncate text-[11px] text-slate-300">
+                  {account.phoneNumber ?? "Sin numero"}
+                  {` · ${accountStatusLabel(account.status)}`}
+                </p>
+              ) : null}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -300,7 +343,12 @@ export function MobileConversationList() {
               type="button"
               onClick={() => {
                 unlockIncomingSound();
-                router.push(conversationHref(conversation));
+                router.push(
+                  mobileThreadPath(
+                    conversation.contact?.phoneNumber ?? "",
+                    showAccountPicker ? account : null,
+                  ),
+                );
               }}
               className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
             >

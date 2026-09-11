@@ -1,7 +1,7 @@
 "use client";
 
-import { MobileConversationList } from "@/components/inbox/MobileConversationList";
+import { MobileInboxHome } from "@/components/inbox/MobileInboxGate";
 
 export default function ConversationMobileListPage() {
-  return <MobileConversationList />;
+  return <MobileInboxHome />;
 }

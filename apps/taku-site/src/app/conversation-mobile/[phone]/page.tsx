@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { MobileConversation } from "@/components/inbox/MobileConversation";
+import { MobileInboxPhoneSegment } from "@/components/inbox/MobileInboxGate";
 
 export default function ConversationMobilePage() {
   const params = useParams<{ phone: string }>();
@@ -13,5 +13,5 @@ export default function ConversationMobilePage() {
       </main>
     );
   }
-  return <MobileConversation phone={phone} />;
+  return <MobileInboxPhoneSegment phone={phone} />;
 }

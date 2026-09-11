@@ -71,6 +71,35 @@ export function digitsPhone(value: string) {
   return value.replace(/\D/g, "");
 }
 
+export function accountPhoneSlug(account: InboxWhatsAppAccount) {
+  return digitsPhone(account.phoneNumber ?? "") || account.id;
+}
+
+export function accountMatchesSlug(
+  account: InboxWhatsAppAccount,
+  slug: string,
+) {
+  const wanted = digitsPhone(slug) || slug;
+  return account.id === slug || accountPhoneSlug(account) === wanted;
+}
+
+export function mobileListPath(account?: InboxWhatsAppAccount | null) {
+  return account
+    ? `/conversation-mobile/${accountPhoneSlug(account)}`
+    : "/conversation-mobile";
+}
+
+export function mobileThreadPath(
+  contactPhone: string,
+  account?: InboxWhatsAppAccount | null,
+) {
+  const phone = digitsPhone(contactPhone);
+  if (!phone) return mobileListPath(account);
+  return account
+    ? `/conversation-mobile/${accountPhoneSlug(account)}/${phone}`
+    : `/conversation-mobile/${phone}`;
+}
+
 export function conversationTitle(conversation: InboxConversation | null) {
   return (
     conversation?.contact?.name ??
