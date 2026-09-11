@@ -26,29 +26,24 @@ import { useInboxRealtime } from "./useInboxRealtime";
 
 const POLL_INTERVAL_MS = 6000;
 
+function startOfLocalDay(value: Date) {
+  return new Date(
+    value.getFullYear(),
+    value.getMonth(),
+    value.getDate(),
+  ).getTime();
+}
+
 function listTime(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const today = new Date();
-  const sameDay =
-    date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
-  if (sameDay) return formatTime(value);
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  if (
-    date.getDate() === yesterday.getDate() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear()
-  ) {
-    return "Ayer";
-  }
-  return new Intl.DateTimeFormat("es-MX", {
-    day: "numeric",
-    month: "short",
-  }).format(date);
+  const days = Math.round(
+    (startOfLocalDay(new Date()) - startOfLocalDay(date)) / 86_400_000,
+  );
+  if (days <= 0) return formatTime(value);
+  if (days === 1) return "Ayer";
+  return `Hace ${days} dias`;
 }
 
 function conversationHref(conversation: InboxConversation) {
@@ -196,8 +191,10 @@ export function MobileConversationList() {
     return () => window.clearInterval(intervalId);
   }, [loadList, needsAuth, socketStatus]);
 
-  async function startConversation() {
-    const phone = digitsPhone(newPhone);
+  const searchedPhone = digitsPhone(query);
+
+  async function startConversation(phoneOverride?: string) {
+    const phone = digitsPhone(phoneOverride ?? newPhone);
     if (phone.length < 8) {
       setError("Ingresa un telefono valido.");
       return;
@@ -207,11 +204,12 @@ export function MobileConversationList() {
     try {
       const conversation = await createConversation({
         phoneNumber: phone,
-        name: newName.trim() || undefined,
+        name: phoneOverride ? undefined : newName.trim() || undefined,
       });
       setComposerOpen(false);
       setNewPhone("");
       setNewName("");
+      setQuery("");
       setConversations((current) => upsertConversation(current, conversation));
       router.push(`/conversation-mobile/${phone}`);
     } catch (caught) {
@@ -263,7 +261,30 @@ export function MobileConversationList() {
           <p className="p-4 text-sm text-slate-500">Cargando chats...</p>
         ) : null}
         {error ? <p className="p-4 text-sm text-slate-700">{error}</p> : null}
-        {!loading && visible.length === 0 ? (
+        {!loading && visible.length === 0 && searchedPhone.length >= 8 ? (
+          <button
+            type="button"
+            disabled={creating}
+            onClick={() => {
+              unlockIncomingSound();
+              void startConversation(searchedPhone);
+            }}
+            className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-60"
+          >
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-900 text-lg font-semibold text-white">
+              +
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-slate-950">
+                {searchedPhone}
+              </p>
+              <p className="mt-0.5 text-[13px] font-medium text-slate-600">
+                {creating ? "Creando chat..." : "Mensaje nuevo"}
+              </p>
+            </div>
+          </button>
+        ) : null}
+        {!loading && visible.length === 0 && searchedPhone.length < 8 ? (
           <p className="p-4 text-sm text-slate-500">
             {query.trim()
               ? "No hay chats para esa busqueda."
