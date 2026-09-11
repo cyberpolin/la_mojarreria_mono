@@ -23,7 +23,11 @@ import {
 } from "./helpers";
 import type { InboxConversation, InboxMessage } from "./types";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
-import { playIncomingSound, unlockIncomingSound } from "./playIncomingSound";
+import {
+  playIncomingSound,
+  unlockIncomingSound,
+  useArmIncomingSound,
+} from "./playIncomingSound";
 import { useInboxRealtime } from "./useInboxRealtime";
 
 const POLL_INTERVAL_MS = 6000;
@@ -94,6 +98,9 @@ export function MobileConversation({ phone }: { phone: string }) {
   const [needsAuth, setNeedsAuth] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
+  const threadReadyRef = useRef(false);
+  useArmIncomingSound();
 
   const loadThread = useCallback(async () => {
     if (!getWorkspaceSession()) {
@@ -114,6 +121,18 @@ export function MobileConversation({ phone }: { phone: string }) {
       conversationIdRef.current = next.id;
       setConversation(next);
       const history = await fetchNewestMessages(next.id);
+      if (threadReadyRef.current) {
+        const heardNewInbound = history.items.some(
+          (item) =>
+            item.direction === "inbound" &&
+            !seenMessageIdsRef.current.has(item.id),
+        );
+        if (heardNewInbound) playIncomingSound();
+      }
+      for (const item of history.items) {
+        seenMessageIdsRef.current.add(item.id);
+      }
+      threadReadyRef.current = true;
       setMessages(history.items);
       setError(null);
       if (next.unreadCount > 0) {
@@ -266,6 +285,16 @@ export function MobileConversation({ phone }: { phone: string }) {
               : ""}
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            unlockIncomingSound();
+            playIncomingSound();
+          }}
+          className="shrink-0 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold"
+        >
+          Sonido
+        </button>
       </header>
 
       <div

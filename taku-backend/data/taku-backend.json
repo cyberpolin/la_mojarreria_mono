@@ -546,8 +546,16 @@
       "userId": "user_owner",
       "tokenHash": "5d42b1ac12329040c70afe88144646ba158f4896fa480d06b016ba67102ef199",
       "expiresAt": "2026-10-11T00:50:22.775Z",
-      "revokedAt": null,
+      "revokedAt": "2026-09-11T01:15:10.847Z",
       "createdAt": "2026-09-11T00:50:22.775Z"
+    },
+    {
+      "id": "refresh_e7d3e4c6-1485-46ba-9c03-dd8cdb0a1cf7",
+      "userId": "user_owner",
+      "tokenHash": "5f3a26c656b65525c354047303cc82cc352638728dafcd995c0c898c861e385d",
+      "expiresAt": "2026-10-11T01:15:10.848Z",
+      "revokedAt": null,
+      "createdAt": "2026-09-11T01:15:10.848Z"
     }
   ],
   "bots": [],

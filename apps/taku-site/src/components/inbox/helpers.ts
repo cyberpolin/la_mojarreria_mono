@@ -98,10 +98,29 @@ export function withLiveAccount(
   };
 }
 
+function conversationStamp(conversation: InboxConversation) {
+  return (
+    conversation.lastMessageAt ??
+    conversation.lastMessage?.createdAt ??
+    conversation.updatedAt ??
+    conversation.createdAt ??
+    ""
+  );
+}
+
 export function sortConversations(items: InboxConversation[]) {
   return [...items].sort((left, right) =>
-    (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+    conversationStamp(right).localeCompare(conversationStamp(left)),
   );
+}
+
+export function sortConversationsUnreadFirst(items: InboxConversation[]) {
+  return [...items].sort((left, right) => {
+    const leftUnread = left.unreadCount > 0 ? 1 : 0;
+    const rightUnread = right.unreadCount > 0 ? 1 : 0;
+    if (leftUnread !== rightUnread) return rightUnread - leftUnread;
+    return conversationStamp(right).localeCompare(conversationStamp(left));
+  });
 }
 
 export function upsertConversation(

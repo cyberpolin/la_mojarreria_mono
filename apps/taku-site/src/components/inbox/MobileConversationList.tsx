@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { createConversation, fetchConversations } from "./api";
@@ -12,10 +12,15 @@ import {
   isFullConversation,
   readConversationId,
   readMessageFromEvent,
+  sortConversationsUnreadFirst,
   upsertConversation,
 } from "./helpers";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
-import { playIncomingSound, unlockIncomingSound } from "./playIncomingSound";
+import {
+  playIncomingSound,
+  unlockIncomingSound,
+  useArmIncomingSound,
+} from "./playIncomingSound";
 import type { InboxConversation } from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
 
@@ -62,6 +67,11 @@ export function MobileConversationList() {
   const [newPhone, setNewPhone] = useState("");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [soundReady, setSoundReady] = useState(false);
+  useArmIncomingSound();
+
+  const seenInboundRef = useRef<Map<string, string>>(new Map());
+  const listReadyRef = useRef(false);
 
   const loadList = useCallback(async () => {
     if (!getWorkspaceSession()) {
@@ -76,6 +86,20 @@ export function MobileConversationList() {
         search: "",
         accountId: "all",
       });
+      if (listReadyRef.current) {
+        const heardNewInbound = rows.some((row) => {
+          if (row.lastMessage?.direction !== "inbound") return false;
+          const stamp = row.lastMessageAt ?? row.lastMessage.createdAt;
+          const previous = seenInboundRef.current.get(row.id);
+          return Boolean(stamp && previous && stamp !== previous);
+        });
+        if (heardNewInbound) playIncomingSound();
+      }
+      for (const row of rows) {
+        const stamp = row.lastMessageAt ?? row.lastMessage?.createdAt;
+        if (stamp) seenInboundRef.current.set(row.id, stamp);
+      }
+      listReadyRef.current = true;
       setConversations(rows);
       setError(null);
     } catch (caught) {
@@ -95,12 +119,14 @@ export function MobileConversationList() {
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return conversations;
-    return conversations.filter((conversation) => {
-      const haystack =
-        `${conversation.contact?.name ?? ""} ${conversation.contact?.phoneNumber ?? ""} ${conversation.lastMessage?.body ?? ""}`.toLowerCase();
-      return haystack.includes(needle);
-    });
+    const filtered = needle
+      ? conversations.filter((conversation) => {
+          const haystack =
+            `${conversation.contact?.name ?? ""} ${conversation.contact?.phoneNumber ?? ""} ${conversation.lastMessage?.body ?? ""}`.toLowerCase();
+          return haystack.includes(needle);
+        })
+      : conversations;
+    return sortConversationsUnreadFirst(filtered);
   }, [conversations, query]);
 
   const handleMessageCreated = useCallback(
@@ -206,9 +232,22 @@ export function MobileConversationList() {
       <header className="bg-slate-900 px-4 pb-3 pt-4 text-white">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">WhatsApp</h1>
-          <span className="text-[11px] text-slate-300">
-            {socketStatus === "connected" ? "en linea" : "reconectando"}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                unlockIncomingSound();
+                playIncomingSound();
+                setSoundReady(true);
+              }}
+              className="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-white"
+            >
+              {soundReady ? "Sonido on" : "Probar sonido"}
+            </button>
+            <span className="text-[11px] text-slate-300">
+              {socketStatus === "connected" ? "en linea" : "reconectando"}
+            </span>
+          </div>
         </div>
         <input
           value={query}
