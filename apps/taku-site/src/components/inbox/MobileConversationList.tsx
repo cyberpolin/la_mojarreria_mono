@@ -8,6 +8,7 @@ import {
   createConversation,
   fetchBlockedContacts,
   fetchConversations,
+  pinConversation,
   updateAutomationBlock,
 } from "./api";
 import {
@@ -15,9 +16,11 @@ import {
   conversationTitle,
   cx,
   digitsPhone,
-  lastMessagePreview,
   formatTime,
   isFullConversation,
+  isGroupConversation,
+  isVisibleInboxConversation,
+  lastMessagePreview,
   mobileListPath,
   mobileThreadPath,
   readConversationId,
@@ -26,9 +29,11 @@ import {
   upsertConversation,
 } from "./helpers";
 import {
+  KebabIcon,
   MobileAuthGate,
   MobileContextMenu,
   MobilePhoneFrame,
+  longPressProps,
 } from "./mobile-shell";
 import {
   playIncomingSound,
@@ -88,7 +93,6 @@ export function MobileConversationList({
   );
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
-  const longPressRef = useRef<number | null>(null);
   const didLongPressRef = useRef(false);
   useArmIncomingSound();
 
@@ -141,13 +145,14 @@ export function MobileConversationList({
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    const inboxVisible = conversations.filter(isVisibleInboxConversation);
     const filtered = needle
-      ? conversations.filter((conversation) => {
+      ? inboxVisible.filter((conversation) => {
           const haystack =
             `${conversation.contact?.name ?? ""} ${conversation.contact?.phoneNumber ?? ""} ${conversation.lastMessage?.body ?? ""}`.toLowerCase();
           return haystack.includes(needle);
         })
-      : conversations;
+      : inboxVisible;
     return sortConversationsUnreadFirst(filtered);
   }, [conversations, query]);
 
@@ -278,6 +283,21 @@ export function MobileConversationList({
     }
   }
 
+  async function togglePin(conversation: InboxConversation) {
+    try {
+      const result = await pinConversation(
+        conversation.id,
+        !conversation.pinned,
+      );
+      setConversations((current) => upsertConversation(current, result));
+      setError(null);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "No se pudo fijar el grupo.",
+      );
+    }
+  }
+
   async function blockConversation(conversation: InboxConversation) {
     const phone = digitsPhone(conversation.contact?.phoneNumber ?? "");
     if (!phone) return;
@@ -316,7 +336,10 @@ export function MobileConversationList({
   }
 
   function openConversation(conversation: InboxConversation) {
-    if (didLongPressRef.current) return;
+    if (didLongPressRef.current) {
+      didLongPressRef.current = false;
+      return;
+    }
     unlockIncomingSound();
     router.push(
       mobileThreadPath(
@@ -370,10 +393,10 @@ export function MobileConversationList({
             <button
               type="button"
               onClick={() => setHeaderMenuOpen(true)}
-              className="grid h-10 w-10 place-items-center text-lg font-semibold"
+              className="grid h-10 w-10 place-items-center text-white"
               aria-label="Mas opciones"
             >
-              ⋮
+              <KebabIcon className="h-5 w-5" />
             </button>
           </div>
         </div>
@@ -424,78 +447,85 @@ export function MobileConversationList({
         {visible.map((conversation) => {
           const title = conversationTitle(conversation);
           const unread = conversation.unreadCount > 0;
+          const press = longPressProps(() => {
+            didLongPressRef.current = true;
+            setRowMenu(conversation);
+          });
           return (
-            <button
+            <div
               key={conversation.id}
-              type="button"
-              onPointerDown={() => {
+              className="flex w-full items-stretch border-b border-slate-100 bg-white touch-manipulation"
+              style={press.style}
+              onContextMenu={press.onContextMenu}
+              onPointerDown={(event) => {
                 didLongPressRef.current = false;
-                if (longPressRef.current)
-                  window.clearTimeout(longPressRef.current);
-                longPressRef.current = window.setTimeout(() => {
+                press.onPointerDown(event);
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => openConversation(conversation)}
+                className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+              >
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-300 text-base font-semibold text-slate-700">
+                  {title.slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p
+                      className={cx(
+                        "truncate text-sm",
+                        unread
+                          ? "font-semibold text-slate-950"
+                          : "font-medium text-slate-900",
+                      )}
+                    >
+                      {conversation.pinned ? "📌 " : ""}
+                      {title}
+                    </p>
+                    <span
+                      className={cx(
+                        "shrink-0 text-[11px]",
+                        unread
+                          ? "font-semibold text-slate-900"
+                          : "text-slate-500",
+                      )}
+                    >
+                      {listTime(conversation.lastMessageAt)}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <p
+                      className={cx(
+                        "min-w-0 flex-1 truncate text-[13px]",
+                        unread
+                          ? "font-medium text-slate-800"
+                          : "text-slate-500",
+                      )}
+                    >
+                      {lastMessagePreview(conversation)}
+                    </p>
+                    {unread ? (
+                      <span className="grid min-h-5 min-w-5 place-items-center rounded-full bg-slate-900 px-1.5 text-[11px] font-semibold text-white">
+                        {conversation.unreadCount}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </button>
+              <button
+                type="button"
+                aria-label="Opciones del chat"
+                onClick={(event) => {
+                  event.stopPropagation();
                   didLongPressRef.current = true;
                   setRowMenu(conversation);
-                }, 450);
-              }}
-              onPointerUp={() => {
-                if (longPressRef.current)
-                  window.clearTimeout(longPressRef.current);
-              }}
-              onPointerLeave={() => {
-                if (longPressRef.current)
-                  window.clearTimeout(longPressRef.current);
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                didLongPressRef.current = true;
-                setRowMenu(conversation);
-              }}
-              onClick={() => openConversation(conversation)}
-              className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
-            >
-              <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-300 text-base font-semibold text-slate-700">
-                {title.slice(0, 1).toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p
-                    className={cx(
-                      "truncate text-sm",
-                      unread
-                        ? "font-semibold text-slate-950"
-                        : "font-medium text-slate-900",
-                    )}
-                  >
-                    {title}
-                  </p>
-                  <span
-                    className={cx(
-                      "shrink-0 text-[11px]",
-                      unread
-                        ? "font-semibold text-slate-900"
-                        : "text-slate-500",
-                    )}
-                  >
-                    {listTime(conversation.lastMessageAt)}
-                  </span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2">
-                  <p
-                    className={cx(
-                      "min-w-0 flex-1 truncate text-[13px]",
-                      unread ? "font-medium text-slate-800" : "text-slate-500",
-                    )}
-                  >
-                    {lastMessagePreview(conversation)}
-                  </p>
-                  {unread ? (
-                    <span className="grid min-h-5 min-w-5 place-items-center rounded-full bg-slate-900 px-1.5 text-[11px] font-semibold text-white">
-                      {conversation.unreadCount}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            </button>
+                }}
+                className="grid w-12 shrink-0 place-items-center text-slate-500 hover:bg-slate-50"
+              >
+                <KebabIcon className="h-5 w-5" />
+              </button>
+            </div>
           );
         })}
       </div>
@@ -586,20 +616,34 @@ export function MobileConversationList({
           title={conversationTitle(rowMenu)}
           items={[
             { label: "ejemplo", onSelect: () => undefined },
-            {
-              label: "Bloquear",
-              danger: true,
-              onSelect: () => {
-                void blockConversation(rowMenu);
-              },
-            },
+            ...(isGroupConversation(rowMenu)
+              ? [
+                  {
+                    label: rowMenu.pinned ? "Quitar pin" : "Fijar grupo",
+                    onSelect: () => {
+                      void togglePin(rowMenu);
+                    },
+                  },
+                ]
+              : [
+                  {
+                    label: "Bloquear",
+                    danger: true,
+                    onSelect: () => {
+                      void blockConversation(rowMenu);
+                    },
+                  },
+                ]),
           ]}
-          onClose={() => setRowMenu(null)}
+          onClose={() => {
+            didLongPressRef.current = false;
+            setRowMenu(null);
+          }}
         />
       ) : null}
 
       {blockedOpen ? (
-        <div className="absolute inset-0 z-10 flex flex-col bg-white">
+        <div className="absolute inset-0 z-40 flex flex-col bg-white">
           <header className="flex items-center gap-2 bg-slate-900 px-2 py-3 text-white">
             <button
               type="button"

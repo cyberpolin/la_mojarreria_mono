@@ -62,7 +62,7 @@ import {
   getMercadoPagoPayment,
   MercadoPagoRequestError,
 } from "../services/mercadoPagoClient.js";
-import { normalizePhone } from "../utils/phone.js";
+import { isGroupJid, normalizePhone } from "../utils/phone.js";
 import { validateServiceRequest } from "../utils/requestAuth.js";
 
 const limitQuerySchema = z.object({
@@ -75,7 +75,7 @@ const messageStreamQuerySchema = z.object({
 });
 
 const sendMessageSchema = z.object({
-  to: z.string().trim().min(10).max(20),
+  to: z.string().trim().min(8).max(80),
   text: z.string().trim().min(1).max(4000),
 });
 
@@ -197,6 +197,10 @@ function ensureAuthorized(
   }
 
   return true;
+}
+
+function recipientForSend(to: string) {
+  return isGroupJid(to) ? to.trim() : normalizePhone(to);
 }
 
 function parsePhoneParam(req: Request, res: Response): string | null {
@@ -2010,7 +2014,7 @@ export function createV1Router(params: {
       }
 
       try {
-        const phone = normalizePhone(parsed.data.to);
+        const phone = recipientForSend(parsed.data.to);
         const messageId = await params.connectionManager.sendTextMessage({
           connectionId,
           phone,
@@ -2354,6 +2358,39 @@ export function createV1Router(params: {
     },
   );
 
+  router.get(
+    "/connections/:connectionId/groups",
+    async (req: Request, res: Response) => {
+      if (!ensureAuthorized(req, res, params.config)) {
+        return;
+      }
+
+      const connectionId = parseConnectionIdParam(req, res);
+      if (!connectionId) {
+        return;
+      }
+
+      if (!params.connectionManager.get(connectionId)) {
+        res.status(404).json({
+          ok: false,
+          error: "WhatsApp connection not found",
+        });
+        return;
+      }
+
+      try {
+        const groups = await params.connectionManager.listGroups(connectionId);
+        res.json({ ok: true, connectionId, groups });
+      } catch (error) {
+        res.status(502).json({
+          ok: false,
+          error:
+            error instanceof Error ? error.message : "Failed to list groups",
+        });
+      }
+    },
+  );
+
   router.post(
     "/connections/:connectionId/messages",
     async (req: Request, res: Response) => {
@@ -2385,7 +2422,7 @@ export function createV1Router(params: {
       }
 
       try {
-        const phone = normalizePhone(parsed.data.to);
+        const phone = recipientForSend(parsed.data.to);
         const messageId = await params.connectionManager.sendTextMessage({
           connectionId,
           phone,
@@ -2519,7 +2556,7 @@ export function createV1Router(params: {
     }
 
     try {
-      const phone = normalizePhone(parsed.data.to);
+      const phone = recipientForSend(parsed.data.to);
       const messageId = await params.whatsAppClient.sendTextMessage({
         phone,
         text: parsed.data.text,

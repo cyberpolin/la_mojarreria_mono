@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import {
+  createAutomationBlock,
+  createConversation,
   fetchConversationByPhone,
   fetchNewestMessages,
   markConversationRead,
@@ -16,6 +18,7 @@ import {
   formatTime,
   isAccountConnected,
   isFullConversation,
+  isGroupConversation,
   messageStatusLabel,
   mobileListPath,
   mobileThreadPath,
@@ -30,7 +33,12 @@ import type {
 } from "./types";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
-import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
+import {
+  KebabIcon,
+  MobileAuthGate,
+  MobileContextMenu,
+  MobilePhoneFrame,
+} from "./mobile-shell";
 import {
   playIncomingSound,
   unlockIncomingSound,
@@ -44,11 +52,20 @@ function normalizePhoneParam(value: string) {
   return digitsPhone(decodeURIComponent(value));
 }
 
-function MobileBubble({ message }: { message: InboxMessage }) {
+function MobileBubble({
+  message,
+  clickable,
+  onOpen,
+}: {
+  message: InboxMessage;
+  clickable?: boolean;
+  onOpen?: () => void;
+}) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
   const isBot = message.direction === "bot";
   const failed = message.status === "failed";
+  const senderLabel = message.senderName?.trim() || message.senderPhone;
 
   if (isSystem) {
     return (
@@ -60,8 +77,16 @@ function MobileBubble({ message }: { message: InboxMessage }) {
 
   return (
     <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={(event) => {
+        if (!clickable || !onOpen) return;
+        if ((event.target as HTMLElement).closest("a")) return;
+        onOpen();
+      }}
       className={cx(
         "max-w-[82%] rounded-2xl px-3 py-2 shadow-sm",
+        clickable && "cursor-pointer",
         isInbound && "self-start rounded-tl-md bg-white text-slate-900",
         isBot && "self-start rounded-tl-md bg-slate-200 text-slate-900",
         !isInbound &&
@@ -74,6 +99,11 @@ function MobileBubble({ message }: { message: InboxMessage }) {
       {isBot ? (
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           Bot
+        </p>
+      ) : null}
+      {senderLabel && isInbound ? (
+        <p className="mb-1 text-[10px] font-semibold text-slate-500">
+          {senderLabel}
         </p>
       ) : null}
       {isLocationMessage(message) ? (
@@ -127,6 +157,9 @@ export function MobileConversation({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [messageMenu, setMessageMenu] = useState<InboxMessage | null>(null);
+  const [blocking, setBlocking] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
@@ -278,6 +311,57 @@ export function MobileConversation({
     }
   }
 
+  async function handleBlockPhone() {
+    if (!conversation || isGroupConversation(conversation) || blocking) return;
+    const phone = digitsPhone(conversation.contact?.phoneNumber ?? lockedPhone);
+    if (!phone) return;
+    setBlocking(true);
+    setError(null);
+    try {
+      await createAutomationBlock({
+        phoneNumber: phone,
+        label:
+          conversation.contact?.name ??
+          conversation.contact?.phoneNumber ??
+          lockedPhone,
+        enabled: true,
+      });
+      router.push(scoped ? mobileListPath(account) : "/conversation-mobile");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo bloquear el telefono.",
+      );
+      setBlocking(false);
+    }
+  }
+
+  async function handleStartPrivateChat(message: InboxMessage) {
+    const phone = digitsPhone(message.senderPhone ?? "");
+    if (!phone) {
+      setError(
+        "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
+      );
+      return;
+    }
+    setError(null);
+    try {
+      await createConversation({
+        phoneNumber: phone,
+        name: message.senderName?.trim() || undefined,
+        whatsappAccountId: conversation?.whatsappAccount?.id ?? account?.id,
+      });
+      router.push(mobileThreadPath(phone, scoped ? account : null));
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo iniciar el chat privado.",
+      );
+    }
+  }
+
   if (needsAuth) {
     return (
       <MobileAuthGate
@@ -317,7 +401,10 @@ export function MobileConversation({
           {title.slice(0, 1).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{title}</p>
+          <p className="truncate text-sm font-semibold">
+            {conversation?.pinned ? "📌 " : ""}
+            {title}
+          </p>
           <p className="truncate text-[11px] text-slate-300">
             {lockedPhone}
             {conversation?.whatsappAccount
@@ -330,13 +417,11 @@ export function MobileConversation({
         </div>
         <button
           type="button"
-          onClick={() => {
-            unlockIncomingSound();
-            playIncomingSound();
-          }}
-          className="shrink-0 rounded-full bg-slate-800 px-2.5 py-1 text-[11px] font-semibold"
+          onClick={() => setHeaderMenuOpen(true)}
+          className="grid h-10 w-10 shrink-0 place-items-center text-white"
+          aria-label="Mas opciones"
         >
-          Sonido
+          <KebabIcon className="h-5 w-5" />
         </button>
       </header>
 
@@ -353,7 +438,15 @@ export function MobileConversation({
           </p>
         ) : null}
         {messages.map((message) => (
-          <MobileBubble key={message.id} message={message} />
+          <MobileBubble
+            key={message.id}
+            message={message}
+            clickable={
+              isGroupConversation(conversation) &&
+              message.direction === "inbound"
+            }
+            onOpen={() => setMessageMenu(message)}
+          />
         ))}
         <div ref={endRef} />
       </div>
@@ -394,6 +487,44 @@ export function MobileConversation({
           {sending ? "..." : "➤"}
         </button>
       </form>
+      {headerMenuOpen ? (
+        <MobileContextMenu
+          title={title}
+          items={[
+            { label: "ejemplo", onSelect: () => undefined },
+            ...(conversation && !isGroupConversation(conversation)
+              ? [
+                  {
+                    label: "Bloquear",
+                    danger: true,
+                    onSelect: () => {
+                      void handleBlockPhone();
+                    },
+                  },
+                ]
+              : []),
+          ]}
+          onClose={() => setHeaderMenuOpen(false)}
+        />
+      ) : null}
+      {messageMenu ? (
+        <MobileContextMenu
+          title={
+            messageMenu.senderName?.trim() ||
+            messageMenu.senderPhone ||
+            "Mensaje"
+          }
+          items={[
+            {
+              label: "Iniciar chat privado",
+              onSelect: () => {
+                void handleStartPrivateChat(messageMenu);
+              },
+            },
+          ]}
+          onClose={() => setMessageMenu(null)}
+        />
+      ) : null}
     </MobilePhoneFrame>
   );
 }

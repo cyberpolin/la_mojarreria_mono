@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   accountStatusLabel,
   conversationTitle,
   cx,
   formatDate,
   isAccountConnected,
+  isGroupConversation,
   messageStatusLabel,
 } from "./helpers";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
+import { MobileContextMenu } from "./mobile-shell";
 import type { InboxConversation, InboxMessage } from "./types";
 import { Badge, Button, TextArea } from "./ui";
 
@@ -21,11 +23,24 @@ function directionLabel(direction: string) {
   return "Equipo";
 }
 
-function MessageBubble({ message }: { message: InboxMessage }) {
+function MessageBubble({
+  message,
+  clickable,
+  onOpen,
+}: {
+  message: InboxMessage;
+  clickable?: boolean;
+  onOpen?: () => void;
+}) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
   const isBot = message.direction === "bot";
   const failed = message.status === "failed";
+  const senderLabel =
+    message.senderName?.trim() ||
+    (message.senderPhone
+      ? message.senderPhone
+      : directionLabel(message.direction));
 
   if (isSystem) {
     return (
@@ -38,8 +53,23 @@ function MessageBubble({ message }: { message: InboxMessage }) {
 
   return (
     <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={(event) => {
+        if (!clickable || !onOpen) return;
+        if ((event.target as HTMLElement).closest("a")) return;
+        onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (!clickable || !onOpen) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
       className={cx(
         "max-w-[78%] rounded-lg p-3",
+        clickable && "cursor-pointer hover:bg-slate-50",
         isInbound && "border border-slate-200 bg-white text-slate-800",
         isBot && "border border-slate-400 bg-slate-100 text-slate-900",
         !isInbound &&
@@ -56,7 +86,7 @@ function MessageBubble({ message }: { message: InboxMessage }) {
           failed && "text-slate-600",
         )}
       >
-        {directionLabel(message.direction)} · {formatDate(message.createdAt)}
+        {senderLabel} · {formatDate(message.createdAt)}
       </p>
       {isLocationMessage(message) ? (
         <div className="mt-2">
@@ -98,6 +128,7 @@ export function ConversationThread({
   onDraftChange,
   onSend,
   onLoadOlder,
+  onStartPrivateChat,
 }: {
   conversation: InboxConversation | null;
   messages: InboxMessage[];
@@ -111,9 +142,12 @@ export function ConversationThread({
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onLoadOlder: () => void;
+  onStartPrivateChat?: (message: InboxMessage) => void;
 }) {
   const account = conversation?.whatsappAccount ?? null;
   const connected = isAccountConnected(account?.status);
+  const isGroup = isGroupConversation(conversation);
+  const [menuMessage, setMenuMessage] = useState<InboxMessage | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -121,16 +155,21 @@ export function ConversationThread({
   }, [conversation?.id, messages.length]);
 
   return (
-    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+    <section className="relative flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
       {conversation ? (
         <div className="border-b border-slate-200 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="font-semibold text-slate-950">
+                {conversation.pinned ? "📌 " : ""}
                 {conversationTitle(conversation)}
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                {conversation.contact?.phoneNumber ?? "-"}
+                {isGroupConversation(conversation)
+                  ? conversation.pinned
+                    ? "Grupo fijado de WhatsApp"
+                    : "Grupo de WhatsApp"
+                  : (conversation.contact?.phoneNumber ?? "-")}
               </p>
               <p className="mt-2 text-sm text-slate-600">
                 via {account?.displayName ?? "Numero"}
@@ -191,7 +230,12 @@ export function ConversationThread({
           </div>
         ) : null}
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            clickable={isGroup && message.direction === "inbound"}
+            onOpen={() => setMenuMessage(message)}
+          />
         ))}
         <div ref={endRef} />
       </div>
@@ -228,6 +272,22 @@ export function ConversationThread({
           </Button>
         </div>
       </div>
+      {menuMessage ? (
+        <MobileContextMenu
+          title={
+            menuMessage.senderName?.trim() ||
+            menuMessage.senderPhone ||
+            "Mensaje"
+          }
+          items={[
+            {
+              label: "Iniciar chat privado",
+              onSelect: () => onStartPrivateChat?.(menuMessage),
+            },
+          ]}
+          onClose={() => setMenuMessage(null)}
+        />
+      ) : null}
     </section>
   );
 }

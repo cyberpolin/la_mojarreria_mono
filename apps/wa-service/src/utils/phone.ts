@@ -29,6 +29,16 @@ export function phoneToWhatsAppJid(phone: string): string {
   return `${normalizePhone(phone)}@s.whatsapp.net`;
 }
 
+export function isGroupJid(value: string) {
+  return value.trim().toLowerCase().endsWith("@g.us");
+}
+
+export function chatJidFromRecipient(to: string): string {
+  const trimmed = to.trim();
+  if (isGroupJid(trimmed)) return trimmed;
+  return phoneToWhatsAppJid(trimmed);
+}
+
 export function phoneFromWhatsAppJid(jid: string): string | null {
   if (!jid.endsWith("@s.whatsapp.net")) {
     return null;
@@ -49,4 +59,14 @@ export function phoneFromWhatsAppJid(jid: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function digitsFromWhatsAppId(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed || isGroupJid(trimmed)) return null;
+  const user = trimmed.split("@")[0]?.split(":")[0] ?? "";
+  const digits = user.replace(/\D/g, "");
+  if (digits.length >= 8 && digits.length <= 15) return digits;
+  return phoneFromWhatsAppJid(trimmed);
 }

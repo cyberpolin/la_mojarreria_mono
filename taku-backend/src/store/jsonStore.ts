@@ -104,6 +104,8 @@ function seedTextMessage(params: {
   status: Message["status"];
   sentByUserId: string | null;
   createdAt: string;
+  senderPhone?: string | null;
+  senderName?: string | null;
 }): Message {
   return {
     id: params.id,
@@ -120,6 +122,8 @@ function seedTextMessage(params: {
     mediaFilename: null,
     status: params.status,
     sentByUserId: params.sentByUserId,
+    senderPhone: params.senderPhone ?? null,
+    senderName: params.senderName ?? null,
     createdAt: params.createdAt,
     updatedAt: params.createdAt,
   };
@@ -215,6 +219,17 @@ function createDemoConversationsSeed(params: {
     createdAt: minutesAgo(timestamp, 90),
     updatedAt: minutesAgo(timestamp, 5),
   };
+  const repartidores: Contact = {
+    id: "contact_repartidores",
+    workspaceId,
+    phoneNumber: "120363000000000001@g.us",
+    name: "Repartidores",
+    profilePictureUrl: null,
+    notes: "Grupo fijado de entregas.",
+    kind: "group",
+    createdAt: minutesAgo(timestamp, 400),
+    updatedAt: minutesAgo(timestamp, 2),
+  };
 
   const juanConversation: Conversation = {
     id: "conversation_juan_sales",
@@ -267,6 +282,20 @@ function createDemoConversationsSeed(params: {
     unreadCount: 1,
     createdAt: minutesAgo(timestamp, 90),
     updatedAt: minutesAgo(timestamp, 5),
+  };
+  const repartidoresConversation: Conversation = {
+    id: "conversation_repartidores_sales",
+    workspaceId,
+    whatsappAccountId: salesAccount.id,
+    contactId: repartidores.id,
+    status: "open",
+    lastMessageBody: "Voy en camino al local",
+    lastMessageAt: minutesAgo(timestamp, 2),
+    assignedUserId: adminId,
+    unreadCount: 1,
+    pinned: true,
+    createdAt: minutesAgo(timestamp, 400),
+    updatedAt: minutesAgo(timestamp, 2),
   };
 
   const messages: Message[] = [
@@ -437,15 +466,30 @@ function createDemoConversationsSeed(params: {
       sentByUserId: null,
       createdAt: minutesAgo(timestamp, 5),
     }),
+    seedTextMessage({
+      id: "message_repartidores_inbound_1",
+      workspaceId,
+      conversationId: repartidoresConversation.id,
+      whatsappAccountId: salesAccount.id,
+      contactId: repartidores.id,
+      direction: "inbound",
+      body: "Luis: Voy en camino al local",
+      status: "received",
+      sentByUserId: null,
+      senderPhone: "5219935551212",
+      senderName: "Luis",
+      createdAt: minutesAgo(timestamp, 2),
+    }),
   ];
 
   return {
-    contacts: [juan, maria, pedro, ana],
+    contacts: [juan, maria, pedro, ana, repartidores],
     conversations: [
       juanConversation,
       mariaConversation,
       pedroConversation,
       anaConversation,
+      repartidoresConversation,
     ],
     messages,
   };

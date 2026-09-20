@@ -168,11 +168,24 @@ export function lastMessagePreview(conversation: InboxConversation) {
 }
 
 export function conversationTitle(conversation: InboxConversation | null) {
+  if (conversation?.isGroup || conversation?.contact?.kind === "group") {
+    return conversation.contact?.name ?? "Grupo";
+  }
   return (
     conversation?.contact?.name ??
     conversation?.contact?.phoneNumber ??
     "Conversacion"
   );
+}
+
+export function isGroupConversation(conversation: InboxConversation | null) {
+  return Boolean(
+    conversation?.isGroup || conversation?.contact?.kind === "group",
+  );
+}
+
+export function isVisibleInboxConversation(conversation: InboxConversation) {
+  return !isGroupConversation(conversation) || Boolean(conversation.pinned);
 }
 
 export function withLiveAccount(
@@ -205,13 +218,17 @@ function conversationStamp(conversation: InboxConversation) {
 }
 
 export function sortConversations(items: InboxConversation[]) {
-  return [...items].sort((left, right) =>
-    conversationStamp(right).localeCompare(conversationStamp(left)),
-  );
+  return [...items].sort((left, right) => {
+    const pin = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+    if (pin !== 0) return pin;
+    return conversationStamp(right).localeCompare(conversationStamp(left));
+  });
 }
 
 export function sortConversationsUnreadFirst(items: InboxConversation[]) {
   return [...items].sort((left, right) => {
+    const pin = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+    if (pin !== 0) return pin;
     const leftUnread = left.unreadCount > 0 ? 1 : 0;
     const rightUnread = right.unreadCount > 0 ? 1 : 0;
     if (leftUnread !== rightUnread) return rightUnread - leftUnread;
@@ -223,11 +240,30 @@ export function upsertConversation(
   items: InboxConversation[],
   next: InboxConversation,
 ) {
-  const exists = items.some((item) => item.id === next.id);
+  const withoutHiddenGroups = items.filter(
+    (item) =>
+      item.id === next.id || !isGroupConversation(item) || Boolean(item.pinned),
+  );
+  if (!isVisibleInboxConversation(next)) {
+    return sortConversations(
+      withoutHiddenGroups.filter((item) => item.id !== next.id),
+    );
+  }
+  const exists = withoutHiddenGroups.some((item) => item.id === next.id);
   const merged = exists
-    ? items.map((item) => (item.id === next.id ? { ...item, ...next } : item))
-    : [next, ...items];
-  return sortConversations(merged);
+    ? withoutHiddenGroups.map((item) =>
+        item.id === next.id
+          ? { ...item, ...next }
+          : isGroupConversation(item) && next.pinned
+            ? { ...item, pinned: false }
+            : item,
+      )
+    : [next, ...withoutHiddenGroups];
+  return sortConversations(
+    merged.filter(
+      (item) => item.id === next.id || isVisibleInboxConversation(item),
+    ),
+  );
 }
 
 export function mergeConversationPatch(
@@ -343,6 +379,8 @@ export function readMessageFromEvent(value: unknown): InboxMessage | null {
       raw.sentByUser && typeof raw.sentByUser === "object"
         ? (raw.sentByUser as InboxMessage["sentByUser"])
         : null,
+    senderPhone: typeof raw.senderPhone === "string" ? raw.senderPhone : null,
+    senderName: typeof raw.senderName === "string" ? raw.senderName : null,
     createdAt:
       typeof raw.createdAt === "string"
         ? raw.createdAt

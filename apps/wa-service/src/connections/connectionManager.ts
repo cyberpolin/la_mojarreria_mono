@@ -199,6 +199,11 @@ export class ConnectionManager {
     });
   }
 
+  async listGroups(connectionId: string) {
+    const record = this.requireConnection(connectionId);
+    return record.client.listGroups();
+  }
+
   getLatestQr(connectionId: string): string | null {
     return this.requireConnection(connectionId).client.getLatestQr();
   }

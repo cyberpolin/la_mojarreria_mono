@@ -110,6 +110,7 @@ export type Contact = {
   name: string | null;
   profilePictureUrl: string | null;
   notes: string | null;
+  kind?: "direct" | "group";
   createdAt: string;
   updatedAt: string;
 };
@@ -124,6 +125,7 @@ export type Conversation = {
   lastMessageAt: string | null;
   assignedUserId: string | null;
   unreadCount: number;
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -145,6 +147,8 @@ export type Message = {
   longitude?: number | null;
   status: MessageStatus;
   sentByUserId: string | null;
+  senderPhone?: string | null;
+  senderName?: string | null;
   createdAt: string;
   updatedAt: string;
 };

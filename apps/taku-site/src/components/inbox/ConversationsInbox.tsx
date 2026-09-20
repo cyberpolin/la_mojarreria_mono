@@ -4,16 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import {
   createAutomationBlock,
+  createConversation,
   fetchConversation,
   fetchConversations,
   fetchNewestMessages,
   markConversationRead,
+  pinConversation,
   sendConversationMessage,
   updateAutomationBlock,
   updateContact,
   updateConversationAssignment,
   updateConversationStatus,
 } from "./api";
+import { AddGroupModal } from "./AddGroupModal";
 import { ConversationList } from "./ConversationList";
 import { ConversationRail } from "./ConversationRail";
 import { ConversationThread } from "./ConversationThread";
@@ -81,6 +84,7 @@ export function ConversationsInbox({
   const [railError, setRailError] = useState<string | null>(null);
   const [localBlocked, setLocalBlocked] =
     useState<InboxBlockedContact[]>(blockedContacts);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
 
   const selectedIdRef = useRef(conversationId);
   const queryRef = useRef({ filter, search, accountId });
@@ -409,6 +413,32 @@ export function ConversationsInbox({
     selected?.contact?.notes,
   ]);
 
+  async function handleStartPrivateChat(message: InboxMessage) {
+    const phone = digitsPhone(message.senderPhone ?? "");
+    if (!phone) {
+      setThreadError(
+        "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
+      );
+      return;
+    }
+    setThreadError(null);
+    try {
+      const conversation = await createConversation({
+        phoneNumber: phone,
+        name: message.senderName?.trim() || undefined,
+        whatsappAccountId: selected?.whatsappAccount?.id,
+      });
+      setConversations((current) => upsertConversation(current, conversation));
+      onSelectConversation(conversation.id);
+    } catch (caught) {
+      setThreadError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo iniciar el chat privado.",
+      );
+    }
+  }
+
   async function handleSend() {
     if (
       !selected ||
@@ -575,6 +605,59 @@ export function ConversationsInbox({
     }
   }
 
+  async function handleBlockConversation(conversation: InboxConversation) {
+    const phone = conversation.contact?.phoneNumber;
+    if (
+      !phone ||
+      conversation.isGroup ||
+      conversation.contact?.kind === "group"
+    )
+      return;
+    setRailError(null);
+    try {
+      const result = await createAutomationBlock({
+        phoneNumber: phone,
+        label: conversation.contact?.name ?? phone,
+        enabled: true,
+      });
+      setLocalBlocked((current) => {
+        const exists = current.some((item) => item.id === result.id);
+        return exists
+          ? current.map((item) => (item.id === result.id ? result : item))
+          : [...current, result];
+      });
+      setConversations((current) =>
+        current.filter((item) => item.id !== conversation.id),
+      );
+      if (conversation.id === conversationId) onSelectConversation(null);
+      onRefreshWorkspace();
+    } catch (caught) {
+      setRailError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo bloquear el telefono.",
+      );
+    }
+  }
+
+  async function handlePinConversation(
+    conversation: InboxConversation,
+    pinned: boolean,
+  ) {
+    setRailError(null);
+    try {
+      const result = await pinConversation(conversation.id, pinned);
+      setConversations((current) => upsertConversation(current, result));
+      if (!result.pinned && conversation.id === conversationId) {
+        onSelectConversation(null);
+      }
+    } catch (caught) {
+      setRailError(
+        caught instanceof Error ? caught.message : "No se pudo fijar el grupo.",
+      );
+    }
+  }
+
   async function handleToggleAutomation(enabled: boolean) {
     if (!selected?.contact?.phoneNumber) return;
     setIsSavingAutomationBlock(true);
@@ -641,6 +724,13 @@ export function ConversationsInbox({
           onSearchChange={setSearchInput}
           onAccountChange={setAccountId}
           onSelect={onSelectConversation}
+          onAddGroup={() => setGroupModalOpen(true)}
+          onBlock={(conversation) => {
+            void handleBlockConversation(conversation);
+          }}
+          onPin={(conversation, pinned) => {
+            void handlePinConversation(conversation, pinned);
+          }}
         />
         <ConversationThread
           conversation={selected}
@@ -660,6 +750,9 @@ export function ConversationsInbox({
           onDraftChange={setDraft}
           onSend={() => void handleSend()}
           onLoadOlder={() => void handleLoadOlder()}
+          onStartPrivateChat={(message) => {
+            void handleStartPrivateChat(message);
+          }}
         />
         <div className="hidden xl:block">
           <ConversationRail
@@ -705,6 +798,19 @@ export function ConversationsInbox({
           onToggleAutomation={(enabled) => void handleToggleAutomation(enabled)}
         />
       </div>
+      {groupModalOpen ? (
+        <AddGroupModal
+          accounts={accounts}
+          onClose={() => setGroupModalOpen(false)}
+          onAdded={(conversation) => {
+            setConversations((current) =>
+              upsertConversation(current, conversation),
+            );
+            setGroupModalOpen(false);
+            onSelectConversation(conversation.id);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

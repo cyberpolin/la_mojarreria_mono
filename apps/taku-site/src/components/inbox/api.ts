@@ -50,6 +50,38 @@ export async function createConversation(params: {
   });
 }
 
+export type WhatsAppGroupOption = {
+  id: string;
+  subject: string;
+  size: number;
+  added: boolean;
+  pinned?: boolean;
+};
+
+export async function pinConversation(conversationId: string, pinned: boolean) {
+  return takuApi<InboxConversation>(`/conversations/${conversationId}/pin`, {
+    method: "PATCH",
+    body: JSON.stringify({ pinned }),
+  });
+}
+
+export async function fetchAccountGroups(accountId: string) {
+  return takuApi<WhatsAppGroupOption[]>(
+    `/whatsapp-accounts/${accountId}/groups`,
+  );
+}
+
+export async function addGroupConversation(params: {
+  whatsappAccountId: string;
+  groupJid: string;
+  name?: string;
+}) {
+  return takuApi<InboxConversation>("/conversations/groups", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 export async function fetchConversationByPhone(
   phoneNumber: string,
   accountId?: string,

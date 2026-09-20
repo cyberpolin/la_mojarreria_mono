@@ -33,6 +33,7 @@ export type InboxContact = {
   phoneNumber: string;
   notes?: string | null;
   profilePictureUrl?: string | null;
+  kind?: "direct" | "group";
 };
 
 export type InboxConversation = {
@@ -52,6 +53,8 @@ export type InboxConversation = {
   createdAt?: string;
   updatedAt?: string;
   blocked?: boolean;
+  isGroup?: boolean;
+  pinned?: boolean;
 };
 
 export type InboxMessage = {
@@ -65,6 +68,8 @@ export type InboxMessage = {
   longitude?: number | null;
   status: string;
   sentByUser?: { id: string; name: string } | null;
+  senderPhone?: string | null;
+  senderName?: string | null;
   createdAt: string;
   updatedAt?: string;
   clientKey?: string;

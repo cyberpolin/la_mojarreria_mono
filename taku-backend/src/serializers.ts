@@ -83,6 +83,10 @@ export function whatsappAccountView(
   };
 }
 
+function isGroupRecipient(phoneNumber: string | undefined) {
+  return (phoneNumber ?? "").trim().toLowerCase().endsWith("@g.us");
+}
+
 export function contactView(contact: Contact, database?: Database) {
   const lastConversation = database?.conversations
     .filter((conversation) => conversation.contactId === contact.id)
@@ -95,6 +99,10 @@ export function contactView(contact: Contact, database?: Database) {
     phoneNumber: contact.phoneNumber,
     profilePictureUrl: contact.profilePictureUrl,
     notes: contact.notes,
+    kind:
+      contact.kind === "group" || isGroupRecipient(contact.phoneNumber)
+        ? "group"
+        : "direct",
     lastConversationAt: lastConversation?.lastMessageAt ?? null,
     createdAt: contact.createdAt,
     updatedAt: contact.updatedAt,
@@ -143,6 +151,10 @@ export function conversationView(
           phoneNumber: contact.phoneNumber,
           profilePictureUrl: contact.profilePictureUrl,
           notes: contact.notes,
+          kind:
+            contact.kind === "group" || isGroupRecipient(contact.phoneNumber)
+              ? "group"
+              : "direct",
         }
       : null,
     whatsappAccount: account
@@ -171,13 +183,20 @@ export function conversationView(
       : null,
     unreadCount: conversation.unreadCount,
     lastMessageAt: conversation.lastMessageAt,
+    pinned: Boolean(conversation.pinned),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
-    blocked: isPhoneBlocked(
-      database,
-      conversation.workspaceId,
-      contact?.phoneNumber,
+    isGroup: Boolean(
+      contact &&
+        (contact.kind === "group" || isGroupRecipient(contact.phoneNumber)),
     ),
+    blocked: isGroupRecipient(contact?.phoneNumber)
+      ? false
+      : isPhoneBlocked(
+          database,
+          conversation.workspaceId,
+          contact?.phoneNumber,
+        ),
   };
 }
 
@@ -200,6 +219,8 @@ export function messageView(message: Message, database: Database) {
     sentByUser: sentByUser
       ? { id: sentByUser.id, name: sentByUser.name }
       : null,
+    senderPhone: message.senderPhone ?? null,
+    senderName: message.senderName ?? null,
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
   };

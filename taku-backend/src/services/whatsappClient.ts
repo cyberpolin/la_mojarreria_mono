@@ -5,7 +5,11 @@ function logWaClientError(event: string, details: Record<string, unknown>) {
   console.error(JSON.stringify({ event, ...details }));
 }
 
-async function request(path: string, init?: RequestInit): Promise<unknown> {
+async function request(
+  path: string,
+  init?: RequestInit,
+  timeoutMs = 10_000,
+): Promise<unknown> {
   if (!config.takuWaApiKey) {
     throw new ApiError({
       status: 503,
@@ -14,7 +18,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
     });
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response: Response;
   try {
     response = await fetch(
@@ -158,6 +162,18 @@ export const whatsappClient = {
       },
     );
     return payload as { messageId?: string; status?: string; raw?: unknown };
+  },
+
+  async listGroups(connectionId: string) {
+    const payload = await request(
+      `/v1/connections/${encodeURIComponent(connectionId)}/groups`,
+      { method: "GET" },
+      25_000,
+    );
+    const record = payload as {
+      groups?: Array<{ id: string; subject: string; size?: number }>;
+    };
+    return Array.isArray(record.groups) ? record.groups : [];
   },
 
   async createWebhookSubscription(

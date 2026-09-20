@@ -41,7 +41,11 @@ import {
   formatLocationBody,
   readLocationFromWhatsApp,
 } from "../utils/locationMessage.js";
-import { phoneFromWhatsAppJid, phoneToWhatsAppJid } from "../utils/phone.js";
+import {
+  chatJidFromRecipient,
+  digitsFromWhatsAppId,
+  phoneFromWhatsAppJid,
+} from "../utils/phone.js";
 
 type MessagesUpsert = BaileysEventMap["messages.upsert"];
 type MessagesUpdate = BaileysEventMap["messages.update"];
@@ -586,7 +590,7 @@ export class WhatsAppClient {
     };
 
     const response = await this.socket.sendMessage(
-      phoneToWhatsAppJid(params.phone),
+      chatJidFromRecipient(params.phone),
       content,
     );
     const messageId = response?.key.id;
@@ -609,6 +613,27 @@ export class WhatsAppClient {
     });
 
     return messageId;
+  }
+
+  async listGroups(): Promise<
+    Array<{ id: string; subject: string; size: number }>
+  > {
+    if (!this.socket) {
+      throw new Error("WhatsApp socket is not initialized");
+    }
+    if (this.connectionStatus !== "open") {
+      throw new Error(
+        `WhatsApp socket is not connected; current status is ${this.connectionStatus}`,
+      );
+    }
+    const participating = await this.socket.groupFetchAllParticipating();
+    return Object.values(participating)
+      .map((group) => ({
+        id: group.id,
+        subject: group.subject?.trim() || "Grupo",
+        size: group.participants?.length ?? 0,
+      }))
+      .sort((left, right) => left.subject.localeCompare(right.subject, "es"));
   }
 
   getStatus(): {
@@ -752,33 +777,60 @@ export class WhatsAppClient {
     }
   }
 
+  private resolveGroupSenderPhone(
+    message: proto.IWebMessageInfo & {
+      key: { senderPn?: string; participantPn?: string };
+    },
+  ) {
+    const participant = message.key.participant ?? undefined;
+    return (
+      digitsFromWhatsAppId(message.key.senderPn) ??
+      digitsFromWhatsAppId(message.key.participantPn) ??
+      digitsFromWhatsAppId(participant) ??
+      (participant ? (this.phoneByLid.get(participant) ?? null) : null)
+    );
+  }
+
   private async handleIncomingMessage(
-    message: proto.IWebMessageInfo & { key: { senderPn?: string } },
+    message: proto.IWebMessageInfo & {
+      key: { senderPn?: string; participantPn?: string };
+    },
   ): Promise<void> {
     const remoteJid = message.key.remoteJid;
-    if (!remoteJid || remoteJid.endsWith("@g.us")) {
+    const isGroup = Boolean(remoteJid?.endsWith("@g.us"));
+    if (!remoteJid) {
       recordDebugLog({
         event: "whatsapp_message_skipped_jid",
         data: {
           messageId: message.key.id,
           remoteJid,
           fromMe: message.key.fromMe,
-          reason: !remoteJid ? "missing_remote_jid" : "group_message",
+          reason: "missing_remote_jid",
         },
       });
       return;
     }
 
     const direction = message.key.fromMe ? "outbound" : "inbound";
-    const phone =
-      direction === "outbound"
+    const phone = isGroup
+      ? remoteJid
+      : direction === "outbound"
         ? phoneFromWhatsAppJid(remoteJid)
         : (message.key.senderPn?.split("@")[0] ??
           phoneFromWhatsAppJid(remoteJid));
     const location = readLocationFromWhatsApp(message.message);
-    const text =
+    const rawText =
       getMessageText(message.message) ??
       (location ? formatLocationBody(location) : null);
+    const senderName = message.pushName?.trim();
+    const senderPhone =
+      isGroup && direction === "inbound"
+        ? this.resolveGroupSenderPhone(message)
+        : null;
+    const text =
+      isGroup && direction === "inbound" && rawText && senderName
+        ? `${senderName}: ${rawText}`
+        : rawText;
     const messageId = message.key.id;
 
     if (messageId && message.message) {
@@ -844,12 +896,34 @@ export class WhatsAppClient {
       latitude: location?.latitude,
       longitude: location?.longitude,
       address: location?.address ?? location?.name,
+      senderPhone: senderPhone ?? undefined,
+      senderName: senderName || undefined,
     });
     recordDebugLog({
       event: "conversation_message_recorded",
       data: { messageId, phone, direction, timestamp },
     });
     if (direction === "outbound") {
+      return;
+    }
+
+    if (isGroup) {
+      if (!this.isDefaultConnection) {
+        await dispatchWebhookEvent({
+          filePath: this.config.webhookSubscriptionsFile,
+          logger: this.logger,
+          event: "message.received",
+          payload: {
+            event: "message.received",
+            eventId: randomUUID(),
+            provider: "baileys",
+            connectionId: this.connectionId,
+            businessId: this.businessId,
+            occurredAt: timestamp,
+            message: conversationMessage,
+          },
+        });
+      }
       return;
     }
 

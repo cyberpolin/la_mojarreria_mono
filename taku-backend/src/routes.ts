@@ -784,6 +784,38 @@ function normalizePhoneNumber(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function isGroupRecipient(phoneNumber: string) {
+  return phoneNumber.trim().toLowerCase().endsWith("@g.us");
+}
+
+function isGroupConversation(database: Database, conversation: Conversation) {
+  const contact = database.contacts.find(
+    (item) => item.id === conversation.contactId,
+  );
+  return Boolean(
+    contact &&
+      (contact.kind === "group" || isGroupRecipient(contact.phoneNumber)),
+  );
+}
+
+function pinExclusiveGroup(
+  database: Database,
+  workspaceId: string,
+  conversation: Conversation,
+) {
+  conversation.pinned = true;
+  conversation.updatedAt = now();
+  for (const item of database.conversations) {
+    if (item.workspaceId !== workspaceId || item.id === conversation.id) {
+      continue;
+    }
+    if (isGroupConversation(database, item) && item.pinned) {
+      item.pinned = false;
+      item.updatedAt = now();
+    }
+  }
+}
+
 function normalizeBotName(value: string) {
   return value.trim().toLowerCase();
 }
@@ -1593,11 +1625,18 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               duplicate: true,
             };
           }
+          const incomingIsGroup = isGroupRecipient(from);
           let contact = database.contacts.find(
             (item) =>
               item.workspaceId === account.workspaceId &&
               item.phoneNumber === from,
           );
+          if (!contact && incomingIsGroup) {
+            return {
+              workspaceId: account.workspaceId,
+              skipped: true,
+            };
+          }
           if (!contact) {
             contact = {
               id: id("contact"),
@@ -1617,6 +1656,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               item.whatsappAccountId === account.id &&
               item.contactId === contact?.id,
           );
+          if (!conversation && incomingIsGroup) {
+            return {
+              workspaceId: account.workspaceId,
+              skipped: true,
+            };
+          }
           if (!conversation) {
             conversation = {
               id: id("conversation"),
@@ -1633,6 +1678,15 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             };
             database.conversations.push(conversation);
           }
+          const senderPhone = incomingIsGroup
+            ? (readOptionalString(payload.senderPhone)?.replace(/\D/g, "") ??
+              null)
+            : null;
+          const senderName = incomingIsGroup
+            ? (readOptionalString(payload.senderName) ??
+              readOptionalString(payload.profileName) ??
+              null)
+            : null;
           const message: Message = {
             id: id("message"),
             workspaceId: account.workspaceId,
@@ -1651,6 +1705,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             longitude: longitude ?? null,
             status: "received",
             sentByUserId: null,
+            senderPhone,
+            senderName,
             createdAt: now(),
             updatedAt: now(),
           };
@@ -1751,7 +1807,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         typeof result.inboundMessageId === "string" &&
         typeof result.from === "string" &&
         typeof result.text === "string" &&
-        result.type !== "location"
+        result.type !== "location" &&
+        !isGroupRecipient(result.from)
       ) {
         void runAutomationDecision({
           workspaceId: result.workspaceId,
@@ -3709,6 +3766,62 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.get(
+    "/whatsapp-accounts/:id/groups",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const account = findAccount(
+        database,
+        context.workspace.id,
+        req.params.id,
+      );
+      if (account.status !== "connected") {
+        throw new ApiError({
+          status: 409,
+          code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+          message: "El numero esta desconectado.",
+        });
+      }
+      const groups = await whatsappClient.listGroups(
+        account.externalInstanceId,
+      );
+      const accountConversations = database.conversations.filter(
+        (item) =>
+          item.workspaceId === context.workspace.id &&
+          item.whatsappAccountId === account.id,
+      );
+      const added = new Set(
+        accountConversations.map((item) => {
+          const contact = database.contacts.find(
+            (entry) => entry.id === item.contactId,
+          );
+          return contact?.phoneNumber ?? "";
+        }),
+      );
+      const pinned = new Set(
+        accountConversations
+          .filter((item) => item.pinned)
+          .map((item) => {
+            const contact = database.contacts.find(
+              (entry) => entry.id === item.contactId,
+            );
+            return contact?.phoneNumber ?? "";
+          }),
+      );
+      ok(
+        res,
+        groups.map((group) => ({
+          id: group.id,
+          subject: group.subject,
+          size: group.size ?? 0,
+          added: added.has(group.id),
+          pinned: pinned.has(group.id),
+        })),
+      );
+    }),
+  );
+
   router.patch(
     "/whatsapp-accounts/:id",
     requireRole(ownerAdmin),
@@ -4225,6 +4338,102 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.post(
+    "/conversations/groups",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const groupJid = requireString(req.body?.groupJid, "groupJid").trim();
+      if (!isGroupRecipient(groupJid)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "El grupo de WhatsApp no es valido.",
+        });
+      }
+      const name = readOptionalString(req.body?.name) ?? "Grupo";
+      const requestedAccountId = requireString(
+        req.body?.whatsappAccountId,
+        "whatsappAccountId",
+      );
+      const result = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          requestedAccountId,
+        );
+        if (account.status !== "connected") {
+          throw new ApiError({
+            status: 409,
+            code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+            message: "El numero esta desconectado.",
+          });
+        }
+        let contact = database.contacts.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.phoneNumber === groupJid,
+        );
+        if (!contact) {
+          contact = {
+            id: id("contact"),
+            workspaceId: context.workspace.id,
+            phoneNumber: groupJid,
+            name,
+            profilePictureUrl: null,
+            notes: null,
+            kind: "group",
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.contacts.push(contact);
+        } else {
+          contact.kind = "group";
+          if (name && !contact.name) contact.name = name;
+          contact.updatedAt = now();
+        }
+        const existing = database.conversations.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.whatsappAccountId === account.id &&
+            item.contactId === contact.id,
+        );
+        if (existing) {
+          pinExclusiveGroup(database, context.workspace.id, existing);
+          return {
+            created: false,
+            conversation: conversationView(existing, database),
+          };
+        }
+        const conversation: Conversation = {
+          id: id("conversation"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: account.id,
+          contactId: contact.id,
+          status: "open",
+          lastMessageBody: null,
+          lastMessageAt: now(),
+          assignedUserId: context.user.id,
+          unreadCount: 0,
+          pinned: true,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.conversations.push(conversation);
+        pinExclusiveGroup(database, context.workspace.id, conversation);
+        return {
+          created: true,
+          conversation: conversationView(conversation, database),
+        };
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        result.conversation,
+      );
+      ok(res, result.conversation, result.created ? 201 : 200);
+    }),
+  );
+
   router.get(
     "/conversations",
     asyncHandler(async (req, res) => {
@@ -4274,9 +4483,19 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             .toLowerCase()
             .includes(search);
         })
-        .sort((left, right) =>
-          (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
-        );
+        .filter((item) => {
+          if (readOptionalString(req.query.phone)) return true;
+          if (!item.isGroup) return true;
+          return item.pinned;
+        })
+        .sort((left, right) => {
+          const pin =
+            Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+          if (pin !== 0) return pin;
+          return (right.lastMessageAt ?? "").localeCompare(
+            left.lastMessageAt ?? "",
+          );
+        });
       const page = pageResponse(rows, req.query);
       paginated(res, page.items, { ...page.pagination, total: page.total });
     }),
@@ -4294,6 +4513,41 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           database,
         ),
       );
+    }),
+  );
+
+  router.patch(
+    "/conversations/:id/pin",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const pinned = req.body?.pinned !== false;
+      const result = await store.update((database) => {
+        const conversation = findConversation(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        if (!isGroupConversation(database, conversation)) {
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "Solo se pueden fijar grupos.",
+          });
+        }
+        if (pinned) {
+          pinExclusiveGroup(database, context.workspace.id, conversation);
+        } else {
+          conversation.pinned = false;
+          conversation.updatedAt = now();
+        }
+        return conversationView(conversation, database);
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        result,
+      );
+      ok(res, result);
     }),
   );
 
