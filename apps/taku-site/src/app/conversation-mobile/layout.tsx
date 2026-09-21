@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { MobileInboxApp } from "@/components/inbox/MobileInboxGate";
 
 export const metadata: Metadata = {
   title: "TAKU chat",
@@ -17,5 +18,10 @@ export default function ConversationMobileLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return (
+    <>
+      <MobileInboxApp />
+      {children}
+    </>
+  );
 }

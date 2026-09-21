@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import {
@@ -29,10 +36,9 @@ import {
   upsertConversation,
 } from "./helpers";
 import {
-  KebabIcon,
   MobileAuthGate,
   MobileContextMenu,
-  MobilePhoneFrame,
+  KebabIcon,
   longPressProps,
 } from "./mobile-shell";
 import {
@@ -72,9 +78,11 @@ function listTime(value: string | null | undefined) {
 export function MobileConversationList({
   account = null,
   showAccountPicker = false,
+  threadSlot = null,
 }: {
   account?: InboxWhatsAppAccount | null;
   showAccountPicker?: boolean;
+  threadSlot?: ReactNode;
 }) {
   const router = useRouter();
   const [needsAuth, setNeedsAuth] = useState(false);
@@ -349,6 +357,14 @@ export function MobileConversationList({
     );
   }
 
+  function handleHeaderBack() {
+    if (threadSlot) {
+      router.push(mobileListPath(showAccountPicker ? account : null));
+      return;
+    }
+    if (showAccountPicker) router.push("/conversation-mobile");
+  }
+
   if (needsAuth) {
     return (
       <MobileAuthGate
@@ -358,16 +374,19 @@ export function MobileConversationList({
   }
 
   return (
-    <MobilePhoneFrame>
-      <header className="bg-slate-900 px-4 pb-3 pt-4 text-white">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header
+        id="taku-mobile-header"
+        className="bg-slate-900 px-4 pb-3 pt-4 text-white"
+      >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            {showAccountPicker ? (
+            {showAccountPicker || threadSlot ? (
               <button
                 type="button"
-                onClick={() => router.push("/conversation-mobile")}
+                onClick={handleHeaderBack}
                 className="grid h-10 w-8 shrink-0 place-items-center text-lg"
-                aria-label="Telefonos"
+                aria-label="Volver"
               >
                 ←
               </button>
@@ -400,148 +419,167 @@ export function MobileConversationList({
             </button>
           </div>
         </div>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onFocus={unlockIncomingSound}
-          placeholder="Buscar..."
-          className="mt-3 min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
-        />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-white">
-        {loading ? (
-          <p className="p-4 text-sm text-slate-500">Cargando chats...</p>
-        ) : null}
-        {error ? <p className="p-4 text-sm text-slate-700">{error}</p> : null}
-        {!loading && visible.length === 0 && searchedPhone.length >= 8 ? (
-          <button
-            type="button"
-            disabled={creating}
-            onClick={() => {
-              unlockIncomingSound();
-              void startConversation(searchedPhone);
-            }}
-            className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-60"
-          >
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-900 text-lg font-semibold text-white">
-              +
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-950">
-                {searchedPhone}
-              </p>
-              <p className="mt-0.5 text-[13px] font-medium text-slate-600">
-                {creating ? "Creando chat..." : "Mensaje nuevo"}
-              </p>
-            </div>
-          </button>
-        ) : null}
-        {!loading && visible.length === 0 && searchedPhone.length < 8 ? (
-          <p className="p-4 text-sm text-slate-500">
-            {query.trim()
-              ? "No hay chats para esa busqueda."
-              : "No hay conversaciones."}
-          </p>
-        ) : null}
-        {visible.map((conversation) => {
-          const title = conversationTitle(conversation);
-          const unread = conversation.unreadCount > 0;
-          const press = longPressProps(() => {
-            didLongPressRef.current = true;
-            setRowMenu(conversation);
-          });
-          return (
-            <div
-              key={conversation.id}
-              className="flex w-full items-stretch border-b border-slate-100 bg-white touch-manipulation"
-              style={press.style}
-              onContextMenu={press.onContextMenu}
-              onPointerDown={(event) => {
-                didLongPressRef.current = false;
-                press.onPointerDown(event);
-              }}
-            >
+      <div
+        id="taku-mobile-content"
+        className="flex min-h-0 flex-1 flex-col bg-white"
+      >
+        <div
+          className={cx(
+            "relative flex min-h-0 flex-1 flex-col",
+            threadSlot ? "hidden" : "flex",
+          )}
+        >
+          <div className="bg-slate-900 px-4 pb-3">
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onFocus={unlockIncomingSound}
+              placeholder="Buscar..."
+              className="min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+            {loading ? (
+              <p className="p-4 text-sm text-slate-500">Cargando chats...</p>
+            ) : null}
+            {error ? (
+              <p className="p-4 text-sm text-slate-700">{error}</p>
+            ) : null}
+            {!loading && visible.length === 0 && searchedPhone.length >= 8 ? (
               <button
                 type="button"
-                onClick={() => openConversation(conversation)}
-                className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                disabled={creating}
+                onClick={() => {
+                  unlockIncomingSound();
+                  void startConversation(searchedPhone);
+                }}
+                className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-60"
               >
-                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-300 text-base font-semibold text-slate-700">
-                  {title.slice(0, 1).toUpperCase()}
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-900 text-lg font-semibold text-white">
+                  +
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p
-                      className={cx(
-                        "truncate text-sm",
-                        unread
-                          ? "font-semibold text-slate-950"
-                          : "font-medium text-slate-900",
-                      )}
-                    >
-                      {conversation.pinned ? "📌 " : ""}
-                      {title}
-                    </p>
-                    <span
-                      className={cx(
-                        "shrink-0 text-[11px]",
-                        unread
-                          ? "font-semibold text-slate-900"
-                          : "text-slate-500",
-                      )}
-                    >
-                      {listTime(conversation.lastMessageAt)}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2">
-                    <p
-                      className={cx(
-                        "min-w-0 flex-1 truncate text-[13px]",
-                        unread
-                          ? "font-medium text-slate-800"
-                          : "text-slate-500",
-                      )}
-                    >
-                      {lastMessagePreview(conversation)}
-                    </p>
-                    {unread ? (
-                      <span className="grid min-h-5 min-w-5 place-items-center rounded-full bg-slate-900 px-1.5 text-[11px] font-semibold text-white">
-                        {conversation.unreadCount}
-                      </span>
-                    ) : null}
-                  </div>
+                  <p className="truncate text-sm font-semibold text-slate-950">
+                    {searchedPhone}
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-medium text-slate-600">
+                    {creating ? "Creando chat..." : "Mensaje nuevo"}
+                  </p>
                 </div>
               </button>
-              <button
-                type="button"
-                aria-label="Opciones del chat"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  didLongPressRef.current = true;
-                  setRowMenu(conversation);
-                }}
-                className="grid w-12 shrink-0 place-items-center text-slate-500 hover:bg-slate-50"
-              >
-                <KebabIcon className="h-5 w-5" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+            ) : null}
+            {!loading && visible.length === 0 && searchedPhone.length < 8 ? (
+              <p className="p-4 text-sm text-slate-500">
+                {query.trim()
+                  ? "No hay chats para esa busqueda."
+                  : "No hay conversaciones."}
+              </p>
+            ) : null}
+            {visible.map((conversation) => {
+              const title = conversationTitle(conversation);
+              const unread = conversation.unreadCount > 0;
+              const press = longPressProps(() => {
+                didLongPressRef.current = true;
+                setRowMenu(conversation);
+              });
+              return (
+                <div
+                  key={conversation.id}
+                  className="flex w-full items-stretch border-b border-slate-100 bg-white touch-manipulation"
+                  style={press.style}
+                  onContextMenu={press.onContextMenu}
+                  onPointerDown={(event) => {
+                    didLongPressRef.current = false;
+                    press.onPointerDown(event);
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openConversation(conversation)}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                  >
+                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-300 text-base font-semibold text-slate-700">
+                      {title.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p
+                          className={cx(
+                            "truncate text-sm",
+                            unread
+                              ? "font-semibold text-slate-950"
+                              : "font-medium text-slate-900",
+                          )}
+                        >
+                          {conversation.pinned ? "📌 " : ""}
+                          {title}
+                        </p>
+                        <span
+                          className={cx(
+                            "shrink-0 text-[11px]",
+                            unread
+                              ? "font-semibold text-slate-900"
+                              : "text-slate-500",
+                          )}
+                        >
+                          {listTime(conversation.lastMessageAt)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <p
+                          className={cx(
+                            "min-w-0 flex-1 truncate text-[13px]",
+                            unread
+                              ? "font-medium text-slate-800"
+                              : "text-slate-500",
+                          )}
+                        >
+                          {lastMessagePreview(conversation)}
+                        </p>
+                        {unread ? (
+                          <span className="grid min-h-5 min-w-5 place-items-center rounded-full bg-slate-900 px-1.5 text-[11px] font-semibold text-white">
+                            {conversation.unreadCount}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Opciones del chat"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      didLongPressRef.current = true;
+                      setRowMenu(conversation);
+                    }}
+                    className="grid w-12 shrink-0 place-items-center text-slate-500 hover:bg-slate-50"
+                  >
+                    <KebabIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
 
-      <button
-        type="button"
-        onClick={() => {
-          unlockIncomingSound();
-          setComposerOpen(true);
-          setError(null);
-        }}
-        className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full bg-slate-900 text-2xl text-white shadow-lg"
-        aria-label="Nuevo chat"
-      >
-        +
-      </button>
+          <button
+            type="button"
+            onClick={() => {
+              unlockIncomingSound();
+              setComposerOpen(true);
+              setError(null);
+            }}
+            className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full bg-slate-900 text-2xl text-white shadow-lg"
+            aria-label="Nuevo chat"
+          >
+            +
+          </button>
+        </div>
+        {threadSlot ? (
+          <div className="flex min-h-0 flex-1 flex-col">{threadSlot}</div>
+        ) : null}
+      </div>
 
       {composerOpen ? (
         <div className="absolute inset-0 z-10 flex flex-col bg-white">
@@ -692,6 +730,6 @@ export function MobileConversationList({
           </div>
         </div>
       ) : null}
-    </MobilePhoneFrame>
+    </div>
   );
 }

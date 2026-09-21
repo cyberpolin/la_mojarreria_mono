@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { fetchConversations } from "./api";
 import { accountStatusLabel, cx, mobileListPath } from "./helpers";
-import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
+import { MobileAuthGate } from "./mobile-shell";
 import type { InboxWhatsAppAccount } from "./types";
 
 export function MobileAccountPicker({
@@ -50,14 +50,20 @@ export function MobileAccountPicker({
   if (needsAuth) return <MobileAuthGate next="/conversation-mobile" />;
 
   return (
-    <MobilePhoneFrame>
-      <header className="bg-slate-900 px-4 pb-3 pt-4 text-white">
+    <>
+      <header
+        id="taku-mobile-list-header"
+        className="bg-slate-900 px-4 pb-3 pt-4 text-white"
+      >
         <h1 className="text-xl font-semibold">WhatsApp</h1>
         <p className="mt-1 text-[13px] text-slate-300">
           Elige el telefono para ver sus chats.
         </p>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+      <div
+        id="taku-mobile-list-content"
+        className="min-h-0 flex-1 overflow-y-auto bg-white"
+      >
         {accounts.map((account) => {
           const unread = unreadByAccount[account.id] ?? 0;
           return (
@@ -97,6 +103,6 @@ export function MobileAccountPicker({
           );
         })}
       </div>
-    </MobilePhoneFrame>
+    </>
   );
 }

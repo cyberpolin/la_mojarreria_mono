@@ -33,12 +33,7 @@ import type {
 } from "./types";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
-import {
-  KebabIcon,
-  MobileAuthGate,
-  MobileContextMenu,
-  MobilePhoneFrame,
-} from "./mobile-shell";
+import { KebabIcon, MobileAuthGate, MobileContextMenu } from "./mobile-shell";
 import {
   playIncomingSound,
   unlockIncomingSound,
@@ -141,10 +136,12 @@ export function MobileConversation({
   phone,
   account = null,
   scoped = false,
+  hideHeader = false,
 }: {
   phone: string;
   account?: InboxWhatsAppAccount | null;
   scoped?: boolean;
+  hideHeader?: boolean;
 }) {
   const router = useRouter();
   const lockedPhone = normalizePhoneParam(phone);
@@ -383,49 +380,76 @@ export function MobileConversation({
     lockedPhone;
 
   return (
-    <MobilePhoneFrame>
-      <header className="flex items-center gap-2 bg-slate-900 px-2 py-2 text-white">
-        <button
-          type="button"
-          onClick={() =>
-            router.push(
-              scoped ? mobileListPath(account) : "/conversation-mobile",
-            )
-          }
-          className="grid h-10 w-10 place-items-center text-lg"
-          aria-label="Volver"
-        >
-          ←
-        </button>
-        <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-700 text-sm font-semibold">
-          {title.slice(0, 1).toUpperCase()}
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      {hideHeader ? (
+        <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+          <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-300 text-sm font-semibold text-slate-700">
+            {title.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-950">
+              {conversation?.pinned ? "📌 " : ""}
+              {title}
+            </p>
+            <p className="truncate text-[11px] text-slate-500">{lockedPhone}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHeaderMenuOpen(true)}
+            className="grid h-10 w-10 shrink-0 place-items-center text-slate-500"
+            aria-label="Mas opciones"
+          >
+            <KebabIcon className="h-5 w-5" />
+          </button>
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">
-            {conversation?.pinned ? "📌 " : ""}
-            {title}
-          </p>
-          <p className="truncate text-[11px] text-slate-300">
-            {lockedPhone}
-            {conversation?.whatsappAccount
-              ? ` · via ${conversation.whatsappAccount.displayName}`
-              : ""}
-            {conversation?.whatsappAccount
-              ? ` · ${accountStatusLabel(conversation.whatsappAccount.status)}`
-              : ""}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setHeaderMenuOpen(true)}
-          className="grid h-10 w-10 shrink-0 place-items-center text-white"
-          aria-label="Mas opciones"
+      ) : (
+        <header
+          id="taku-mobile-thread-header"
+          className="flex items-center gap-2 bg-slate-900 px-2 py-2 text-white"
         >
-          <KebabIcon className="h-5 w-5" />
-        </button>
-      </header>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                scoped ? mobileListPath(account) : "/conversation-mobile",
+              )
+            }
+            className="grid h-10 w-10 place-items-center text-lg"
+            aria-label="Volver"
+          >
+            ←
+          </button>
+          <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-700 text-sm font-semibold">
+            {title.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">
+              {conversation?.pinned ? "📌 " : ""}
+              {title}
+            </p>
+            <p className="truncate text-[11px] text-slate-300">
+              {lockedPhone}
+              {conversation?.whatsappAccount
+                ? ` · via ${conversation.whatsappAccount.displayName}`
+                : ""}
+              {conversation?.whatsappAccount
+                ? ` · ${accountStatusLabel(conversation.whatsappAccount.status)}`
+                : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHeaderMenuOpen(true)}
+            className="grid h-10 w-10 shrink-0 place-items-center text-white"
+            aria-label="Mas opciones"
+          >
+            <KebabIcon className="h-5 w-5" />
+          </button>
+        </header>
+      )}
 
       <div
+        id="taku-mobile-thread-content"
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-slate-200 px-3 py-3"
         onClick={unlockIncomingSound}
       >
@@ -525,6 +549,6 @@ export function MobileConversation({
           onClose={() => setMessageMenu(null)}
         />
       ) : null}
-    </MobilePhoneFrame>
+    </div>
   );
 }

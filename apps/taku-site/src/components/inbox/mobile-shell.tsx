@@ -25,7 +25,10 @@ export function MobileAuthGate({ next }: { next: string }) {
 
 export function MobilePhoneFrame({ children }: { children: ReactNode }) {
   return (
-    <main className="flex min-h-dvh items-stretch justify-center bg-slate-950">
+    <main
+      id="taku-mobile-frame"
+      className="flex min-h-dvh items-stretch justify-center bg-slate-950"
+    >
       <div className="relative flex h-dvh w-full max-w-[390px] flex-col overflow-hidden bg-slate-100 text-slate-950 shadow-2xl">
         {children}
       </div>
