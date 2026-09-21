@@ -58,6 +58,7 @@ export type Workspace = {
   status: WorkspaceStatus;
   plan: WorkspacePlan;
   timezone: string;
+  unreadWeekStart?: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -3,6 +3,10 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "../auth.js";
 import { config, isDemoSeedEnvironment } from "../config.js";
+import {
+  mondayDateKey,
+  resetUnreadBadgesIfNeeded,
+} from "../services/unreadWeek.js";
 import type {
   AdminAuditLog,
   AdminUser,
@@ -504,6 +508,7 @@ function createTestSeed(): Database {
     status: "active",
     plan: "starter",
     timezone: "America/Mexico_City",
+    unreadWeekStart: mondayDateKey(new Date(), "America/Mexico_City"),
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -875,7 +880,7 @@ export class JsonStore {
     try {
       const raw = await readFile(this.filePath, "utf8");
       const database = JSON.parse(raw) as Database;
-      if (hydrateSeed(database)) {
+      if (hydrateSeed(database) || resetUnreadBadgesIfNeeded(database)) {
         await this.write(database);
       }
       return database;
