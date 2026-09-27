@@ -1,4 +1,5 @@
 import { createConversation, sendConversationMessage } from "./api";
+import { rememberDriverPhone } from "./drivers";
 import {
   customerAssignmentMessage,
   driverAssignmentMessage,
@@ -75,6 +76,9 @@ export async function completeOrderAssignment(params: {
     phone: params.driverPhone,
     name: params.driverName,
   });
+  if (assigned?.assignedDriver?.phone) {
+    rememberDriverPhone(assigned.assignedDriver.phone);
+  }
   if (!assigned) {
     return {
       ok: false as const,

@@ -1,10 +1,12 @@
 import type { RaiseOrderTotals } from "./raiseOrder";
 
 export const ORDERS_STORAGE_KEY = "MOJARRERIA_TAKU_DELIVERY_ORDERS";
-export const ORDERS_STORAGE_VERSION = 2;
+export const ORDERS_STORAGE_VERSION = 3;
 export const ORDER_TIME_ZONE = "America/Mexico_City";
+export const ORDERS_CHANGED_EVENT = "mojarreria-orders-changed";
 
 export type DeliveryPayment = "efectivo" | "transferencia";
+export type DeliveryOrderStatus = "open" | "closed";
 
 export type DeliveryOrder = RaiseOrderTotals & {
   id: string;
@@ -15,6 +17,7 @@ export type DeliveryOrder = RaiseOrderTotals & {
   customerPhone?: string | null;
   customerConversationId?: string | null;
   whatsappAccountId?: string | null;
+  status?: DeliveryOrderStatus | null;
   dailyListedAt?: string | null;
   dayKey?: string | null;
   assignedDriver?: {
@@ -67,6 +70,7 @@ function writePayload(items: DeliveryOrder[]) {
     items,
   };
   window.localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(payload));
+  window.dispatchEvent(new Event(ORDERS_CHANGED_EVENT));
 }
 
 export function listDeliveryOrders() {
@@ -106,6 +110,7 @@ export function savePendingOrder(input: {
     customerPhone: input.customerPhone ?? null,
     customerConversationId: input.customerConversationId ?? null,
     whatsappAccountId: input.whatsappAccountId ?? null,
+    status: "open",
     dailyListedAt: null,
     dayKey: null,
     assignedDriver: null,
@@ -140,6 +145,35 @@ export function assignLatestOrder(driver: {
   next[index] = assigned;
   writePayload(next);
   return assigned;
+}
+
+export function orderStatus(order: DeliveryOrder): DeliveryOrderStatus {
+  return order.status === "closed" ? "closed" : "open";
+}
+
+export function listOrdersByStatus() {
+  return [...listDeliveryOrders()].sort((left, right) => {
+    const status =
+      Number(orderStatus(left) === "closed") -
+      Number(orderStatus(right) === "closed");
+    if (status !== 0) return status;
+    const leftStamp =
+      left.dailyListedAt ?? left.assignedDriver?.assignedAt ?? left.createdAt;
+    const rightStamp =
+      right.dailyListedAt ??
+      right.assignedDriver?.assignedAt ??
+      right.createdAt;
+    return rightStamp.localeCompare(leftStamp);
+  });
+}
+
+export function closeDeliveryOrder(orderId: string) {
+  const current = listDeliveryOrders().find((item) => item.id === orderId);
+  if (!current) return null;
+  return replaceOrder({
+    ...current,
+    status: "closed",
+  });
 }
 
 export function addOrderToToday(orderId: string, now = new Date()) {

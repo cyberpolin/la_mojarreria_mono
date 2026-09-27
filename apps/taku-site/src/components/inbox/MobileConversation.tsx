@@ -35,7 +35,9 @@ import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
 import { AssignOrderSheet } from "./AssignOrderSheet";
 import { KebabIcon, MobileAuthGate, MobileContextMenu } from "./mobile-shell";
+import { ConversationAvatar, MotoIcon } from "./ConversationAvatar";
 import { DailyOrdersPanel } from "./DailyOrdersPanel";
+import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { completeOrderAssignment } from "./assignDeliveryOrder";
 import type { DeliveryOrder } from "./pendingOrders";
 import {
@@ -59,6 +61,7 @@ function MobileBubble({
   account,
   customerPhone,
   customerConversationId,
+  isDriverSender = false,
 }: {
   message: InboxMessage;
   clickable?: boolean;
@@ -66,6 +69,7 @@ function MobileBubble({
   account?: InboxWhatsAppAccount | null;
   customerPhone?: string | null;
   customerConversationId?: string | null;
+  isDriverSender?: boolean;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -110,7 +114,8 @@ function MobileBubble({
         </p>
       ) : null}
       {senderLabel && isInbound ? (
-        <p className="mb-1 text-[10px] font-semibold text-slate-500">
+        <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-500">
+          {isDriverSender ? <MotoIcon className="h-3.5 w-3.5" /> : null}
           {senderLabel}
         </p>
       ) : null}
@@ -182,6 +187,7 @@ export function MobileConversation({
   const conversationIdRef = useRef<string | null>(null);
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const threadReadyRef = useRef(false);
+  const driverPhones = useKnownDriverPhones();
   useArmIncomingSound();
 
   const loadThread = useCallback(async () => {
@@ -455,9 +461,14 @@ export function MobileConversation({
     <div className="relative flex h-full min-h-0 flex-1 flex-col">
       {hideHeader ? (
         <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-300 text-sm font-semibold text-slate-700">
-            {title.slice(0, 1).toUpperCase()}
-          </div>
+          <ConversationAvatar
+            label={title}
+            size="sm"
+            isDriver={
+              !isGroupConversation(conversation) &&
+              isDriverInList(driverPhones, lockedPhone)
+            }
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-slate-950">
               {conversation?.pinned ? "📌 " : ""}
@@ -491,9 +502,15 @@ export function MobileConversation({
           >
             ←
           </button>
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-700 text-sm font-semibold">
-            {title.slice(0, 1).toUpperCase()}
-          </div>
+          <ConversationAvatar
+            label={title}
+            size="sm"
+            tone="dark"
+            isDriver={
+              !isGroupConversation(conversation) &&
+              isDriverInList(driverPhones, lockedPhone)
+            }
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">
               {conversation?.pinned ? "📌 " : ""}
@@ -561,6 +578,10 @@ export function MobileConversation({
                     ? null
                     : (conversation?.id ?? null)
                 }
+                isDriverSender={isDriverInList(
+                  driverPhones,
+                  message.senderPhone,
+                )}
                 clickable={showDriverMenu}
                 onOpen={() => setMessageMenu(message)}
               />

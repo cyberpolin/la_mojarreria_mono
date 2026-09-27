@@ -10,6 +10,10 @@ import {
   isGroupConversation,
   lastMessagePreview,
 } from "./helpers";
+import { ConversationAvatar } from "./ConversationAvatar";
+import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
+import { OrdersList } from "./OrdersList";
+import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import type {
   ConversationFilterId,
@@ -70,6 +74,8 @@ export function ConversationList({
       ? "No hay conversaciones."
       : "No hay conversaciones para este filtro.";
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
+  const [listTab, setListTab] = useState<InboxListTab>("chats");
+  const driverPhones = useKnownDriverPhones();
 
   return (
     <aside className="relative flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -97,6 +103,7 @@ export function ConversationList({
           placeholder="Buscar por nombre, telefono o mensaje..."
           className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
         />
+        <InboxListTabs value={listTab} onChange={setListTab} />
         <select
           value={accountId}
           onChange={(event) => onAccountChange(event.target.value)}
@@ -119,7 +126,7 @@ export function ConversationList({
           </button>
           <button
             type="button"
-            onClick={onDailyOrders}
+            onClick={() => setListTab("pedidos")}
             className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 hover:border-slate-950"
           >
             Pedidos del dia
@@ -127,7 +134,13 @@ export function ConversationList({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {listTab === "pedidos" ? <OrdersList query={search} /> : null}
+      <div
+        className={cx(
+          "min-h-0 flex-1 overflow-y-auto",
+          listTab === "pedidos" && "hidden",
+        )}
+      >
         {error ? (
           <div className="p-4 text-sm text-slate-700">{error}</div>
         ) : null}
@@ -156,55 +169,69 @@ export function ConversationList({
               <button
                 type="button"
                 onClick={() => onSelect(conversation.id)}
-                className="grid min-w-0 flex-1 gap-2 p-4 text-left hover:bg-slate-50"
+                className="flex min-w-0 flex-1 items-start gap-3 p-4 text-left hover:bg-slate-50"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-950">
-                      {conversation.pinned ? "📌 " : ""}
-                      {conversationTitle(conversation)}
-                    </p>
-                    <p className="truncate text-xs text-slate-500">
-                      {isGroupConversation(conversation)
-                        ? "Grupo de WhatsApp"
-                        : (conversation.contact?.phoneNumber ?? "-")}
-                    </p>
+                <ConversationAvatar
+                  label={conversationTitle(conversation)}
+                  size="sm"
+                  isDriver={
+                    !isGroupConversation(conversation) &&
+                    isDriverInList(
+                      driverPhones,
+                      conversation.contact?.phoneNumber,
+                    )
+                  }
+                />
+                <div className="grid min-w-0 flex-1 gap-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-950">
+                        {conversation.pinned ? "📌 " : ""}
+                        {conversationTitle(conversation)}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {isGroupConversation(conversation)
+                          ? "Grupo de WhatsApp"
+                          : (conversation.contact?.phoneNumber ?? "-")}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-xs tabular-nums text-slate-500">
+                        {formatTime(
+                          conversation.lastMessageAt ??
+                            conversation.lastMessage?.createdAt,
+                        )}
+                      </span>
+                      {conversation.unreadCount > 0 ? (
+                        <Badge tone="dark">{conversation.unreadCount}</Badge>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-xs tabular-nums text-slate-500">
-                      {formatTime(
-                        conversation.lastMessageAt ??
-                          conversation.lastMessage?.createdAt,
+                  <p className="line-clamp-2 text-sm text-slate-600">
+                    {lastMessagePreview(conversation)}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <Badge>
+                      via{" "}
+                      {conversation.whatsappAccount?.displayName ?? "Numero"}
+                    </Badge>
+                    <span>
+                      {accountStatusLabel(
+                        conversation.whatsappAccount?.status ?? "pending",
                       )}
                     </span>
-                    {conversation.unreadCount > 0 ? (
-                      <Badge tone="dark">{conversation.unreadCount}</Badge>
+                    <Badge
+                      tone={conversation.unreadCount > 0 ? "warn" : "default"}
+                    >
+                      {conversationStatusLabel(conversation.status)}
+                    </Badge>
+                    {isGroupConversation(conversation) ? (
+                      <Badge>{conversation.pinned ? "Fijado" : "Grupo"}</Badge>
+                    ) : null}
+                    {conversation.lastMessage?.direction === "bot" ? (
+                      <Badge>Bot</Badge>
                     ) : null}
                   </div>
-                </div>
-                <p className="line-clamp-2 text-sm text-slate-600">
-                  {lastMessagePreview(conversation)}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <Badge>
-                    via {conversation.whatsappAccount?.displayName ?? "Numero"}
-                  </Badge>
-                  <span>
-                    {accountStatusLabel(
-                      conversation.whatsappAccount?.status ?? "pending",
-                    )}
-                  </span>
-                  <Badge
-                    tone={conversation.unreadCount > 0 ? "warn" : "default"}
-                  >
-                    {conversationStatusLabel(conversation.status)}
-                  </Badge>
-                  {isGroupConversation(conversation) ? (
-                    <Badge>{conversation.pinned ? "Fijado" : "Grupo"}</Badge>
-                  ) : null}
-                  {conversation.lastMessage?.direction === "bot" ? (
-                    <Badge>Bot</Badge>
-                  ) : null}
                 </div>
               </button>
               <button

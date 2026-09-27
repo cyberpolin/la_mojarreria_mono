@@ -11,7 +11,10 @@ import {
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { AddGroupModal } from "./AddGroupModal";
-import { DailyOrdersPanel } from "./DailyOrdersPanel";
+import { ConversationAvatar } from "./ConversationAvatar";
+import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
+import { OrdersList } from "./OrdersList";
+import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import {
   createAutomationBlock,
   createConversation,
@@ -111,7 +114,7 @@ export function MobileConversationList({
   const [creating, setCreating] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
+  const [listTab, setListTab] = useState<InboxListTab>("chats");
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
     [],
@@ -119,6 +122,7 @@ export function MobileConversationList({
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
   const didLongPressRef = useRef(false);
+  const driverPhones = useKnownDriverPhones();
   useArmIncomingSound();
 
   const seenInboundRef = useRef<Map<string, string>>(new Map());
@@ -458,16 +462,25 @@ export function MobileConversationList({
             threadSlot ? "hidden" : "flex",
           )}
         >
-          <div className="bg-slate-900 px-4 pb-3">
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onFocus={unlockIncomingSound}
-              placeholder="Buscar..."
-              className="min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
-            />
+          <div className="bg-slate-900">
+            <div className="px-4 pb-2">
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onFocus={unlockIncomingSound}
+                placeholder="Buscar..."
+                className="min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
+              />
+            </div>
+            <InboxListTabs tone="dark" value={listTab} onChange={setListTab} />
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+          {listTab === "pedidos" ? <OrdersList query={query} /> : null}
+          <div
+            className={cx(
+              "min-h-0 flex-1 overflow-y-auto bg-white",
+              listTab === "pedidos" && "hidden",
+            )}
+          >
             {loading ? (
               <p className="p-4 text-sm text-slate-500">Cargando chats...</p>
             ) : null}
@@ -527,9 +540,16 @@ export function MobileConversationList({
                     onClick={() => openConversation(conversation)}
                     className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
                   >
-                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-300 text-base font-semibold text-slate-700">
-                      {title.slice(0, 1).toUpperCase()}
-                    </div>
+                    <ConversationAvatar
+                      label={title}
+                      isDriver={
+                        !isGroupConversation(conversation) &&
+                        isDriverInList(
+                          driverPhones,
+                          conversation.contact?.phoneNumber,
+                        )
+                      }
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
                         <p
@@ -590,18 +610,20 @@ export function MobileConversationList({
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              unlockIncomingSound();
-              setComposerOpen(true);
-              setError(null);
-            }}
-            className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full bg-slate-900 text-2xl text-white shadow-lg"
-            aria-label="Nuevo chat"
-          >
-            +
-          </button>
+          {listTab === "chats" ? (
+            <button
+              type="button"
+              onClick={() => {
+                unlockIncomingSound();
+                setComposerOpen(true);
+                setError(null);
+              }}
+              className="absolute bottom-5 right-5 grid h-14 w-14 place-items-center rounded-full bg-slate-900 text-2xl text-white shadow-lg"
+              aria-label="Nuevo chat"
+            >
+              +
+            </button>
+          ) : null}
         </div>
         {threadSlot ? (
           <div className="flex min-h-0 flex-1 flex-col">{threadSlot}</div>
@@ -669,7 +691,7 @@ export function MobileConversationList({
             },
             {
               label: "Pedidos del dia",
-              onSelect: () => setDailyOrdersOpen(true),
+              onSelect: () => setListTab("pedidos"),
             },
             { label: "ejemplo", onSelect: () => undefined },
             {
@@ -726,10 +748,6 @@ export function MobileConversationList({
             setGroupModalOpen(false);
           }}
         />
-      ) : null}
-
-      {dailyOrdersOpen ? (
-        <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
       ) : null}
 
       {blockedOpen ? (

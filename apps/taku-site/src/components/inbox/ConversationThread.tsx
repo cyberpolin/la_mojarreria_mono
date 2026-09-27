@@ -13,7 +13,9 @@ import {
 } from "./helpers";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
+import { MotoIcon } from "./ConversationAvatar";
 import { AssignOrderSheet } from "./AssignOrderSheet";
+import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import { completeOrderAssignment } from "./assignDeliveryOrder";
 import type { DeliveryOrder } from "./pendingOrders";
@@ -34,6 +36,7 @@ function MessageBubble({
   account,
   customerPhone,
   customerConversationId,
+  isDriverSender = false,
 }: {
   message: InboxMessage;
   clickable?: boolean;
@@ -41,6 +44,7 @@ function MessageBubble({
   account?: InboxConversation["whatsappAccount"];
   customerPhone?: string | null;
   customerConversationId?: string | null;
+  isDriverSender?: boolean;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -93,11 +97,12 @@ function MessageBubble({
     >
       <p
         className={cx(
-          "text-xs font-semibold",
+          "flex items-center gap-1 text-xs font-semibold",
           isInbound || isBot ? "text-slate-500" : "text-slate-300",
           failed && "text-slate-600",
         )}
       >
+        {isDriverSender ? <MotoIcon className="h-3.5 w-3.5" /> : null}
         {senderLabel} · {formatDate(message.createdAt)}
       </p>
       {isLocationMessage(message) ? (
@@ -168,6 +173,7 @@ export function ConversationThread({
   );
   const [assignError, setAssignError] = useState<string | null>(null);
   const [customerNotified, setCustomerNotified] = useState(false);
+  const driverPhones = useKnownDriverPhones();
   const endRef = useRef<HTMLDivElement | null>(null);
 
   async function handleAssignOrder(message: InboxMessage) {
@@ -290,6 +296,10 @@ export function ConversationThread({
                 customerConversationId={
                   isGroup ? null : (conversation?.id ?? null)
                 }
+                isDriverSender={isDriverInList(
+                  driverPhones,
+                  message.senderPhone,
+                )}
                 clickable={showDriverMenu}
                 onOpen={() => setMenuMessage(message)}
               />
