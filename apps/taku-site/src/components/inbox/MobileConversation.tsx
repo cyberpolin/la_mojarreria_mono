@@ -39,6 +39,7 @@ import { AssignOrderSheet } from "./AssignOrderSheet";
 import { KebabIcon, MobileAuthGate, MobileContextMenu } from "./mobile-shell";
 import { ConversationAvatar, MotoIcon } from "./ConversationAvatar";
 import { DailyOrdersPanel } from "./DailyOrdersPanel";
+import { EditContactModal } from "./EditContactModal";
 import {
   forgetDriverPhone,
   isDriverInList,
@@ -190,6 +191,7 @@ export function MobileConversation({
   );
   const [customerNotified, setCustomerNotified] = useState(false);
   const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
+  const [editContactOpen, setEditContactOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
@@ -284,6 +286,22 @@ export function MobileConversation({
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length]);
+
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<InboxConversation>).detail;
+      if (!isFullConversation(detail)) return;
+      if (digitsPhone(detail.contact?.phoneNumber ?? "") !== lockedPhone) {
+        return;
+      }
+      conversationIdRef.current = detail.id;
+      setConversation(detail);
+    };
+    window.addEventListener("mojarreria-conversation-updated", onUpdated);
+    return () => {
+      window.removeEventListener("mojarreria-conversation-updated", onUpdated);
+    };
+  }, [lockedPhone]);
 
   const handleMessageCreated = useCallback((payload: unknown) => {
     const message = readMessageFromEvent(payload);
@@ -660,6 +678,10 @@ export function MobileConversation({
             ...(!isGroupConversation(conversation) && lockedPhone
               ? [
                   {
+                    label: "Editar contacto",
+                    onSelect: () => setEditContactOpen(true),
+                  },
+                  {
                     label: isDriverInList(driverPhones, lockedPhone)
                       ? "Quitar como repartidor"
                       : "Marcar como repartidor",
@@ -729,6 +751,29 @@ export function MobileConversation({
       ) : null}
       {dailyOrdersOpen ? (
         <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
+      ) : null}
+      {editContactOpen ? (
+        <EditContactModal
+          conversation={conversation}
+          phone={lockedPhone}
+          account={account}
+          onClose={() => setEditContactOpen(false)}
+          onSaved={(next) => {
+            conversationIdRef.current = next.id;
+            setConversation(next);
+            const cached = readThreadCache(lockedPhone, account?.id);
+            writeThreadCache({
+              conversation: next,
+              messages: cached?.messages ?? messages,
+              hasMore: cached?.hasMore ?? false,
+            });
+            window.dispatchEvent(
+              new CustomEvent("mojarreria-conversation-updated", {
+                detail: next,
+              }),
+            );
+          }}
+        />
       ) : null}
     </div>
   );

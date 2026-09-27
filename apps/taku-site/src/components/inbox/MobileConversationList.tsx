@@ -11,10 +11,16 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { AddGroupModal } from "./AddGroupModal";
+import { EditContactModal } from "./EditContactModal";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
-import { isDriverInList, useKnownDriverPhones } from "./drivers";
+import {
+  forgetDriverPhone,
+  isDriverInList,
+  rememberDriverPhone,
+  useKnownDriverPhones,
+} from "./drivers";
 import {
   createAutomationBlock,
   createConversation,
@@ -102,10 +108,12 @@ function listTime(conversation: InboxConversation) {
 export function MobileConversationList({
   account = null,
   showAccountPicker = false,
+  threadPhone = "",
   threadSlot = null,
 }: {
   account?: InboxWhatsAppAccount | null;
   showAccountPicker?: boolean;
+  threadPhone?: string;
   threadSlot?: ReactNode;
 }) {
   const router = useRouter();
@@ -120,6 +128,10 @@ export function MobileConversationList({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [editContact, setEditContact] = useState<InboxConversation | null>(
+    null,
+  );
+  const [editContactOpen, setEditContactOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [listTab, setListTab] = useState<InboxListTab>("chats");
   useEffect(() => {
@@ -184,6 +196,18 @@ export function MobileConversationList({
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<InboxConversation>).detail;
+      if (!isFullConversation(detail)) return;
+      setConversations((current) => upsertConversation(current, detail));
+    };
+    window.addEventListener("mojarreria-conversation-updated", onUpdated);
+    return () => {
+      window.removeEventListener("mojarreria-conversation-updated", onUpdated);
+    };
+  }, []);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -708,24 +732,69 @@ export function MobileConversationList({
 
       {headerMenuOpen ? (
         <MobileContextMenu
-          items={[
-            {
-              label: "Agregar grupo",
-              onSelect: () => setGroupModalOpen(true),
-            },
-            {
-              label: "Pedidos del dia",
-              onSelect: () => setListTab("pedidos"),
-            },
-            { label: "ejemplo", onSelect: () => undefined },
-            {
-              label: "ver bloqueados",
-              onSelect: () => {
-                setBlockedOpen(true);
-                void loadBlocked();
-              },
-            },
-          ]}
+          title={threadPhone || undefined}
+          items={
+            threadPhone
+              ? [
+                  {
+                    label: "Editar contacto",
+                    onSelect: () => {
+                      const current = conversations.find(
+                        (item) =>
+                          digitsPhone(item.contact?.phoneNumber ?? "") ===
+                          digitsPhone(threadPhone),
+                      );
+                      setEditContact(current ?? null);
+                      setEditContactOpen(true);
+                    },
+                  },
+                  {
+                    label: isDriverInList(driverPhones, threadPhone)
+                      ? "Quitar como repartidor"
+                      : "Marcar como repartidor",
+                    onSelect: () => {
+                      if (isDriverInList(driverPhones, threadPhone)) {
+                        forgetDriverPhone(threadPhone);
+                      } else {
+                        rememberDriverPhone(threadPhone);
+                      }
+                    },
+                  },
+                  {
+                    label: "Pedidos del dia",
+                    onSelect: () => setListTab("pedidos"),
+                  },
+                  {
+                    label: "Bloquear",
+                    danger: true,
+                    onSelect: () => {
+                      const current = conversations.find(
+                        (item) =>
+                          digitsPhone(item.contact?.phoneNumber ?? "") ===
+                          digitsPhone(threadPhone),
+                      );
+                      if (current) void blockConversation(current);
+                    },
+                  },
+                ]
+              : [
+                  {
+                    label: "Agregar grupo",
+                    onSelect: () => setGroupModalOpen(true),
+                  },
+                  {
+                    label: "Pedidos del dia",
+                    onSelect: () => setListTab("pedidos"),
+                  },
+                  {
+                    label: "ver bloqueados",
+                    onSelect: () => {
+                      setBlockedOpen(true);
+                      void loadBlocked();
+                    },
+                  },
+                ]
+          }
           onClose={() => setHeaderMenuOpen(false)}
         />
       ) : null}
@@ -734,7 +803,6 @@ export function MobileConversationList({
         <MobileContextMenu
           title={conversationTitle(rowMenu)}
           items={[
-            { label: "ejemplo", onSelect: () => undefined },
             ...(isGroupConversation(rowMenu)
               ? [
                   {
@@ -745,6 +813,32 @@ export function MobileConversationList({
                   },
                 ]
               : [
+                  {
+                    label: "Editar contacto",
+                    onSelect: () => {
+                      setEditContact(rowMenu);
+                      setEditContactOpen(true);
+                    },
+                  },
+                  {
+                    label: isDriverInList(
+                      driverPhones,
+                      rowMenu.contact?.phoneNumber,
+                    )
+                      ? "Quitar como repartidor"
+                      : "Marcar como repartidor",
+                    onSelect: () => {
+                      const phone = digitsPhone(
+                        rowMenu.contact?.phoneNumber ?? "",
+                      );
+                      if (!phone) return;
+                      if (isDriverInList(driverPhones, phone)) {
+                        forgetDriverPhone(phone);
+                      } else {
+                        rememberDriverPhone(phone);
+                      }
+                    },
+                  },
                   {
                     label: "Bloquear",
                     danger: true,
@@ -757,6 +851,26 @@ export function MobileConversationList({
           onClose={() => {
             didLongPressRef.current = false;
             setRowMenu(null);
+          }}
+        />
+      ) : null}
+
+      {editContactOpen ? (
+        <EditContactModal
+          conversation={editContact}
+          phone={digitsPhone(editContact?.contact?.phoneNumber ?? threadPhone)}
+          account={account}
+          onClose={() => {
+            setEditContactOpen(false);
+            setEditContact(null);
+          }}
+          onSaved={(next) => {
+            setConversations((current) => upsertConversation(current, next));
+            window.dispatchEvent(
+              new CustomEvent("mojarreria-conversation-updated", {
+                detail: next,
+              }),
+            );
           }}
         />
       ) : null}

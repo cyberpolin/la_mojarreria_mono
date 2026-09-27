@@ -102,6 +102,7 @@ export function MobileInboxApp() {
           <MobileConversationList
             account={listAccount}
             showAccountPicker={accounts.length > 1}
+            threadPhone={showThread ? threadPhone : ""}
             threadSlot={
               showThread ? (
                 <MobileConversation
