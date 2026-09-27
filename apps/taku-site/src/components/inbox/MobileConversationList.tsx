@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { AddGroupModal } from "./AddGroupModal";
 import { ConversationAvatar } from "./ConversationAvatar";
@@ -29,6 +29,7 @@ import {
   cx,
   digitsPhone,
   formatTime,
+  isDriversGroupConversation,
   isFullConversation,
   isGroupConversation,
   isVisibleInboxConversation,
@@ -40,6 +41,11 @@ import {
   sortConversationsUnreadFirst,
   upsertConversation,
 } from "./helpers";
+import {
+  clearReturnOrder,
+  hasOrderReturn,
+  inboxListReturnPath,
+} from "./inboxReturn";
 import {
   MobileAuthGate,
   MobileContextMenu,
@@ -103,6 +109,7 @@ export function MobileConversationList({
   threadSlot?: ReactNode;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [needsAuth, setNeedsAuth] = useState(false);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [query, setQuery] = useState("");
@@ -115,6 +122,11 @@ export function MobileConversationList({
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [listTab, setListTab] = useState<InboxListTab>("chats");
+  useEffect(() => {
+    if (!threadSlot && hasOrderReturn(searchParams)) {
+      setListTab("pedidos");
+    }
+  }, [searchParams, threadSlot]);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
     [],
@@ -143,6 +155,7 @@ export function MobileConversationList({
       });
       if (listReadyRef.current) {
         const heardNewInbound = rows.some((row) => {
+          if (isDriversGroupConversation(row)) return false;
           if (row.lastMessage?.direction !== "inbound") return false;
           const stamp = row.lastMessageAt ?? row.lastMessage.createdAt;
           const previous = seenInboundRef.current.get(row.id);
@@ -213,6 +226,7 @@ export function MobileConversationList({
       if (
         incoming &&
         message?.direction === "inbound" &&
+        !isDriversGroupConversation(incoming) &&
         (!account || incoming.whatsappAccount?.id === account.id)
       ) {
         playIncomingSound();
@@ -231,7 +245,12 @@ export function MobileConversationList({
           void loadList();
           return current;
         }
-        if (message.direction === "inbound") playIncomingSound();
+        if (
+          message.direction === "inbound" &&
+          !isDriversGroupConversation(existing)
+        ) {
+          playIncomingSound();
+        }
         return upsertConversation(current, {
           ...existing,
           lastMessage: {
@@ -380,6 +399,7 @@ export function MobileConversationList({
       return;
     }
     unlockIncomingSound();
+    clearReturnOrder();
     router.push(
       mobileThreadPath(
         conversation.contact?.phoneNumber ?? "",
@@ -390,7 +410,9 @@ export function MobileConversationList({
 
   function handleHeaderBack() {
     if (threadSlot) {
-      router.push(mobileListPath(showAccountPicker ? account : null));
+      router.push(
+        inboxListReturnPath(showAccountPicker ? account : null, searchParams),
+      );
       return;
     }
     if (showAccountPicker) router.push("/conversation-mobile");
@@ -474,7 +496,9 @@ export function MobileConversationList({
             </div>
             <InboxListTabs tone="dark" value={listTab} onChange={setListTab} />
           </div>
-          {listTab === "pedidos" ? <OrdersList query={query} /> : null}
+          {listTab === "pedidos" ? (
+            <OrdersList query={query} detailsEnabled={!threadSlot} />
+          ) : null}
           <div
             className={cx(
               "min-h-0 flex-1 overflow-y-auto bg-white",

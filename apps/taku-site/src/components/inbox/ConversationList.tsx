@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   accountStatusLabel,
   conversationStatusLabel,
@@ -10,6 +11,7 @@ import {
   isGroupConversation,
   lastMessagePreview,
 } from "./helpers";
+import { clearReturnOrder, hasOrderReturn } from "./inboxReturn";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
@@ -75,7 +77,11 @@ export function ConversationList({
       : "No hay conversaciones para este filtro.";
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
   const [listTab, setListTab] = useState<InboxListTab>("chats");
+  const searchParams = useSearchParams();
   const driverPhones = useKnownDriverPhones();
+  useEffect(() => {
+    if (hasOrderReturn(searchParams)) setListTab("pedidos");
+  }, [searchParams]);
 
   return (
     <aside className="relative flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -168,7 +174,10 @@ export function ConversationList({
             >
               <button
                 type="button"
-                onClick={() => onSelect(conversation.id)}
+                onClick={() => {
+                  clearReturnOrder();
+                  onSelect(conversation.id);
+                }}
                 className="flex min-w-0 flex-1 items-start gap-3 p-4 text-left hover:bg-slate-50"
               >
                 <ConversationAvatar

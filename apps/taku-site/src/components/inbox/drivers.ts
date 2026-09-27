@@ -64,6 +64,12 @@ export function rememberDriverPhone(phone: string) {
   writeDriverPhones([...readDriverPhones(), digits]);
 }
 
+export function forgetDriverPhone(phone: string) {
+  const digits = digitsPhone(phone);
+  if (!digits) return;
+  writeDriverPhones(readDriverPhones().filter((item) => item !== digits));
+}
+
 export function isKnownDriverPhone(phone: string | null | undefined) {
   const digits = digitsPhone(phone ?? "");
   if (!digits) return false;

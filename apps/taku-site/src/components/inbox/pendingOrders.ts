@@ -26,6 +26,7 @@ export type DeliveryOrder = RaiseOrderTotals & {
     name: string | null;
     assignedAt: string;
   } | null;
+  ownerAlertStepsSent?: number[] | null;
 };
 
 type OrdersPayload = {
@@ -174,6 +175,43 @@ export function closeDeliveryOrder(orderId: string) {
   return replaceOrder({
     ...current,
     status: "closed",
+  });
+}
+
+export function orderNumber(phone?: string | null) {
+  const digits = digitsPhone(phone ?? "");
+  if (digits.length < 4) return digits || null;
+  return digits.slice(-4);
+}
+
+export function recordOwnerAlertSteps(orderId: string, steps: number[]) {
+  const current = listDeliveryOrders().find((item) => item.id === orderId);
+  if (!current || steps.length === 0) return current ?? null;
+  const sent = new Set(current.ownerAlertStepsSent ?? []);
+  let changed = false;
+  for (const step of steps) {
+    if (!sent.has(step)) {
+      sent.add(step);
+      changed = true;
+    }
+  }
+  if (!changed) return current;
+  return replaceOrder({
+    ...current,
+    ownerAlertStepsSent: [...sent].sort((left, right) => left - right),
+  });
+}
+
+export function clearOwnerAlertSteps(orderId: string, steps: number[]) {
+  const current = listDeliveryOrders().find((item) => item.id === orderId);
+  if (!current || steps.length === 0) return current ?? null;
+  const remove = new Set(steps);
+  const next = (current.ownerAlertStepsSent ?? []).filter(
+    (step) => !remove.has(step),
+  );
+  return replaceOrder({
+    ...current,
+    ownerAlertStepsSent: next,
   });
 }
 

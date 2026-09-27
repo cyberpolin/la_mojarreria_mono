@@ -7,12 +7,16 @@ import { createConversation } from "./api";
 import {
   digitsPhone,
   formatDate,
+  inboxOrderSearch,
   mobileThreadPath,
   pathForConversation,
+  withQuery,
 } from "./helpers";
+import { rememberReturnOrder } from "./inboxReturn";
 import { orderFoodTotal } from "./orderMessages";
 import {
   closeDeliveryOrder,
+  orderNumber,
   orderStatus,
   type DeliveryOrder,
 } from "./pendingOrders";
@@ -88,9 +92,11 @@ function mapsUrl(order: DeliveryOrder) {
 export function OrderDetailPanel({
   order,
   onClose,
+  onLeaveToChat,
 }: {
   order: DeliveryOrder;
   onClose: () => void;
+  onLeaveToChat?: () => void;
 }) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
@@ -100,6 +106,7 @@ export function OrderDetailPanel({
   if (!host) return null;
 
   const closed = orderStatus(order) === "closed";
+  const number = orderNumber(order.customerPhone);
   const customerPhone = digitsPhone(order.customerPhone ?? "");
   const driverPhone = digitsPhone(order.assignedDriver?.phone ?? "");
   const driver =
@@ -119,7 +126,10 @@ export function OrderDetailPanel({
             : undefined,
         whatsappAccountId: order.whatsappAccountId ?? undefined,
       });
-      onClose();
+      rememberReturnOrder(order.id);
+      if (onLeaveToChat) onLeaveToChat();
+      else onClose();
+      const returnQuery = inboxOrderSearch(order.id);
       if (pathname.startsWith("/conversation-mobile")) {
         const account = order.whatsappAccountId
           ? {
@@ -129,7 +139,7 @@ export function OrderDetailPanel({
               status: "connected",
             }
           : null;
-        router.push(mobileThreadPath(phone, account));
+        router.push(withQuery(mobileThreadPath(phone, account), returnQuery));
         return;
       }
       router.push(pathForConversation(conversation.id));
@@ -165,7 +175,7 @@ export function OrderDetailPanel({
           </button>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-semibold text-slate-950">
-              Detalle del pedido
+              {number ? `Pedido #${number}` : "Detalle del pedido"}
             </h2>
             <p className="text-xs text-slate-500">
               {closed ? "Cerrado" : "Abierto"}
@@ -178,6 +188,7 @@ export function OrderDetailPanel({
             <p className="px-4 py-3 text-sm text-slate-700">{error}</p>
           ) : null}
           <dl className="divide-y divide-slate-100">
+            <Row label="Orden" value={number ? `#${number}` : "-"} />
             <Row
               label="Cliente"
               value={

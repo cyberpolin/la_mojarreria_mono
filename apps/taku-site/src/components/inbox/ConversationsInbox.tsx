@@ -41,6 +41,7 @@ import type {
   InboxWhatsAppAccount,
 } from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
+import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const POLL_INTERVAL_MS = 6000;
@@ -87,6 +88,7 @@ export function ConversationsInbox({
     useState<InboxBlockedContact[]>(blockedContacts);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
+  useOverdueOwnerAlerts();
 
   const selectedIdRef = useRef(conversationId);
   const queryRef = useRef({ filter, search, accountId });

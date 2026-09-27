@@ -15,12 +15,29 @@ export function assignmentRemainingMs(
 }
 
 export function formatAssignmentCountdown(remainingMs: number) {
-  const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+  const overdue = remainingMs < 0;
+  const totalSeconds = Math.floor(Math.abs(remainingMs) / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  const clock = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  return overdue ? `-${clock}` : clock;
 }
 
 export function isAssignmentCountdownWarning(remainingMs: number) {
   return remainingMs <= ASSIGNMENT_WARNING_MS;
+}
+
+export const OWNER_ALERT_EVERY_MINUTES = 10;
+export const OWNER_ALERT_EVERY_MS = OWNER_ALERT_EVERY_MINUTES * 60_000;
+
+export function dueOwnerAlertSteps(remainingMs: number) {
+  if (remainingMs > 0) return [];
+  const overdueMs = Math.max(0, -remainingMs);
+  const latest =
+    Math.floor(overdueMs / OWNER_ALERT_EVERY_MS) * OWNER_ALERT_EVERY_MINUTES;
+  const steps: number[] = [];
+  for (let step = 0; step <= latest; step += OWNER_ALERT_EVERY_MINUTES) {
+    steps.push(step);
+  }
+  return steps;
 }

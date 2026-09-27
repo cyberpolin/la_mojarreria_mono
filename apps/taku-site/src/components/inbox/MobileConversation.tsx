@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import {
   createAutomationBlock,
@@ -17,6 +17,7 @@ import {
   digitsPhone,
   formatTime,
   isAccountConnected,
+  isDriversGroupConversation,
   isFullConversation,
   isGroupConversation,
   messageStatusLabel,
@@ -26,6 +27,7 @@ import {
   readMessageFromEvent,
   upsertMessage,
 } from "./helpers";
+import { inboxListReturnPath } from "./inboxReturn";
 import type {
   InboxConversation,
   InboxMessage,
@@ -37,7 +39,12 @@ import { AssignOrderSheet } from "./AssignOrderSheet";
 import { KebabIcon, MobileAuthGate, MobileContextMenu } from "./mobile-shell";
 import { ConversationAvatar, MotoIcon } from "./ConversationAvatar";
 import { DailyOrdersPanel } from "./DailyOrdersPanel";
-import { isDriverInList, useKnownDriverPhones } from "./drivers";
+import {
+  forgetDriverPhone,
+  isDriverInList,
+  rememberDriverPhone,
+  useKnownDriverPhones,
+} from "./drivers";
 import { completeOrderAssignment } from "./assignDeliveryOrder";
 import type { DeliveryOrder } from "./pendingOrders";
 import {
@@ -165,6 +172,7 @@ export function MobileConversation({
   hideHeader?: boolean;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const lockedPhone = normalizePhoneParam(phone);
   const [conversation, setConversation] = useState<InboxConversation | null>(
     null,
@@ -185,9 +193,11 @@ export function MobileConversation({
   const [blocking, setBlocking] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const conversationRef = useRef<InboxConversation | null>(null);
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const threadReadyRef = useRef(false);
   const driverPhones = useKnownDriverPhones();
+  conversationRef.current = conversation;
   useArmIncomingSound();
 
   const loadThread = useCallback(async () => {
@@ -223,7 +233,9 @@ export function MobileConversation({
             item.direction === "inbound" &&
             !seenMessageIdsRef.current.has(item.id),
         );
-        if (heardNewInbound) playIncomingSound();
+        if (heardNewInbound && !isDriversGroupConversation(next)) {
+          playIncomingSound();
+        }
       }
       for (const item of history.items) {
         seenMessageIdsRef.current.add(item.id);
@@ -283,7 +295,19 @@ export function MobileConversation({
     ) {
       return;
     }
-    if (message.direction === "inbound") playIncomingSound();
+    const incoming =
+      payload &&
+      typeof payload === "object" &&
+      "conversation" in payload &&
+      isFullConversation((payload as { conversation: unknown }).conversation)
+        ? (payload as { conversation: InboxConversation }).conversation
+        : conversationRef.current;
+    if (
+      message.direction === "inbound" &&
+      !isDriversGroupConversation(incoming)
+    ) {
+      playIncomingSound();
+    }
     setMessages((current) => upsertMessage(current, message));
     if (
       payload &&
@@ -494,7 +518,9 @@ export function MobileConversation({
             type="button"
             onClick={() =>
               router.push(
-                scoped ? mobileListPath(account) : "/conversation-mobile",
+                scoped
+                  ? inboxListReturnPath(account, searchParams)
+                  : inboxListReturnPath(null, searchParams),
               )
             }
             className="grid h-10 w-10 place-items-center text-lg"
@@ -631,11 +657,26 @@ export function MobileConversation({
         <MobileContextMenu
           title={title}
           items={[
+            ...(!isGroupConversation(conversation) && lockedPhone
+              ? [
+                  {
+                    label: isDriverInList(driverPhones, lockedPhone)
+                      ? "Quitar como repartidor"
+                      : "Marcar como repartidor",
+                    onSelect: () => {
+                      if (isDriverInList(driverPhones, lockedPhone)) {
+                        forgetDriverPhone(lockedPhone);
+                      } else {
+                        rememberDriverPhone(lockedPhone);
+                      }
+                    },
+                  },
+                ]
+              : []),
             {
               label: "Pedidos del dia",
               onSelect: () => setDailyOrdersOpen(true),
             },
-            { label: "ejemplo", onSelect: () => undefined },
             ...(conversation && !isGroupConversation(conversation)
               ? [
                   {

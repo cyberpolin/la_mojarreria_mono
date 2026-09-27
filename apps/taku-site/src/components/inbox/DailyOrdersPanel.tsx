@@ -3,7 +3,11 @@
 import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import { formatTime } from "./helpers";
-import { listTodayOrders, type DeliveryOrder } from "./pendingOrders";
+import {
+  listTodayOrders,
+  orderNumber,
+  type DeliveryOrder,
+} from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
 
 function orderHost() {
@@ -17,7 +21,9 @@ function OrderRow({ order }: { order: DeliveryOrder }) {
     <div className="border-b border-slate-100 px-4 py-3">
       <div className="flex items-baseline justify-between gap-3">
         <p className="truncate text-sm font-semibold text-slate-950">
-          {order.customerPhone || "Sin cliente"}
+          {orderNumber(order.customerPhone)
+            ? `#${orderNumber(order.customerPhone)}`
+            : order.customerPhone || "Sin cliente"}
         </p>
         <span className="shrink-0 text-[11px] text-slate-500">
           {formatTime(order.dailyListedAt ?? order.createdAt)}

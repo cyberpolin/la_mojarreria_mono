@@ -9,6 +9,7 @@ import { MobileAccountPicker } from "./MobileAccountPicker";
 import { MobileConversation } from "./MobileConversation";
 import { MobileConversationList } from "./MobileConversationList";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
+import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
 import type { InboxWhatsAppAccount } from "./types";
 
 function useAssignedAccounts() {
@@ -63,6 +64,7 @@ export function MobileInboxApp() {
   const pathname = usePathname() || "/conversation-mobile";
   const { first, second } = parseMobilePath(pathname);
   const { needsAuth, loading, error, accounts } = useAssignedAccounts();
+  useOverdueOwnerAlerts();
 
   if (needsAuth) {
     return (

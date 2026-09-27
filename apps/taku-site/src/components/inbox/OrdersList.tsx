@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   assignmentRemainingMs,
   formatAssignmentCountdown,
@@ -9,10 +10,16 @@ import {
 import { ConversationAvatar } from "./ConversationAvatar";
 import { OrderDetailPanel } from "./OrderDetailPanel";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
-import { cx, formatTime } from "./helpers";
+import { INBOX_ORDER_PARAM, INBOX_TAB_PARAM, cx, formatTime } from "./helpers";
+import {
+  clearReturnOrder,
+  orderIdFromSearch,
+  readReturnOrderId,
+} from "./inboxReturn";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import {
   closeDeliveryOrder,
+  orderNumber,
   orderStatus,
   type DeliveryOrder,
 } from "./pendingOrders";
@@ -88,6 +95,7 @@ function matchesQuery(order: DeliveryOrder, query: string) {
   if (!query) return true;
   const haystack = [
     order.customerPhone,
+    orderNumber(order.customerPhone),
     order.assignedDriver?.phone,
     order.assignedDriver?.name,
     order.payment,
@@ -116,7 +124,8 @@ function OrderRow({
   const liveCountdown = hasLiveCountdown(order) && assignedAt;
   const driver =
     order.assignedDriver?.name || order.assignedDriver?.phone || "Sin asignar";
-  const label = order.customerPhone || "Pedido";
+  const number = orderNumber(order.customerPhone);
+  const label = number ? `#${number}` : order.customerPhone || "Pedido";
 
   return (
     <div className="flex w-full items-stretch border-b border-slate-100 bg-white">
@@ -145,6 +154,7 @@ function OrderRow({
             )}
           </div>
           <p className="mt-0.5 truncate text-[13px] text-slate-500">
+            {order.customerPhone ? `${order.customerPhone} · ` : ""}
             {driver} ·{" "}
             {order.payment === "transferencia" ? "Transferencia" : "Efectivo"} ·{" "}
             {formatMxn(order.total)}
@@ -173,15 +183,63 @@ function OrderRow({
   );
 }
 
-export function OrdersList({ query = "" }: { query?: string }) {
+export function OrdersList({
+  query = "",
+  detailsEnabled = true,
+}: {
+  query?: string;
+  detailsEnabled?: boolean;
+}) {
   const orders = useDeliveryOrders();
+  const router = useRouter();
+  const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
   const [menuOrder, setMenuOrder] = useState<DeliveryOrder | null>(null);
-  const [openOrder, setOpenOrder] = useState<DeliveryOrder | null>(null);
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return orders.filter((order) => matchesQuery(order, needle));
   }, [orders, query]);
   const now = useNow(visible.some(hasLiveCountdown));
+  const openOrder = detailsEnabled
+    ? (orders.find((order) => order.id === openOrderId) ?? null)
+    : null;
+
+  function writeOrderQuery(orderId: string | null) {
+    const next = new URLSearchParams(searchParams.toString());
+    if (orderId) {
+      next.set(INBOX_TAB_PARAM, "pedidos");
+      next.set(INBOX_ORDER_PARAM, orderId);
+    } else {
+      next.delete(INBOX_ORDER_PARAM);
+    }
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }
+
+  function openDetail(order: DeliveryOrder) {
+    setOpenOrderId(order.id);
+    writeOrderQuery(order.id);
+  }
+
+  function hideDetail() {
+    setOpenOrderId(null);
+  }
+
+  function closeDetail() {
+    clearReturnOrder();
+    setOpenOrderId(null);
+    if (orderIdFromSearch(searchParams)) writeOrderQuery(null);
+  }
+
+  useEffect(() => {
+    if (!detailsEnabled) {
+      setOpenOrderId(null);
+      return;
+    }
+    const id = orderIdFromSearch(searchParams) || readReturnOrderId();
+    if (id) setOpenOrderId(id);
+  }, [detailsEnabled, searchParams]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-white">
@@ -197,19 +255,24 @@ export function OrdersList({ query = "" }: { query?: string }) {
           key={order.id}
           order={order}
           now={now}
-          onOpen={setOpenOrder}
+          onOpen={openDetail}
           onMenu={setMenuOrder}
         />
       ))}
       {openOrder ? (
         <OrderDetailPanel
           order={openOrder}
-          onClose={() => setOpenOrder(null)}
+          onClose={closeDetail}
+          onLeaveToChat={hideDetail}
         />
       ) : null}
       {menuOrder ? (
         <MobileContextMenu
-          title={menuOrder.customerPhone || "Pedido"}
+          title={
+            orderNumber(menuOrder.customerPhone)
+              ? `#${orderNumber(menuOrder.customerPhone)}`
+              : menuOrder.customerPhone || "Pedido"
+          }
           items={
             orderStatus(menuOrder) === "open"
               ? [

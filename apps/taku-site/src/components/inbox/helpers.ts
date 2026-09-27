@@ -152,6 +152,27 @@ export function mobileThreadPath(
     : `/conversation-mobile/${phone}`;
 }
 
+export const INBOX_TAB_PARAM = "tab";
+export const INBOX_ORDER_PARAM = "order";
+
+export function withQuery(
+  path: string,
+  params: Record<string, string | null | undefined>,
+) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) query.set(key, value);
+  }
+  const qs = query.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
+export function inboxOrderSearch(orderId?: string | null) {
+  return orderId
+    ? { [INBOX_TAB_PARAM]: "pedidos", [INBOX_ORDER_PARAM]: orderId }
+    : {};
+}
+
 export function lastMessagePreview(conversation: InboxConversation) {
   const last = conversation.lastMessage;
   if (!last) return "Sin mensajes";
@@ -186,6 +207,14 @@ export function isGroupConversation(conversation: InboxConversation | null) {
 
 export function isVisibleInboxConversation(conversation: InboxConversation) {
   return !isGroupConversation(conversation) || Boolean(conversation.pinned);
+}
+
+export function isDriversGroupConversation(
+  conversation: InboxConversation | null | undefined,
+) {
+  return Boolean(
+    conversation && isGroupConversation(conversation) && conversation.pinned,
+  );
 }
 
 export function withLiveAccount(
