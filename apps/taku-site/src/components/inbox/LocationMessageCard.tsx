@@ -48,10 +48,14 @@ export function LocationMessageCard({
   message,
   inverted = false,
   account = null,
+  customerPhone = null,
+  customerConversationId = null,
 }: {
   message: InboxMessage;
   inverted?: boolean;
   account?: InboxWhatsAppAccount | null;
+  customerPhone?: string | null;
+  customerConversationId?: string | null;
 }) {
   const href = locationMapsUrl(message);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -121,6 +125,9 @@ export function LocationMessageCard({
       {orderOpen ? (
         <RaiseOrderModal
           account={account}
+          message={message}
+          customerPhone={customerPhone}
+          customerConversationId={customerConversationId}
           onClose={() => setOrderOpen(false)}
         />
       ) : null}

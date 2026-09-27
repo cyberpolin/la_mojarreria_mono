@@ -5,6 +5,7 @@ import {
   accountStatusLabel,
   conversationTitle,
   cx,
+  digitsPhone,
   formatDate,
   isAccountConnected,
   isGroupConversation,
@@ -12,7 +13,10 @@ import {
 } from "./helpers";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
-import { MobileContextMenu } from "./mobile-shell";
+import { AssignOrderSheet } from "./AssignOrderSheet";
+import { KebabIcon, MobileContextMenu } from "./mobile-shell";
+import { completeOrderAssignment } from "./assignDeliveryOrder";
+import type { DeliveryOrder } from "./pendingOrders";
 import type { InboxConversation, InboxMessage } from "./types";
 import { Badge, Button, TextArea } from "./ui";
 
@@ -28,11 +32,15 @@ function MessageBubble({
   clickable,
   onOpen,
   account,
+  customerPhone,
+  customerConversationId,
 }: {
   message: InboxMessage;
   clickable?: boolean;
   onOpen?: () => void;
   account?: InboxConversation["whatsappAccount"];
+  customerPhone?: string | null;
+  customerConversationId?: string | null;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -98,6 +106,8 @@ function MessageBubble({
             message={message}
             inverted={!isInbound && !isBot && !failed}
             account={account}
+            customerPhone={customerPhone}
+            customerConversationId={customerConversationId}
           />
         </div>
       ) : (
@@ -153,7 +163,35 @@ export function ConversationThread({
   const connected = isAccountConnected(account?.status);
   const isGroup = isGroupConversation(conversation);
   const [menuMessage, setMenuMessage] = useState<InboxMessage | null>(null);
+  const [assignedOrder, setAssignedOrder] = useState<DeliveryOrder | null>(
+    null,
+  );
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [customerNotified, setCustomerNotified] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
+
+  async function handleAssignOrder(message: InboxMessage) {
+    const phone = digitsPhone(message.senderPhone ?? "");
+    if (!phone) {
+      setAssignError(
+        "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
+      );
+      return;
+    }
+    const result = await completeOrderAssignment({
+      driverPhone: phone,
+      driverName: message.senderName,
+    });
+    if (!result.ok) {
+      setAssignError(result.error);
+      setCustomerNotified(false);
+      if (result.order) setAssignedOrder(result.order);
+      return;
+    }
+    setAssignError(null);
+    setCustomerNotified(true);
+    setAssignedOrder(result.order);
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -234,22 +272,47 @@ export function ConversationThread({
             Elige un chat de la lista o abre un enlace directo.
           </div>
         ) : null}
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            account={account}
-            clickable={isGroup && message.direction === "inbound"}
-            onOpen={() => setMenuMessage(message)}
-          />
-        ))}
+        {messages.map((message) => {
+          const showDriverMenu =
+            Boolean(conversation?.pinned) &&
+            isGroup &&
+            message.direction === "inbound";
+          return (
+            <div key={message.id} className="flex items-end gap-1">
+              <MessageBubble
+                message={message}
+                account={account}
+                customerPhone={
+                  isGroup
+                    ? digitsPhone(message.senderPhone ?? "")
+                    : digitsPhone(conversation?.contact?.phoneNumber ?? "")
+                }
+                customerConversationId={
+                  isGroup ? null : (conversation?.id ?? null)
+                }
+                clickable={showDriverMenu}
+                onOpen={() => setMenuMessage(message)}
+              />
+              {showDriverMenu ? (
+                <button
+                  type="button"
+                  onClick={() => setMenuMessage(message)}
+                  className="mb-1 grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500"
+                  aria-label="Opciones del repartidor"
+                >
+                  <KebabIcon className="h-5 w-5" />
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
         <div ref={endRef} />
       </div>
 
       <div className="border-t border-slate-200 p-4">
-        {error ? (
+        {error || assignError ? (
           <div className="mb-3 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
-            {error}
+            {error ?? assignError}
           </div>
         ) : null}
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -286,12 +349,29 @@ export function ConversationThread({
             "Mensaje"
           }
           items={[
+            ...(conversation?.pinned
+              ? [
+                  {
+                    label: "Asignar pedido",
+                    onSelect: () => {
+                      void handleAssignOrder(menuMessage);
+                    },
+                  },
+                ]
+              : []),
             {
               label: "Iniciar chat privado",
               onSelect: () => onStartPrivateChat?.(menuMessage),
             },
           ]}
           onClose={() => setMenuMessage(null)}
+        />
+      ) : null}
+      {assignedOrder ? (
+        <AssignOrderSheet
+          order={assignedOrder}
+          customerNotified={customerNotified}
+          onClose={() => setAssignedOrder(null)}
         />
       ) : null}
     </section>

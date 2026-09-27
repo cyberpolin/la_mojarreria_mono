@@ -33,7 +33,11 @@ import type {
 } from "./types";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
+import { AssignOrderSheet } from "./AssignOrderSheet";
 import { KebabIcon, MobileAuthGate, MobileContextMenu } from "./mobile-shell";
+import { DailyOrdersPanel } from "./DailyOrdersPanel";
+import { completeOrderAssignment } from "./assignDeliveryOrder";
+import type { DeliveryOrder } from "./pendingOrders";
 import {
   playIncomingSound,
   unlockIncomingSound,
@@ -53,11 +57,15 @@ function MobileBubble({
   clickable,
   onOpen,
   account,
+  customerPhone,
+  customerConversationId,
 }: {
   message: InboxMessage;
   clickable?: boolean;
   onOpen?: () => void;
   account?: InboxWhatsAppAccount | null;
+  customerPhone?: string | null;
+  customerConversationId?: string | null;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -111,6 +119,8 @@ function MobileBubble({
           message={message}
           inverted={!isInbound && !isBot && !failed}
           account={account}
+          customerPhone={customerPhone}
+          customerConversationId={customerConversationId}
         />
       ) : (
         <LinkedMessageText
@@ -162,6 +172,11 @@ export function MobileConversation({
   const [needsAuth, setNeedsAuth] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [messageMenu, setMessageMenu] = useState<InboxMessage | null>(null);
+  const [assignedOrder, setAssignedOrder] = useState<DeliveryOrder | null>(
+    null,
+  );
+  const [customerNotified, setCustomerNotified] = useState(false);
+  const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
@@ -368,6 +383,29 @@ export function MobileConversation({
     }
   }
 
+  async function handleAssignOrder(message: InboxMessage) {
+    const phone = digitsPhone(message.senderPhone ?? "");
+    if (!phone) {
+      setError(
+        "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
+      );
+      return;
+    }
+    const result = await completeOrderAssignment({
+      driverPhone: phone,
+      driverName: message.senderName,
+    });
+    if (!result.ok) {
+      setError(result.error);
+      setCustomerNotified(false);
+      if (result.order) setAssignedOrder(result.order);
+      return;
+    }
+    setError(null);
+    setCustomerNotified(true);
+    setAssignedOrder(result.order);
+  }
+
   async function handleStartPrivateChat(message: InboxMessage) {
     const phone = digitsPhone(message.senderPhone ?? "");
     if (!phone) {
@@ -414,7 +452,7 @@ export function MobileConversation({
     lockedPhone;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col">
+    <div className="relative flex h-full min-h-0 flex-1 flex-col">
       {hideHeader ? (
         <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
           <div className="grid h-9 w-9 place-items-center rounded-full bg-slate-300 text-sm font-semibold text-slate-700">
@@ -495,18 +533,50 @@ export function MobileConversation({
             {error}
           </p>
         ) : null}
-        {messages.map((message) => (
-          <MobileBubble
-            key={message.id}
-            message={message}
-            account={conversation?.whatsappAccount ?? account}
-            clickable={
-              isGroupConversation(conversation) &&
-              message.direction === "inbound"
-            }
-            onOpen={() => setMessageMenu(message)}
-          />
-        ))}
+        {messages.map((message) => {
+          const showDriverMenu =
+            Boolean(conversation?.pinned) &&
+            isGroupConversation(conversation) &&
+            message.direction === "inbound";
+          return (
+            <div
+              key={message.id}
+              className={cx(
+                "flex items-end gap-1",
+                showDriverMenu ? "self-start" : "",
+              )}
+            >
+              <MobileBubble
+                message={message}
+                account={conversation?.whatsappAccount ?? account}
+                customerPhone={
+                  isGroupConversation(conversation)
+                    ? digitsPhone(message.senderPhone ?? "")
+                    : digitsPhone(
+                        conversation?.contact?.phoneNumber ?? lockedPhone,
+                      )
+                }
+                customerConversationId={
+                  isGroupConversation(conversation)
+                    ? null
+                    : (conversation?.id ?? null)
+                }
+                clickable={showDriverMenu}
+                onOpen={() => setMessageMenu(message)}
+              />
+              {showDriverMenu ? (
+                <button
+                  type="button"
+                  onClick={() => setMessageMenu(message)}
+                  className="mb-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-slate-500 shadow-sm"
+                  aria-label="Opciones del repartidor"
+                >
+                  <KebabIcon className="h-5 w-5" />
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
         <div ref={endRef} />
       </div>
 
@@ -550,6 +620,10 @@ export function MobileConversation({
         <MobileContextMenu
           title={title}
           items={[
+            {
+              label: "Pedidos del dia",
+              onSelect: () => setDailyOrdersOpen(true),
+            },
             { label: "ejemplo", onSelect: () => undefined },
             ...(conversation && !isGroupConversation(conversation)
               ? [
@@ -574,6 +648,16 @@ export function MobileConversation({
             "Mensaje"
           }
           items={[
+            ...(conversation?.pinned
+              ? [
+                  {
+                    label: "Asignar pedido",
+                    onSelect: () => {
+                      void handleAssignOrder(messageMenu);
+                    },
+                  },
+                ]
+              : []),
             {
               label: "Iniciar chat privado",
               onSelect: () => {
@@ -583,6 +667,16 @@ export function MobileConversation({
           ]}
           onClose={() => setMessageMenu(null)}
         />
+      ) : null}
+      {assignedOrder ? (
+        <AssignOrderSheet
+          order={assignedOrder}
+          customerNotified={customerNotified}
+          onClose={() => setAssignedOrder(null)}
+        />
+      ) : null}
+      {dailyOrdersOpen ? (
+        <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
       ) : null}
     </div>
   );

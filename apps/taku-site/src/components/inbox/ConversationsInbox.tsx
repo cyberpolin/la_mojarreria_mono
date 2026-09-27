@@ -17,6 +17,7 @@ import {
   updateConversationStatus,
 } from "./api";
 import { AddGroupModal } from "./AddGroupModal";
+import { DailyOrdersPanel } from "./DailyOrdersPanel";
 import { ConversationList } from "./ConversationList";
 import { ConversationRail } from "./ConversationRail";
 import { ConversationThread } from "./ConversationThread";
@@ -85,6 +86,7 @@ export function ConversationsInbox({
   const [localBlocked, setLocalBlocked] =
     useState<InboxBlockedContact[]>(blockedContacts);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
 
   const selectedIdRef = useRef(conversationId);
   const queryRef = useRef({ filter, search, accountId });
@@ -725,6 +727,7 @@ export function ConversationsInbox({
           onAccountChange={setAccountId}
           onSelect={onSelectConversation}
           onAddGroup={() => setGroupModalOpen(true)}
+          onDailyOrders={() => setDailyOrdersOpen(true)}
           onBlock={(conversation) => {
             void handleBlockConversation(conversation);
           }}
@@ -798,6 +801,9 @@ export function ConversationsInbox({
           onToggleAutomation={(enabled) => void handleToggleAutomation(enabled)}
         />
       </div>
+      {dailyOrdersOpen ? (
+        <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
+      ) : null}
       {groupModalOpen ? (
         <AddGroupModal
           accounts={accounts}

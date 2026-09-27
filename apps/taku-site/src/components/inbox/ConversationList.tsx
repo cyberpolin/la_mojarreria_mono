@@ -43,6 +43,7 @@ export function ConversationList({
   onAccountChange,
   onSelect,
   onAddGroup,
+  onDailyOrders,
   onBlock,
   onPin,
 }: {
@@ -59,6 +60,7 @@ export function ConversationList({
   onAccountChange: (value: string) => void;
   onSelect: (conversationId: string) => void;
   onAddGroup: () => void;
+  onDailyOrders: () => void;
   onBlock: (conversation: InboxConversation) => void;
   onPin: (conversation: InboxConversation, pinned: boolean) => void;
 }) {
@@ -107,13 +109,22 @@ export function ConversationList({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          onClick={onAddGroup}
-          className="min-h-11 rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white hover:bg-slate-800"
-        >
-          Agregar grupo
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onAddGroup}
+            className="min-h-11 rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Agregar grupo
+          </button>
+          <button
+            type="button"
+            onClick={onDailyOrders}
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 hover:border-slate-950"
+          >
+            Pedidos del dia
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

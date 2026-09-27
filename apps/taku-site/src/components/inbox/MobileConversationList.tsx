@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { AddGroupModal } from "./AddGroupModal";
+import { DailyOrdersPanel } from "./DailyOrdersPanel";
 import {
   createAutomationBlock,
   createConversation,
@@ -110,6 +111,7 @@ export function MobileConversationList({
   const [creating, setCreating] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
     [],
@@ -665,6 +667,10 @@ export function MobileConversationList({
               label: "Agregar grupo",
               onSelect: () => setGroupModalOpen(true),
             },
+            {
+              label: "Pedidos del dia",
+              onSelect: () => setDailyOrdersOpen(true),
+            },
             { label: "ejemplo", onSelect: () => undefined },
             {
               label: "ver bloqueados",
@@ -720,6 +726,10 @@ export function MobileConversationList({
             setGroupModalOpen(false);
           }}
         />
+      ) : null}
+
+      {dailyOrdersOpen ? (
+        <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
       ) : null}
 
       {blockedOpen ? (

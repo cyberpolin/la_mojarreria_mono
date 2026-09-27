@@ -11,8 +11,10 @@ import { AddGroupModal } from "./AddGroupModal";
 import { Field, Input } from "./ui";
 import {
   DELIVERY_BASE,
+  DELIVERY_INCLUDED_KM,
   DELIVERY_PER_KM,
   DRIVERS_ORDER_MESSAGE,
+  SEND_DRIVERS_ORDER_MESSAGE,
   EMPANADA_PRICE,
   MOJARRA_PRICE,
   formatMxn,
@@ -20,7 +22,8 @@ import {
   parseQuantity,
   raiseOrderTotals,
 } from "./raiseOrder";
-import type { InboxWhatsAppAccount } from "./types";
+import { savePendingOrder } from "./pendingOrders";
+import type { InboxMessage, InboxWhatsAppAccount } from "./types";
 
 function modalHost() {
   return document.getElementById("taku-mobile-window") ?? document.body;
@@ -29,9 +32,15 @@ function modalHost() {
 export function RaiseOrderModal({
   onClose,
   account = null,
+  message = null,
+  customerPhone = null,
+  customerConversationId = null,
 }: {
   onClose: () => void;
   account?: InboxWhatsAppAccount | null;
+  message?: InboxMessage | null;
+  customerPhone?: string | null;
+  customerConversationId?: string | null;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [step, setStep] = useState<
@@ -82,7 +91,9 @@ export function RaiseOrderModal({
       : "fixed inset-0 z-[80]";
 
   async function sendToDriversGroup(conversationId: string) {
-    await sendConversationMessage(conversationId, DRIVERS_ORDER_MESSAGE);
+    if (SEND_DRIVERS_ORDER_MESSAGE) {
+      await sendConversationMessage(conversationId, DRIVERS_ORDER_MESSAGE);
+    }
     setError(null);
     setStep("done");
   }
@@ -92,6 +103,15 @@ export function RaiseOrderModal({
     setPayment(nextPayment);
     setSubmitting(true);
     setError(null);
+    savePendingOrder({
+      totals,
+      payment: nextPayment,
+      latitude: message?.latitude,
+      longitude: message?.longitude,
+      customerPhone,
+      customerConversationId,
+      whatsappAccountId: account?.id,
+    });
     try {
       const group = await fetchPinnedGroupConversation(account?.id);
       if (!group) {
@@ -160,7 +180,7 @@ export function RaiseOrderModal({
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
             <Field
               label="Kilometros"
-              hint={`Cada kilometro cuesta ${formatMxn(DELIVERY_PER_KM)}. Arrancamos en ${formatMxn(DELIVERY_BASE)}.`}
+              hint={`Minimo ${formatMxn(DELIVERY_BASE)} e incluye los primeros ${DELIVERY_INCLUDED_KM} km. Cada km extra cuesta ${formatMxn(DELIVERY_PER_KM)}.`}
             >
               <Input
                 type="number"
@@ -224,8 +244,9 @@ export function RaiseOrderModal({
                 <dt className="text-slate-600">
                   Envio · {totals.kilometers} km
                   <span className="mt-1 block text-xs text-slate-500">
-                    {formatMxn(DELIVERY_BASE)} + {totals.kilometers} ×{" "}
-                    {formatMxn(DELIVERY_PER_KM)}
+                    {totals.extraKilometers > 0
+                      ? `${formatMxn(DELIVERY_BASE)} + ${totals.extraKilometers} km extra × ${formatMxn(DELIVERY_PER_KM)}`
+                      : `${formatMxn(DELIVERY_BASE)} (incluye ${DELIVERY_INCLUDED_KM} km)`}
                   </span>
                 </dt>
                 <dd className="font-semibold">{formatMxn(totals.delivery)}</dd>
@@ -314,8 +335,10 @@ export function RaiseOrderModal({
             {payment === "transferencia"
               ? "Pago transferencia"
               : "Pago efectivo"}
-            . Se envio &quot;{DRIVERS_ORDER_MESSAGE}&quot; al grupo de
-            repartidores.
+            .{" "}
+            {SEND_DRIVERS_ORDER_MESSAGE
+              ? `Se envio "${DRIVERS_ORDER_MESSAGE}" al grupo de repartidores.`
+              : "No se envio mensaje al grupo (prueba en vivo)."}
           </p>
           <button
             type="button"
