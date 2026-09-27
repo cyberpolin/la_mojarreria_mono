@@ -1,6 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  assignmentRemainingMs,
+  formatAssignmentCountdown,
+  isAssignmentCountdownWarning,
+} from "./assignmentCountdown";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { OrderDetailPanel } from "./OrderDetailPanel";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
@@ -13,6 +18,71 @@ import {
 } from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
 import { useDeliveryOrders } from "./useDeliveryOrders";
+
+function ClockIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden="true"
+      className={className}
+    >
+      <circle
+        cx="10"
+        cy="10"
+        r="7.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M10 6.25V10l2.5 1.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function useNow(enabled: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [enabled]);
+  return now;
+}
+
+function hasLiveCountdown(order: DeliveryOrder) {
+  return (
+    orderStatus(order) === "open" && Boolean(order.assignedDriver?.assignedAt)
+  );
+}
+
+function AssignmentCountdown({
+  assignedAt,
+  now,
+}: {
+  assignedAt: string;
+  now: number;
+}) {
+  const remainingMs = assignmentRemainingMs(assignedAt, now);
+  if (remainingMs == null) return null;
+  const warning = isAssignmentCountdownWarning(remainingMs);
+  return (
+    <span
+      className={cx(
+        "inline-flex shrink-0 items-center gap-1 tabular-nums text-[11px] font-semibold",
+        warning ? "text-red-600" : "text-slate-700",
+      )}
+    >
+      <ClockIcon className="h-3.5 w-3.5" />
+      {formatAssignmentCountdown(remainingMs)}
+    </span>
+  );
+}
 
 function matchesQuery(order: DeliveryOrder, query: string) {
   if (!query) return true;
@@ -31,15 +101,19 @@ function matchesQuery(order: DeliveryOrder, query: string) {
 
 function OrderRow({
   order,
+  now,
   onOpen,
   onMenu,
 }: {
   order: DeliveryOrder;
+  now: number;
   onOpen: (order: DeliveryOrder) => void;
   onMenu: (order: DeliveryOrder) => void;
 }) {
   const driverPhones = useKnownDriverPhones();
   const closed = orderStatus(order) === "closed";
+  const assignedAt = order.assignedDriver?.assignedAt;
+  const liveCountdown = hasLiveCountdown(order) && assignedAt;
   const driver =
     order.assignedDriver?.name || order.assignedDriver?.phone || "Sin asignar";
   const label = order.customerPhone || "Pedido";
@@ -56,17 +130,19 @@ function OrderRow({
           isDriver={isDriverInList(driverPhones, order.assignedDriver?.phone)}
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
+          <div className="flex items-center justify-between gap-2">
             <p className="truncate text-sm font-semibold text-slate-950">
               {label}
             </p>
-            <span className="shrink-0 tabular-nums text-[11px] text-slate-500">
-              {formatTime(
-                order.dailyListedAt ??
-                  order.assignedDriver?.assignedAt ??
-                  order.createdAt,
-              )}
-            </span>
+            {liveCountdown ? (
+              <AssignmentCountdown assignedAt={assignedAt} now={now} />
+            ) : (
+              <span className="shrink-0 tabular-nums text-[11px] text-slate-500">
+                {formatTime(
+                  order.dailyListedAt ?? assignedAt ?? order.createdAt,
+                )}
+              </span>
+            )}
           </div>
           <p className="mt-0.5 truncate text-[13px] text-slate-500">
             {driver} ·{" "}
@@ -105,6 +181,7 @@ export function OrdersList({ query = "" }: { query?: string }) {
     const needle = query.trim().toLowerCase();
     return orders.filter((order) => matchesQuery(order, needle));
   }, [orders, query]);
+  const now = useNow(visible.some(hasLiveCountdown));
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-white">
@@ -119,6 +196,7 @@ export function OrdersList({ query = "" }: { query?: string }) {
         <OrderRow
           key={order.id}
           order={order}
+          now={now}
           onOpen={setOpenOrder}
           onMenu={setMenuOrder}
         />

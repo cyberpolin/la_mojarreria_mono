@@ -1,7 +1,15 @@
 "use client";
 
+import { useState } from "react";
 import { createPortal } from "react-dom";
-import { formatDate } from "./helpers";
+import { usePathname, useRouter } from "next/navigation";
+import { createConversation } from "./api";
+import {
+  digitsPhone,
+  formatDate,
+  mobileThreadPath,
+  pathForConversation,
+} from "./helpers";
 import { orderFoodTotal } from "./orderMessages";
 import {
   closeDeliveryOrder,
@@ -25,21 +33,45 @@ function Row({
   label,
   value,
   hint,
+  onClick,
+  disabled,
 }: {
   label: string;
   value: string;
   hint?: string;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
-  return (
-    <div className="flex justify-between gap-4 px-4 py-3 text-sm">
+  const inner = (
+    <>
       <dt className="text-slate-500">
         {label}
         {hint ? (
           <span className="mt-1 block text-xs text-slate-400">{hint}</span>
         ) : null}
       </dt>
-      <dd className="text-right font-semibold text-slate-950">{value}</dd>
-    </div>
+      <dd className="flex items-center justify-end gap-1 text-right font-semibold text-slate-950">
+        {value}
+        {onClick ? <span className="text-slate-400">›</span> : null}
+      </dd>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className="flex w-full justify-between gap-4 px-4 py-3 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex justify-between gap-4 px-4 py-3 text-sm">{inner}</div>
   );
 }
 
@@ -60,13 +92,54 @@ export function OrderDetailPanel({
   order: DeliveryOrder;
   onClose: () => void;
 }) {
+  const router = useRouter();
+  const pathname = usePathname() ?? "";
+  const [opening, setOpening] = useState<"customer" | "driver" | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const host = typeof document !== "undefined" ? modalHost() : null;
   if (!host) return null;
 
   const closed = orderStatus(order) === "closed";
+  const customerPhone = digitsPhone(order.customerPhone ?? "");
+  const driverPhone = digitsPhone(order.assignedDriver?.phone ?? "");
   const driver =
     order.assignedDriver?.name || order.assignedDriver?.phone || "Sin asignar";
   const href = mapsUrl(order);
+
+  async function openChat(phone: string, who: "customer" | "driver") {
+    if (!phone || opening) return;
+    setOpening(who);
+    setError(null);
+    try {
+      const conversation = await createConversation({
+        phoneNumber: phone,
+        name:
+          who === "driver"
+            ? (order.assignedDriver?.name ?? undefined)
+            : undefined,
+        whatsappAccountId: order.whatsappAccountId ?? undefined,
+      });
+      onClose();
+      if (pathname.startsWith("/conversation-mobile")) {
+        const account = order.whatsappAccountId
+          ? {
+              id: order.whatsappAccountId,
+              displayName: "",
+              phoneNumber: null,
+              status: "connected",
+            }
+          : null;
+        router.push(mobileThreadPath(phone, account));
+        return;
+      }
+      router.push(pathForConversation(conversation.id));
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "No se pudo abrir el chat.",
+      );
+      setOpening(null);
+    }
+  }
   const overlayClass =
     host.id === "taku-mobile-window"
       ? "absolute inset-0 z-[90] flex flex-col bg-white"
@@ -101,16 +174,38 @@ export function OrderDetailPanel({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {error ? (
+            <p className="px-4 py-3 text-sm text-slate-700">{error}</p>
+          ) : null}
           <dl className="divide-y divide-slate-100">
-            <Row label="Cliente" value={order.customerPhone || "-"} />
+            <Row
+              label="Cliente"
+              value={
+                opening === "customer"
+                  ? "Abriendo..."
+                  : order.customerPhone || "-"
+              }
+              onClick={
+                customerPhone
+                  ? () => void openChat(customerPhone, "customer")
+                  : undefined
+              }
+              disabled={opening !== null}
+            />
             <Row
               label="Repartidor"
-              value={driver}
+              value={opening === "driver" ? "Abriendo..." : driver}
               hint={
                 order.assignedDriver?.phone && order.assignedDriver.name
                   ? order.assignedDriver.phone
                   : undefined
               }
+              onClick={
+                driverPhone
+                  ? () => void openChat(driverPhone, "driver")
+                  : undefined
+              }
+              disabled={opening !== null}
             />
             <Row
               label="Pago"
