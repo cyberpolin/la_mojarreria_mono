@@ -27,10 +27,12 @@ function MessageBubble({
   message,
   clickable,
   onOpen,
+  account,
 }: {
   message: InboxMessage;
   clickable?: boolean;
   onOpen?: () => void;
+  account?: InboxConversation["whatsappAccount"];
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -95,6 +97,7 @@ function MessageBubble({
           <LocationMessageCard
             message={message}
             inverted={!isInbound && !isBot && !failed}
+            account={account}
           />
         </div>
       ) : (
@@ -235,6 +238,7 @@ export function ConversationThread({
           <MessageBubble
             key={message.id}
             message={message}
+            account={account}
             clickable={isGroup && message.direction === "inbound"}
             onOpen={() => setMenuMessage(message)}
           />

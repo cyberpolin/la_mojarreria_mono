@@ -1,3 +1,5 @@
+export const DRIVERS_ORDER_MESSAGE = "Pedido por favor";
+
 export const DELIVERY_BASE = 40;
 export const DELIVERY_PER_KM = 10;
 export const MOJARRA_PRICE = 150;

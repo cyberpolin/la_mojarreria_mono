@@ -2,10 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  fetchPinnedGroupConversation,
+  fetchWhatsAppAccounts,
+  sendConversationMessage,
+} from "./api";
+import { AddGroupModal } from "./AddGroupModal";
 import { Field, Input } from "./ui";
 import {
   DELIVERY_BASE,
   DELIVERY_PER_KM,
+  DRIVERS_ORDER_MESSAGE,
   EMPANADA_PRICE,
   MOJARRA_PRICE,
   formatMxn,
@@ -13,17 +20,35 @@ import {
   parseQuantity,
   raiseOrderTotals,
 } from "./raiseOrder";
+import type { InboxWhatsAppAccount } from "./types";
 
 function modalHost() {
   return document.getElementById("taku-mobile-window") ?? document.body;
 }
 
-export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
+export function RaiseOrderModal({
+  onClose,
+  account = null,
+}: {
+  onClose: () => void;
+  account?: InboxWhatsAppAccount | null;
+}) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  const [step, setStep] = useState<"form" | "summary" | "done">("form");
+  const [step, setStep] = useState<
+    "form" | "summary" | "missing-group" | "done"
+  >("form");
   const [kilometers, setKilometers] = useState("");
   const [mojarras, setMojarras] = useState("0");
   const [empanadas, setEmpanadas] = useState("0");
+  const [payment, setPayment] = useState<"efectivo" | "transferencia" | null>(
+    null,
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<InboxWhatsAppAccount[]>(
+    account ? [account] : [],
+  );
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
 
   useEffect(() => {
     setHost(modalHost());
@@ -37,6 +62,14 @@ export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
+  useEffect(() => {
+    void fetchWhatsAppAccounts()
+      .then((rows) => {
+        setAccounts(rows);
+      })
+      .catch(() => undefined);
+  }, []);
+
   const totals = raiseOrderTotals({
     kilometers: parseNonNegativeNumber(kilometers),
     mojarras: parseQuantity(mojarras),
@@ -48,15 +81,48 @@ export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
       ? "absolute inset-0 z-[80]"
       : "fixed inset-0 z-[80]";
 
+  async function sendToDriversGroup(conversationId: string) {
+    await sendConversationMessage(conversationId, DRIVERS_ORDER_MESSAGE);
+    setError(null);
+    setStep("done");
+  }
+
+  async function handlePayment(nextPayment: "efectivo" | "transferencia") {
+    if (submitting) return;
+    setPayment(nextPayment);
+    setSubmitting(true);
+    setError(null);
+    try {
+      const group = await fetchPinnedGroupConversation(account?.id);
+      if (!group) {
+        setStep("missing-group");
+        setGroupPickerOpen(true);
+        return;
+      }
+      await sendToDriversGroup(group.id);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo avisar a los repartidores.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (!host) return null;
 
   return createPortal(
     <div className={`${overlayClass} flex flex-col bg-white text-slate-950`}>
       <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
-        {step === "summary" ? (
+        {step === "summary" || step === "missing-group" ? (
           <button
             type="button"
-            onClick={() => setStep("form")}
+            onClick={() => {
+              setError(null);
+              setStep(step === "missing-group" ? "summary" : "form");
+            }}
             className="grid h-11 w-11 place-items-center text-lg"
             aria-label="Regresar"
           >
@@ -66,7 +132,11 @@ export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
           <span className="w-11" />
         )}
         <h2 className="flex-1 text-center text-base font-semibold">
-          {step === "done" ? "Pedido" : "Levantar pedido"}
+          {step === "done"
+            ? "Pedido"
+            : step === "missing-group"
+              ? "Grupo de repartidores"
+              : "Levantar pedido"}
         </h2>
         <button
           type="button"
@@ -189,16 +259,51 @@ export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
                 </dd>
               </div>
             </dl>
+            {error ? (
+              <p className="mt-4 text-sm text-slate-700">{error}</p>
+            ) : null}
           </div>
-          <div className="border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="grid gap-2 border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
-              onClick={() => setStep("done")}
-              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+              disabled={submitting}
+              onClick={() => void handlePayment("efectivo")}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Levantar pedido y pedir repartidor
+              {submitting && payment === "efectivo"
+                ? "Enviando..."
+                : "Pago efectivo"}
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void handlePayment("transferencia")}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-950 hover:border-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting && payment === "transferencia"
+                ? "Enviando..."
+                : "Pago transferencia"}
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {step === "missing-group" ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <p className="text-base font-semibold">
+            Falta el grupo de repartidores
+          </p>
+          <p className="text-sm text-slate-500">
+            Agrega el grupo fijado para avisar el pedido.
+          </p>
+          {error ? <p className="text-sm text-slate-700">{error}</p> : null}
+          <button
+            type="button"
+            onClick={() => setGroupPickerOpen(true)}
+            className="inline-flex min-h-11 w-full max-w-xs items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Agregar grupo
+          </button>
         </div>
       ) : null}
 
@@ -206,7 +311,11 @@ export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <p className="text-base font-semibold">Pedido listo</p>
           <p className="text-sm text-slate-500">
-            El envio al grupo de repartidores se conectara despues.
+            {payment === "transferencia"
+              ? "Pago transferencia"
+              : "Pago efectivo"}
+            . Se envio &quot;{DRIVERS_ORDER_MESSAGE}&quot; al grupo de
+            repartidores.
           </p>
           <button
             type="button"
@@ -216,6 +325,24 @@ export function RaiseOrderModal({ onClose }: { onClose: () => void }) {
             Cerrar
           </button>
         </div>
+      ) : null}
+      {groupPickerOpen ? (
+        <AddGroupModal
+          accounts={accounts.length > 0 ? accounts : account ? [account] : []}
+          onClose={() => setGroupPickerOpen(false)}
+          onAdded={(conversation) => {
+            setGroupPickerOpen(false);
+            void sendToDriversGroup(conversation.id).catch(
+              (caught: unknown) => {
+                setError(
+                  caught instanceof Error
+                    ? caught.message
+                    : "No se pudo avisar a los repartidores.",
+                );
+              },
+            );
+          }}
+        />
       ) : null}
     </div>,
     host,

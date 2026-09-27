@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
+import { AddGroupModal } from "./AddGroupModal";
 import {
   createAutomationBlock,
   createConversation,
@@ -108,6 +109,7 @@ export function MobileConversationList({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
     [],
@@ -659,6 +661,10 @@ export function MobileConversationList({
       {headerMenuOpen ? (
         <MobileContextMenu
           items={[
+            {
+              label: "Agregar grupo",
+              onSelect: () => setGroupModalOpen(true),
+            },
             { label: "ejemplo", onSelect: () => undefined },
             {
               label: "ver bloqueados",
@@ -699,6 +705,19 @@ export function MobileConversationList({
           onClose={() => {
             didLongPressRef.current = false;
             setRowMenu(null);
+          }}
+        />
+      ) : null}
+
+      {groupModalOpen && account ? (
+        <AddGroupModal
+          accounts={[account]}
+          onClose={() => setGroupModalOpen(false)}
+          onAdded={(conversation) => {
+            setConversations((current) =>
+              upsertConversation(current, conversation),
+            );
+            setGroupModalOpen(false);
           }}
         />
       ) : null}

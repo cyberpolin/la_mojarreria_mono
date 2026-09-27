@@ -52,10 +52,12 @@ function MobileBubble({
   message,
   clickable,
   onOpen,
+  account,
 }: {
   message: InboxMessage;
   clickable?: boolean;
   onOpen?: () => void;
+  account?: InboxWhatsAppAccount | null;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -108,6 +110,7 @@ function MobileBubble({
         <LocationMessageCard
           message={message}
           inverted={!isInbound && !isBot && !failed}
+          account={account}
         />
       ) : (
         <LinkedMessageText
@@ -496,6 +499,7 @@ export function MobileConversation({
           <MobileBubble
             key={message.id}
             message={message}
+            account={conversation?.whatsappAccount ?? account}
             clickable={
               isGroupConversation(conversation) &&
               message.direction === "inbound"

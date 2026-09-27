@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { addGroupConversation, fetchAccountGroups } from "./api";
 import type { WhatsAppGroupOption } from "./api";
 import { accountStatusLabel, isAccountConnected } from "./helpers";
 import type { InboxConversation, InboxWhatsAppAccount } from "./types";
 import { Button } from "./ui";
+
+function modalHost() {
+  return document.getElementById("taku-mobile-window") ?? document.body;
+}
 
 export function AddGroupModal({
   accounts,
@@ -20,11 +25,16 @@ export function AddGroupModal({
     () => accounts.filter((account) => isAccountConnected(account.status)),
     [accounts],
   );
+  const [host, setHost] = useState<HTMLElement | null>(null);
   const [accountId, setAccountId] = useState(connected[0]?.id ?? "");
   const [groups, setGroups] = useState<WhatsAppGroupOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHost(modalHost());
+  }, []);
 
   useEffect(() => {
     if (!accountId) {
@@ -72,8 +82,15 @@ export function AddGroupModal({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/40 p-4">
+  if (!host) return null;
+
+  const overlayClass =
+    host.id === "taku-mobile-window"
+      ? "absolute inset-0 z-[90] grid place-items-end bg-slate-950/40 p-4"
+      : "fixed inset-0 z-40 grid place-items-center bg-slate-950/40 p-4";
+
+  return createPortal(
+    <div className={overlayClass}>
       <div className="grid w-full max-w-lg gap-4 rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -161,6 +178,7 @@ export function AddGroupModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    host,
   );
 }

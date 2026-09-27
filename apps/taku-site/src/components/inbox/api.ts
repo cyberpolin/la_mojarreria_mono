@@ -22,6 +22,28 @@ export async function fetchConversations(params: {
   return result.items;
 }
 
+export async function fetchPinnedGroupConversation(accountId?: string) {
+  const scoped = await fetchConversations({
+    filter: "all",
+    search: "",
+    accountId: accountId ?? "all",
+  });
+  const pinned = scoped.find(
+    (item) => item.pinned && (item.isGroup || item.contact?.kind === "group"),
+  );
+  if (pinned || !accountId || accountId === "all") return pinned ?? null;
+  const all = await fetchConversations({
+    filter: "all",
+    search: "",
+    accountId: "all",
+  });
+  return (
+    all.find(
+      (item) => item.pinned && (item.isGroup || item.contact?.kind === "group"),
+    ) ?? null
+  );
+}
+
 export async function fetchConversation(conversationId: string) {
   return takuApi<InboxConversation>(`/conversations/${conversationId}`);
 }

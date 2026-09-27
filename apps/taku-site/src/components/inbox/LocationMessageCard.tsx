@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { RaiseOrderModal } from "./RaiseOrderModal";
 import { cx } from "./helpers";
-import type { InboxMessage } from "./types";
+import type { InboxMessage, InboxWhatsAppAccount } from "./types";
 
 export function isLocationMessage(message: {
   type?: string;
@@ -47,9 +47,11 @@ function PinIcon({ className }: { className?: string }) {
 export function LocationMessageCard({
   message,
   inverted = false,
+  account = null,
 }: {
   message: InboxMessage;
   inverted?: boolean;
+  account?: InboxWhatsAppAccount | null;
 }) {
   const href = locationMapsUrl(message);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -117,7 +119,10 @@ export function LocationMessageCard({
         </button>
       </div>
       {orderOpen ? (
-        <RaiseOrderModal onClose={() => setOrderOpen(false)} />
+        <RaiseOrderModal
+          account={account}
+          onClose={() => setOrderOpen(false)}
+        />
       ) : null}
     </div>
   );
