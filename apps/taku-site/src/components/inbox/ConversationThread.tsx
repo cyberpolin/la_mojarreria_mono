@@ -57,7 +57,7 @@ function MessageBubble({
       tabIndex={clickable ? 0 : undefined}
       onClick={(event) => {
         if (!clickable || !onOpen) return;
-        if ((event.target as HTMLElement).closest("a")) return;
+        if ((event.target as HTMLElement).closest("a, button")) return;
         onOpen();
       }}
       onKeyDown={(event) => {
@@ -68,7 +68,9 @@ function MessageBubble({
         }
       }}
       className={cx(
-        "max-w-[78%] rounded-lg p-3",
+        isLocationMessage(message)
+          ? "w-[88%] max-w-[88%] rounded-lg p-3"
+          : "max-w-[78%] rounded-lg p-3",
         clickable && "cursor-pointer hover:bg-slate-50",
         isInbound && "border border-slate-200 bg-white text-slate-800",
         isBot && "border border-slate-400 bg-slate-100 text-slate-900",

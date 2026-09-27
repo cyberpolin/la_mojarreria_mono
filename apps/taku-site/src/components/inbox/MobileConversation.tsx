@@ -39,6 +39,7 @@ import {
   unlockIncomingSound,
   useArmIncomingSound,
 } from "./playIncomingSound";
+import { readThreadCache, writeThreadCache } from "./threadCache";
 import { useInboxRealtime } from "./useInboxRealtime";
 
 const POLL_INTERVAL_MS = 6000;
@@ -76,11 +77,13 @@ function MobileBubble({
       tabIndex={clickable ? 0 : undefined}
       onClick={(event) => {
         if (!clickable || !onOpen) return;
-        if ((event.target as HTMLElement).closest("a")) return;
+        if ((event.target as HTMLElement).closest("a, button")) return;
         onOpen();
       }}
       className={cx(
-        "max-w-[82%] rounded-2xl px-3 py-2 shadow-sm",
+        isLocationMessage(message)
+          ? "w-[92%] max-w-[92%] rounded-2xl px-3 py-3 shadow-sm"
+          : "max-w-[82%] rounded-2xl px-3 py-2 shadow-sm",
         clickable && "cursor-pointer",
         isInbound && "self-start rounded-tl-md bg-white text-slate-900",
         isBot && "self-start rounded-tl-md bg-slate-200 text-slate-900",
@@ -170,6 +173,14 @@ export function MobileConversation({
       return;
     }
     setNeedsAuth(false);
+    const cached = readThreadCache(lockedPhone, account?.id);
+    if (cached) {
+      conversationIdRef.current = cached.conversation.id;
+      setConversation(cached.conversation);
+      setMessages(cached.messages);
+      setLoading(false);
+      setError(null);
+    }
     try {
       const next = await fetchConversationByPhone(lockedPhone, account?.id);
       if (!next) {
@@ -195,24 +206,44 @@ export function MobileConversation({
       }
       threadReadyRef.current = true;
       setMessages(history.items);
+      writeThreadCache({
+        conversation: next,
+        messages: history.items,
+        hasMore: history.hasMore,
+      });
       setError(null);
       if (next.unreadCount > 0) {
         void markConversationRead(next.id).catch(() => undefined);
       }
     } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "No se pudo cargar la conversacion.",
-      );
+      if (!readThreadCache(lockedPhone, account?.id)) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "No se pudo cargar la conversacion.",
+        );
+      }
     } finally {
       setLoading(false);
     }
   }, [account?.id, lockedPhone]);
 
   useEffect(() => {
+    const cached = readThreadCache(lockedPhone, account?.id);
+    if (cached) {
+      conversationIdRef.current = cached.conversation.id;
+      setConversation(cached.conversation);
+      setMessages(cached.messages);
+      setLoading(false);
+      setError(null);
+    } else {
+      setConversation(null);
+      setMessages([]);
+      conversationIdRef.current = null;
+      setLoading(true);
+    }
     void loadThread();
-  }, [loadThread]);
+  }, [account?.id, loadThread, lockedPhone]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });

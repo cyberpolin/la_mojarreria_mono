@@ -160,8 +160,11 @@ export function ConversationList({
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-xs text-slate-500">
-                      {formatTime(conversation.lastMessageAt)}
+                    <span className="text-xs tabular-nums text-slate-500">
+                      {formatTime(
+                        conversation.lastMessageAt ??
+                          conversation.lastMessage?.createdAt,
+                      )}
                     </span>
                     {conversation.unreadCount > 0 ? (
                       <Badge tone="dark">{conversation.unreadCount}</Badge>

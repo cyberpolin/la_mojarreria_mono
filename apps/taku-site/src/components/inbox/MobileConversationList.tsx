@@ -51,6 +51,7 @@ import type {
   InboxConversation,
   InboxWhatsAppAccount,
 } from "./types";
+import { PREFETCH_TOP_THREADS, prefetchTopThreads } from "./threadCache";
 import { useInboxRealtime } from "./useInboxRealtime";
 
 const POLL_INTERVAL_MS = 6000;
@@ -63,16 +64,28 @@ function startOfLocalDay(value: Date) {
   ).getTime();
 }
 
-function listTime(value: string | null | undefined) {
+function listStamp(conversation: InboxConversation) {
+  return (
+    conversation.lastMessageAt ??
+    conversation.lastMessage?.createdAt ??
+    conversation.updatedAt ??
+    conversation.createdAt ??
+    ""
+  );
+}
+
+function listTime(conversation: InboxConversation) {
+  const value = listStamp(conversation);
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
+  const clock = formatTime(value);
   const days = Math.round(
     (startOfLocalDay(new Date()) - startOfLocalDay(date)) / 86_400_000,
   );
-  if (days <= 0) return formatTime(value);
-  if (days === 1) return "Ayer";
-  return `Hace ${days} dias`;
+  if (days <= 0) return clock;
+  if (days === 1) return clock ? `Ayer ${clock}` : "Ayer";
+  return clock ? `Hace ${days} dias ${clock}` : `Hace ${days} dias`;
 }
 
 export function MobileConversationList({
@@ -163,6 +176,16 @@ export function MobileConversationList({
       : inboxVisible;
     return sortConversationsUnreadFirst(filtered);
   }, [conversations, query]);
+
+  const prefetchKey = visible
+    .slice(0, PREFETCH_TOP_THREADS)
+    .map((item) => `${item.id}:${item.lastMessageAt ?? ""}`)
+    .join("|");
+
+  useEffect(() => {
+    if (!prefetchKey) return;
+    void prefetchTopThreads(visible);
+  }, [prefetchKey, visible]);
 
   const handleMessageCreated = useCallback(
     (payload: unknown) => {
@@ -518,13 +541,13 @@ export function MobileConversationList({
                         </p>
                         <span
                           className={cx(
-                            "shrink-0 text-[11px]",
+                            "shrink-0 tabular-nums text-[11px]",
                             unread
                               ? "font-semibold text-slate-900"
                               : "text-slate-500",
                           )}
                         >
-                          {listTime(conversation.lastMessageAt)}
+                          {listTime(conversation)}
                         </span>
                       </div>
                       <div className="mt-0.5 flex items-center gap-2">
