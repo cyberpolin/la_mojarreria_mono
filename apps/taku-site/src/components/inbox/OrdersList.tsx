@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ConversationAvatar } from "./ConversationAvatar";
+import { OrderDetailPanel } from "./OrderDetailPanel";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { cx, formatTime } from "./helpers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
@@ -30,9 +31,11 @@ function matchesQuery(order: DeliveryOrder, query: string) {
 
 function OrderRow({
   order,
+  onOpen,
   onMenu,
 }: {
   order: DeliveryOrder;
+  onOpen: (order: DeliveryOrder) => void;
   onMenu: (order: DeliveryOrder) => void;
 }) {
   const driverPhones = useKnownDriverPhones();
@@ -43,7 +46,11 @@ function OrderRow({
 
   return (
     <div className="flex w-full items-stretch border-b border-slate-100 bg-white">
-      <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
+      <button
+        type="button"
+        onClick={() => onOpen(order)}
+        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+      >
         <ConversationAvatar
           label={label}
           isDriver={isDriverInList(driverPhones, order.assignedDriver?.phone)}
@@ -75,7 +82,7 @@ function OrderRow({
             {closed ? "Cerrado" : "Abierto"}
           </p>
         </div>
-      </div>
+      </button>
       {closed ? null : (
         <button
           type="button"
@@ -93,6 +100,7 @@ function OrderRow({
 export function OrdersList({ query = "" }: { query?: string }) {
   const orders = useDeliveryOrders();
   const [menuOrder, setMenuOrder] = useState<DeliveryOrder | null>(null);
+  const [openOrder, setOpenOrder] = useState<DeliveryOrder | null>(null);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return orders.filter((order) => matchesQuery(order, needle));
@@ -108,8 +116,19 @@ export function OrdersList({ query = "" }: { query?: string }) {
         </p>
       ) : null}
       {visible.map((order) => (
-        <OrderRow key={order.id} order={order} onMenu={setMenuOrder} />
+        <OrderRow
+          key={order.id}
+          order={order}
+          onOpen={setOpenOrder}
+          onMenu={setMenuOrder}
+        />
       ))}
+      {openOrder ? (
+        <OrderDetailPanel
+          order={openOrder}
+          onClose={() => setOpenOrder(null)}
+        />
+      ) : null}
       {menuOrder ? (
         <MobileContextMenu
           title={menuOrder.customerPhone || "Pedido"}
