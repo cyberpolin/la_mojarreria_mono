@@ -1,5 +1,10 @@
-import { createConversation, sendConversationMessage } from "./api";
+import {
+  createConversation,
+  fetchConversation,
+  sendConversationMessage,
+} from "./api";
 import { rememberDriverPhone } from "./drivers";
+import { digitsPhone, isGroupConversation } from "./helpers";
 import {
   customerAssignmentMessage,
   driverAssignmentMessage,
@@ -13,56 +18,85 @@ import {
   SEND_CUSTOMER_ASSIGNMENT_MESSAGE,
   SEND_DRIVER_ASSIGNMENT_MESSAGE,
 } from "./raiseOrder";
+import type { InboxConversation } from "./types";
 
-async function sendToPhone(params: {
+async function sendAndConfirm(conversationId: string, body: string) {
+  const message = await sendConversationMessage(conversationId, body);
+  if (message.status === "failed") {
+    throw new Error("WhatsApp no pudo entregar el mensaje.");
+  }
+  return message;
+}
+
+async function openDirectChat(params: {
   phone: string;
-  body: string;
   name?: string | null;
-  conversationId?: string | null;
   whatsappAccountId?: string | null;
 }) {
-  if (params.conversationId) {
-    try {
-      return await sendConversationMessage(params.conversationId, params.body);
-    } catch {
-      // Fall through and open/create the chat by phone.
-    }
-  }
   const conversation = await createConversation({
     phoneNumber: params.phone,
     name: params.name ?? undefined,
     whatsappAccountId: params.whatsappAccountId ?? undefined,
   });
-  return sendConversationMessage(conversation.id, params.body);
+  if (isGroupConversation(conversation)) {
+    throw new Error("No se pudo abrir un chat directo.");
+  }
+  return conversation;
 }
 
-export async function sendAssignmentNotifications(order: DeliveryOrder) {
+async function resolveCustomerConversation(order: DeliveryOrder) {
+  const phone = digitsPhone(order.customerPhone ?? "");
   const accountId = order.whatsappAccountId ?? undefined;
-  const customerPhone = order.customerPhone?.trim() ?? "";
-  const driverPhone = order.assignedDriver?.phone?.trim() ?? "";
 
-  if (SEND_CUSTOMER_ASSIGNMENT_MESSAGE) {
-    if (!customerPhone) {
-      throw new Error("El pedido no tiene el telefono del cliente.");
-    }
-    await sendToPhone({
-      phone: customerPhone,
-      body: customerAssignmentMessage(order),
-      conversationId: order.customerConversationId,
+  if (phone) {
+    return openDirectChat({
+      phone,
       whatsappAccountId: accountId,
     });
   }
 
-  if (SEND_DRIVER_ASSIGNMENT_MESSAGE) {
-    if (!driverPhone) {
-      throw new Error("El pedido no tiene el telefono del repartidor.");
+  if (order.customerConversationId) {
+    const existing = await fetchConversation(order.customerConversationId);
+    if (!isGroupConversation(existing)) {
+      const existingPhone = digitsPhone(existing.contact?.phoneNumber ?? "");
+      if (existingPhone) {
+        return openDirectChat({
+          phone: existingPhone,
+          name: existing.contact?.name,
+          whatsappAccountId: accountId ?? existing.whatsappAccount?.id,
+        });
+      }
+      return existing;
     }
-    await sendToPhone({
-      phone: driverPhone,
-      name: order.assignedDriver?.name,
-      body: driverAssignmentMessage(order),
-      whatsappAccountId: accountId,
-    });
+  }
+
+  throw new Error("El pedido no tiene el telefono del cliente.");
+}
+
+async function sendDriverAssignment(order: DeliveryOrder, body: string) {
+  const driverPhone = digitsPhone(order.assignedDriver?.phone ?? "");
+  if (!driverPhone) {
+    throw new Error("El pedido no tiene el telefono del repartidor.");
+  }
+  const conversation = await openDirectChat({
+    phone: driverPhone,
+    name: order.assignedDriver?.name,
+    whatsappAccountId: order.whatsappAccountId,
+  });
+  await sendAndConfirm(conversation.id, body);
+}
+
+export async function sendAssignmentNotifications(order: DeliveryOrder) {
+  const customerBody = customerAssignmentMessage(order);
+  const driverBody = driverAssignmentMessage(order);
+
+  if (SEND_CUSTOMER_ASSIGNMENT_MESSAGE) {
+    const conversation = await resolveCustomerConversation(order);
+    await sendAndConfirm(conversation.id, customerBody);
+  }
+
+  if (SEND_DRIVER_ASSIGNMENT_MESSAGE) {
+    await sendDriverAssignment(order, driverBody);
   }
 
   return addOrderToToday(order.id) ?? order;
@@ -99,4 +133,23 @@ export async function completeOrderAssignment(params: {
       order: assigned,
     };
   }
+}
+
+export function customerFromConversation(
+  conversation: InboxConversation | null,
+  message: { senderPhone?: string | null } | null,
+  fallbackPhone?: string | null,
+) {
+  if (conversation && !isGroupConversation(conversation)) {
+    return {
+      customerPhone: digitsPhone(
+        conversation.contact?.phoneNumber ?? fallbackPhone ?? "",
+      ),
+      customerConversationId: conversation.id,
+    };
+  }
+  return {
+    customerPhone: digitsPhone(message?.senderPhone ?? fallbackPhone ?? ""),
+    customerConversationId: null as string | null,
+  };
 }

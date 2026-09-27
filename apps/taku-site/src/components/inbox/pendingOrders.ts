@@ -1,3 +1,4 @@
+import { digitsPhone } from "./helpers";
 import type { RaiseOrderTotals } from "./raiseOrder";
 
 export const ORDERS_STORAGE_KEY = "MOJARRERIA_TAKU_DELIVERY_ORDERS";
@@ -107,7 +108,7 @@ export function savePendingOrder(input: {
     payment: input.payment,
     latitude: input.latitude ?? null,
     longitude: input.longitude ?? null,
-    customerPhone: input.customerPhone ?? null,
+    customerPhone: digitsPhone(input.customerPhone ?? "") || null,
     customerConversationId: input.customerConversationId ?? null,
     whatsappAccountId: input.whatsappAccountId ?? null,
     status: "open",

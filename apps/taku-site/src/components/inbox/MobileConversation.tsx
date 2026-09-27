@@ -59,16 +59,16 @@ function MobileBubble({
   clickable,
   onOpen,
   account,
-  customerPhone,
-  customerConversationId,
+  conversation,
+  fallbackPhone,
   isDriverSender = false,
 }: {
   message: InboxMessage;
   clickable?: boolean;
   onOpen?: () => void;
   account?: InboxWhatsAppAccount | null;
-  customerPhone?: string | null;
-  customerConversationId?: string | null;
+  conversation?: InboxConversation | null;
+  fallbackPhone?: string | null;
   isDriverSender?: boolean;
 }) {
   const isInbound = message.direction === "inbound";
@@ -124,8 +124,8 @@ function MobileBubble({
           message={message}
           inverted={!isInbound && !isBot && !failed}
           account={account}
-          customerPhone={customerPhone}
-          customerConversationId={customerConversationId}
+          conversation={conversation}
+          fallbackPhone={fallbackPhone}
         />
       ) : (
         <LinkedMessageText
@@ -566,18 +566,8 @@ export function MobileConversation({
               <MobileBubble
                 message={message}
                 account={conversation?.whatsappAccount ?? account}
-                customerPhone={
-                  isGroupConversation(conversation)
-                    ? digitsPhone(message.senderPhone ?? "")
-                    : digitsPhone(
-                        conversation?.contact?.phoneNumber ?? lockedPhone,
-                      )
-                }
-                customerConversationId={
-                  isGroupConversation(conversation)
-                    ? null
-                    : (conversation?.id ?? null)
-                }
+                conversation={conversation}
+                fallbackPhone={lockedPhone}
                 isDriverSender={isDriverInList(
                   driverPhones,
                   message.senderPhone,

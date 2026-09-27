@@ -103,6 +103,13 @@ export function RaiseOrderModal({
     setPayment(nextPayment);
     setSubmitting(true);
     setError(null);
+    if (!customerPhone?.trim()) {
+      setSubmitting(false);
+      setError(
+        "Este pedido no tiene el telefono del cliente. Abrelo desde el chat del cliente.",
+      );
+      return;
+    }
     savePendingOrder({
       totals,
       payment: nextPayment,

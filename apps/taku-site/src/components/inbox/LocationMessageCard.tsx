@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { RaiseOrderModal } from "./RaiseOrderModal";
 import { cx } from "./helpers";
-import type { InboxMessage, InboxWhatsAppAccount } from "./types";
+import { customerFromConversation } from "./assignDeliveryOrder";
+import type {
+  InboxConversation,
+  InboxMessage,
+  InboxWhatsAppAccount,
+} from "./types";
 
 export function isLocationMessage(message: {
   type?: string;
@@ -48,15 +53,20 @@ export function LocationMessageCard({
   message,
   inverted = false,
   account = null,
-  customerPhone = null,
-  customerConversationId = null,
+  conversation = null,
+  fallbackPhone = null,
 }: {
   message: InboxMessage;
   inverted?: boolean;
   account?: InboxWhatsAppAccount | null;
-  customerPhone?: string | null;
-  customerConversationId?: string | null;
+  conversation?: InboxConversation | null;
+  fallbackPhone?: string | null;
 }) {
+  const customer = customerFromConversation(
+    conversation,
+    message,
+    fallbackPhone,
+  );
   const href = locationMapsUrl(message);
   const [orderOpen, setOrderOpen] = useState(false);
   const detail =
@@ -124,10 +134,10 @@ export function LocationMessageCard({
       </div>
       {orderOpen ? (
         <RaiseOrderModal
-          account={account}
+          account={account ?? conversation?.whatsappAccount ?? null}
           message={message}
-          customerPhone={customerPhone}
-          customerConversationId={customerConversationId}
+          customerPhone={customer.customerPhone}
+          customerConversationId={customer.customerConversationId}
           onClose={() => setOrderOpen(false)}
         />
       ) : null}

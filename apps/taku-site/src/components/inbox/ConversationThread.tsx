@@ -34,16 +34,14 @@ function MessageBubble({
   clickable,
   onOpen,
   account,
-  customerPhone,
-  customerConversationId,
+  conversation,
   isDriverSender = false,
 }: {
   message: InboxMessage;
   clickable?: boolean;
   onOpen?: () => void;
   account?: InboxConversation["whatsappAccount"];
-  customerPhone?: string | null;
-  customerConversationId?: string | null;
+  conversation?: InboxConversation | null;
   isDriverSender?: boolean;
 }) {
   const isInbound = message.direction === "inbound";
@@ -111,8 +109,7 @@ function MessageBubble({
             message={message}
             inverted={!isInbound && !isBot && !failed}
             account={account}
-            customerPhone={customerPhone}
-            customerConversationId={customerConversationId}
+            conversation={conversation}
           />
         </div>
       ) : (
@@ -288,14 +285,7 @@ export function ConversationThread({
               <MessageBubble
                 message={message}
                 account={account}
-                customerPhone={
-                  isGroup
-                    ? digitsPhone(message.senderPhone ?? "")
-                    : digitsPhone(conversation?.contact?.phoneNumber ?? "")
-                }
-                customerConversationId={
-                  isGroup ? null : (conversation?.id ?? null)
-                }
+                conversation={conversation}
                 isDriverSender={isDriverInList(
                   driverPhones,
                   message.senderPhone,
