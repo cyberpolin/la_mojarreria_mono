@@ -81,16 +81,25 @@ export function Input({
   value,
   onChange,
   type = "text",
+  min,
+  step,
+  inputMode,
 }: {
   placeholder: string;
   readOnly?: boolean;
   value?: string;
   onChange?: (value: string) => void;
   type?: string;
+  min?: number;
+  step?: string | number;
+  inputMode?: "decimal" | "numeric" | "text";
 }) {
   return (
     <input
       type={type}
+      min={min}
+      step={step}
+      inputMode={inputMode}
       readOnly={readOnly}
       placeholder={placeholder}
       value={value}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { RaiseOrderModal } from "./RaiseOrderModal";
 import { cx } from "./helpers";
 import type { InboxMessage } from "./types";
 
@@ -51,7 +52,7 @@ export function LocationMessageCard({
   inverted?: boolean;
 }) {
   const href = locationMapsUrl(message);
-  const [orderHint, setOrderHint] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
   const detail =
     message.body?.trim() && message.body.trim() !== "Ubicacion"
       ? message.body.trim()
@@ -103,7 +104,7 @@ export function LocationMessageCard({
           type="button"
           onClick={(event) => {
             event.stopPropagation();
-            setOrderHint(true);
+            setOrderOpen(true);
           }}
           className={cx(
             "inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-semibold",
@@ -114,17 +115,10 @@ export function LocationMessageCard({
         >
           Levantar pedido
         </button>
-        {orderHint ? (
-          <p
-            className={cx(
-              "text-center text-[11px]",
-              inverted ? "text-white/70" : "text-slate-500",
-            )}
-          >
-            Proximamente
-          </p>
-        ) : null}
       </div>
+      {orderOpen ? (
+        <RaiseOrderModal onClose={() => setOrderOpen(false)} />
+      ) : null}
     </div>
   );
 }
