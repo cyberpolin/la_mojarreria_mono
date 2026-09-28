@@ -42,6 +42,7 @@ import type {
 } from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
+import { WeeklyReportGate } from "./useWeeklyReportGate";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const POLL_INTERVAL_MS = 6000;
@@ -694,6 +695,7 @@ export function ConversationsInbox({
 
   return (
     <div className="grid gap-4">
+      <WeeklyReportGate />
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">

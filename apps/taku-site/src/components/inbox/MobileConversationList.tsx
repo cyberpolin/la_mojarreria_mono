@@ -52,6 +52,7 @@ import {
   hasOrderReturn,
   inboxListReturnPath,
 } from "./inboxReturn";
+import { openWeeklyReport } from "./weeklyReport";
 import {
   MobileAuthGate,
   MobileContextMenu,
@@ -765,6 +766,10 @@ export function MobileConversationList({
                     onSelect: () => setListTab("pedidos"),
                   },
                   {
+                    label: "Reporte de la semana",
+                    onSelect: () => openWeeklyReport(),
+                  },
+                  {
                     label: "Bloquear",
                     danger: true,
                     onSelect: () => {
@@ -785,6 +790,10 @@ export function MobileConversationList({
                   {
                     label: "Pedidos del dia",
                     onSelect: () => setListTab("pedidos"),
+                  },
+                  {
+                    label: "Reporte de la semana",
+                    onSelect: () => openWeeklyReport(),
                   },
                   {
                     label: "ver bloqueados",

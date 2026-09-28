@@ -28,6 +28,7 @@ import {
   upsertMessage,
 } from "./helpers";
 import { inboxListReturnPath } from "./inboxReturn";
+import { openWeeklyReport } from "./weeklyReport";
 import type {
   InboxConversation,
   InboxMessage,
@@ -698,6 +699,10 @@ export function MobileConversation({
             {
               label: "Pedidos del dia",
               onSelect: () => setDailyOrdersOpen(true),
+            },
+            {
+              label: "Reporte de la semana",
+              onSelect: () => openWeeklyReport(),
             },
             ...(conversation && !isGroupConversation(conversation)
               ? [

@@ -15,6 +15,7 @@ import { clearReturnOrder, hasOrderReturn } from "./inboxReturn";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
+import { openWeeklyReport } from "./weeklyReport";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import type {
@@ -136,6 +137,13 @@ export function ConversationList({
             className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 hover:border-slate-950"
           >
             Pedidos del dia
+          </button>
+          <button
+            type="button"
+            onClick={() => openWeeklyReport()}
+            className="col-span-2 min-h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-950 hover:border-slate-950"
+          >
+            Reporte de la semana
           </button>
         </div>
       </div>

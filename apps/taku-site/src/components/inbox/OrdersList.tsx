@@ -25,6 +25,7 @@ import {
 } from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
 import { useDeliveryOrders } from "./useDeliveryOrders";
+import { openWeeklyReport } from "./weeklyReport";
 
 function ClockIcon({ className }: { className?: string }) {
   return (
@@ -243,6 +244,14 @@ export function OrdersList({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+      <button
+        type="button"
+        onClick={() => openWeeklyReport()}
+        className="flex min-h-11 w-full items-center justify-between border-b border-slate-100 px-4 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50"
+      >
+        Reporte de la semana
+        <span className="text-slate-400">›</span>
+      </button>
       {visible.length === 0 ? (
         <p className="p-4 text-sm text-slate-500">
           {query.trim()

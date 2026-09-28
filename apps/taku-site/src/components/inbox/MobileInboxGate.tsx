@@ -10,6 +10,7 @@ import { MobileConversation } from "./MobileConversation";
 import { MobileConversationList } from "./MobileConversationList";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
+import { WeeklyReportGate } from "./useWeeklyReportGate";
 import type { InboxWhatsAppAccount } from "./types";
 
 function useAssignedAccounts() {
@@ -92,6 +93,7 @@ export function MobileInboxApp() {
 
   return (
     <MobilePhoneFrame>
+      <WeeklyReportGate />
       {loading ? <GateMessage>Cargando...</GateMessage> : null}
       {error ? <GateMessage>{error}</GateMessage> : null}
       {!loading && !error && accounts.length === 0 ? (
