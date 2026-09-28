@@ -52,12 +52,7 @@ import {
   hasOrderReturn,
   inboxListReturnPath,
 } from "./inboxReturn";
-import { WeeklyReportView } from "./WeeklyReportView";
-import {
-  WEEKLY_REPORT_OPEN_EVENT,
-  ensureWeeklyReport,
-  openWeeklyReport,
-} from "./weeklyReport";
+import { ensureWeeklyReport, openWeeklyReport } from "./weeklyReport";
 import {
   MobileAuthGate,
   MobileContextMenu,
@@ -146,10 +141,7 @@ export function MobileConversationList({
     }
   }, [searchParams, threadSlot]);
   useEffect(() => {
-    if (ensureWeeklyReport().justGenerated) setListTab("reporte");
-    const onOpen = () => setListTab("reporte");
-    window.addEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
-    return () => window.removeEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
+    if (ensureWeeklyReport().justGenerated) setListTab("pedidos");
   }, []);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
@@ -530,16 +522,26 @@ export function MobileConversationList({
                 className="min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
               />
             </div>
-            <InboxListTabs tone="dark" value={listTab} onChange={setListTab} />
+            <InboxListTabs
+              tone="dark"
+              value={listTab}
+              onChange={(tab) => {
+                if (tab === "reporte") {
+                  setListTab("pedidos");
+                  openWeeklyReport();
+                  return;
+                }
+                setListTab(tab);
+              }}
+            />
           </div>
           {listTab === "pedidos" ? (
             <OrdersList query={query} detailsEnabled={!threadSlot} />
           ) : null}
-          {listTab === "reporte" ? <WeeklyReportView /> : null}
           <div
             className={cx(
               "min-h-0 flex-1 overflow-y-auto bg-white",
-              (listTab === "pedidos" || listTab === "reporte") && "hidden",
+              listTab === "pedidos" && "hidden",
             )}
           >
             {loading ? (

@@ -25,7 +25,13 @@ import {
 } from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
 import { useDeliveryOrders } from "./useDeliveryOrders";
-import { WeeklyReportView } from "./WeeklyReportView";
+import {
+  currentWeekStart,
+  formatWeekRange,
+  groupOrdersByWeek,
+  openWeeklyReport,
+  withCurrentWeek,
+} from "./weeklyReport";
 
 function ClockIcon({ className }: { className?: string }) {
   return (
@@ -184,6 +190,38 @@ function OrderRow({
   );
 }
 
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden="true"
+      className={cx(
+        "h-4 w-4 shrink-0 text-slate-500 transition-transform",
+        open && "rotate-90",
+      )}
+    >
+      <path
+        d="M7 4.5L13 10l-6 5.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function initialOpenWeeks(
+  weeks: { weekStart: string; orders: DeliveryOrder[] }[],
+  thisWeek: string,
+) {
+  const open = new Set([thisWeek]);
+  const latestWithOrders = weeks.find((week) => week.orders.length > 0);
+  if (latestWithOrders) open.add(latestWithOrders.weekStart);
+  return open;
+}
+
 export function OrdersList({
   query = "",
   detailsEnabled = true,
@@ -197,10 +235,17 @@ export function OrdersList({
   const searchParams = useSearchParams();
   const [menuOrder, setMenuOrder] = useState<DeliveryOrder | null>(null);
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+  const [thisWeek] = useState(() => currentWeekStart());
+  const [openWeeks, setOpenWeeks] = useState<Set<string> | null>(null);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return orders.filter((order) => matchesQuery(order, needle));
   }, [orders, query]);
+  const weeks = useMemo(() => {
+    const grouped = groupOrdersByWeek(visible);
+    return query.trim() ? grouped : withCurrentWeek(grouped);
+  }, [visible, query]);
+  const resolvedOpenWeeks = openWeeks ?? initialOpenWeeks(weeks, thisWeek);
   const now = useNow(visible.some(hasLiveCountdown));
   const openOrder = detailsEnabled
     ? (orders.find((order) => order.id === openOrderId) ?? null)
@@ -242,28 +287,82 @@ export function OrdersList({
     if (id) setOpenOrderId(id);
   }, [detailsEnabled, searchParams]);
 
+  function toggleWeek(weekStart: string) {
+    setOpenWeeks((current) => {
+      const next = new Set(current ?? initialOpenWeeks(weeks, thisWeek));
+      if (next.has(weekStart)) next.delete(weekStart);
+      else next.add(weekStart);
+      return next;
+    });
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-white">
-      <WeeklyReportView embedded />
-      <p className="px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-        Todos los pedidos
-      </p>
-      {visible.length === 0 ? (
+      {weeks.length === 0 ? (
         <p className="p-4 text-sm text-slate-500">
           {query.trim()
             ? "No hay pedidos para esa busqueda."
             : "No hay pedidos."}
         </p>
-      ) : null}
-      {visible.map((order) => (
-        <OrderRow
-          key={order.id}
-          order={order}
-          now={now}
-          onOpen={openDetail}
-          onMenu={setMenuOrder}
-        />
-      ))}
+      ) : (
+        weeks.map((week) => {
+          const open = resolvedOpenWeeks.has(week.weekStart);
+          const total = week.orders.reduce(
+            (sum, order) => sum + order.total,
+            0,
+          );
+          const current = week.weekStart === thisWeek;
+          return (
+            <section key={week.weekStart}>
+              <div className="flex items-stretch border-b border-slate-200 bg-slate-50">
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => toggleWeek(week.weekStart)}
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
+                >
+                  <Chevron open={open} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {formatWeekRange(week.weekStart, week.weekEnd)}
+                      {current ? " · Esta semana" : ""}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      {week.orders.length}{" "}
+                      {week.orders.length === 1 ? "pedido" : "pedidos"}
+                      {week.orders.length > 0 ? ` · ${formatMxn(total)}` : ""}
+                    </p>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openWeeklyReport(week.weekStart)}
+                  className="min-h-11 shrink-0 px-4 text-sm font-semibold text-slate-950 hover:bg-slate-100"
+                >
+                  Cierre
+                </button>
+              </div>
+              {open ? (
+                week.orders.length === 0 ? (
+                  <p className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">
+                    No hay pedidos en esta semana.
+                  </p>
+                ) : (
+                  week.orders.map((order) => (
+                    <OrderRow
+                      key={order.id}
+                      order={order}
+                      now={now}
+                      onOpen={openDetail}
+                      onMenu={setMenuOrder}
+                    />
+                  ))
+                )
+              ) : null}
+            </section>
+          );
+        })
+      )}
       {openOrder ? (
         <OrderDetailPanel
           order={openOrder}

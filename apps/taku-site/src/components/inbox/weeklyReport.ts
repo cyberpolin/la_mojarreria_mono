@@ -209,9 +209,52 @@ export function ensureWeeklyReport(now = new Date()) {
   };
 }
 
-export function openWeeklyReport() {
+export type WeekOrderGroup = {
+  weekStart: string;
+  weekEnd: string;
+  orders: DeliveryOrder[];
+};
+
+export function currentWeekStart(now = new Date()) {
+  return mondayOfWeek(todayOrderKey(now));
+}
+
+export function groupOrdersByWeek(orders: DeliveryOrder[]): WeekOrderGroup[] {
+  const groups = new Map<string, DeliveryOrder[]>();
+  for (const order of orders) {
+    const weekStart = mondayOfWeek(orderWeekDayKey(order));
+    const list = groups.get(weekStart) ?? [];
+    list.push(order);
+    groups.set(weekStart, list);
+  }
+  return [...groups.entries()]
+    .sort((left, right) => right[0].localeCompare(left[0]))
+    .map(([weekStart, items]) => ({
+      weekStart,
+      weekEnd: addDayKey(weekStart, 6),
+      orders: items,
+    }));
+}
+
+export function withCurrentWeek(
+  groups: WeekOrderGroup[],
+  now = new Date(),
+): WeekOrderGroup[] {
+  const weekStart = currentWeekStart(now);
+  if (groups.some((group) => group.weekStart === weekStart)) return groups;
+  return [
+    { weekStart, weekEnd: addDayKey(weekStart, 6), orders: [] },
+    ...groups,
+  ];
+}
+
+export function openWeeklyReport(weekStart?: string) {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(WEEKLY_REPORT_OPEN_EVENT));
+  window.dispatchEvent(
+    new CustomEvent(WEEKLY_REPORT_OPEN_EVENT, {
+      detail: { weekStart: weekStart ?? currentWeekStart() },
+    }),
+  );
 }
 
 export function formatWeekRange(weekStart: string, weekEnd: string) {

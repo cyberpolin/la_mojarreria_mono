@@ -15,12 +15,7 @@ import { clearReturnOrder, hasOrderReturn } from "./inboxReturn";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
-import { WeeklyReportView } from "./WeeklyReportView";
-import {
-  WEEKLY_REPORT_OPEN_EVENT,
-  ensureWeeklyReport,
-  openWeeklyReport,
-} from "./weeklyReport";
+import { ensureWeeklyReport, openWeeklyReport } from "./weeklyReport";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import type {
@@ -89,10 +84,7 @@ export function ConversationList({
     if (hasOrderReturn(searchParams)) setListTab("pedidos");
   }, [searchParams]);
   useEffect(() => {
-    if (ensureWeeklyReport().justGenerated) setListTab("reporte");
-    const onOpen = () => setListTab("reporte");
-    window.addEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
-    return () => window.removeEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
+    if (ensureWeeklyReport().justGenerated) setListTab("pedidos");
   }, []);
 
   return (
@@ -121,7 +113,17 @@ export function ConversationList({
           placeholder="Buscar por nombre, telefono o mensaje..."
           className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
         />
-        <InboxListTabs value={listTab} onChange={setListTab} />
+        <InboxListTabs
+          value={listTab}
+          onChange={(tab) => {
+            if (tab === "reporte") {
+              setListTab("pedidos");
+              openWeeklyReport();
+              return;
+            }
+            setListTab(tab);
+          }}
+        />
         <select
           value={accountId}
           onChange={(event) => onAccountChange(event.target.value)}
@@ -160,11 +162,10 @@ export function ConversationList({
       </div>
 
       {listTab === "pedidos" ? <OrdersList query={search} /> : null}
-      {listTab === "reporte" ? <WeeklyReportView /> : null}
       <div
         className={cx(
           "min-h-0 flex-1 overflow-y-auto",
-          (listTab === "pedidos" || listTab === "reporte") && "hidden",
+          listTab === "pedidos" && "hidden",
         )}
       >
         {error ? (
