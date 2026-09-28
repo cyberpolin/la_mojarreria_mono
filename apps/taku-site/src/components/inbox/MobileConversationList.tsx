@@ -52,7 +52,8 @@ import {
   hasOrderReturn,
   inboxListReturnPath,
 } from "./inboxReturn";
-import { ensureWeeklyReport, openWeeklyReport } from "./weeklyReport";
+import { inboxViewMenuItems } from "./inboxView";
+import { ensureWeeklyReport } from "./weeklyReport";
 import {
   MobileAuthGate,
   MobileContextMenu,
@@ -522,18 +523,7 @@ export function MobileConversationList({
                 className="min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
               />
             </div>
-            <InboxListTabs
-              tone="dark"
-              value={listTab}
-              onChange={(tab) => {
-                if (tab === "reporte") {
-                  setListTab("pedidos");
-                  openWeeklyReport();
-                  return;
-                }
-                setListTab(tab);
-              }}
-            />
+            <InboxListTabs tone="dark" value={listTab} onChange={setListTab} />
           </div>
           {listTab === "pedidos" ? (
             <OrdersList query={query} detailsEnabled={!threadSlot} />
@@ -779,10 +769,7 @@ export function MobileConversationList({
                     label: "Pedidos del dia",
                     onSelect: () => setListTab("pedidos"),
                   },
-                  {
-                    label: "Reporte de la semana",
-                    onSelect: () => openWeeklyReport(),
-                  },
+                  ...inboxViewMenuItems(),
                   {
                     label: "Bloquear",
                     danger: true,
@@ -805,10 +792,7 @@ export function MobileConversationList({
                     label: "Pedidos del dia",
                     onSelect: () => setListTab("pedidos"),
                   },
-                  {
-                    label: "Reporte de la semana",
-                    onSelect: () => openWeeklyReport(),
-                  },
+                  ...inboxViewMenuItems(),
                   {
                     label: "ver bloqueados",
                     onSelect: () => {
@@ -826,6 +810,7 @@ export function MobileConversationList({
         <MobileContextMenu
           title={conversationTitle(rowMenu)}
           items={[
+            ...inboxViewMenuItems(),
             ...(isGroupConversation(rowMenu)
               ? [
                   {

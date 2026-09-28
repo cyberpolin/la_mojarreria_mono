@@ -310,6 +310,21 @@ export type AdminAuditLog = {
   createdAt: string;
 };
 
+export type DayClose = {
+  id: string;
+  workspaceId: string;
+  dayKey: string;
+  efectivo: number;
+  transferencia: number;
+  total: number;
+  orderCount: number;
+  mojarras: number;
+  empanadas: number;
+  closedByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type WeekClose = {
   id: string;
   workspaceId: string;
@@ -365,6 +380,7 @@ export type Database = {
   paymentIntents: PaymentIntent[];
   preferences: Preferences[];
   weekCloses: WeekClose[];
+  dayCloses: DayClose[];
   auditLogs: AuditLog[];
   refreshTokens: Array<{
     id: string;

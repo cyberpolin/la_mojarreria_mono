@@ -41,7 +41,9 @@ import {
 } from "./serializers.js";
 import { botClient } from "./services/botClient.js";
 import {
+  canCloseCashDay,
   computeWeekCloseTotals,
+  isDateKey,
   isMondayDateKey,
   isPastWeek,
   weekEndFromStart,
@@ -76,6 +78,7 @@ import type {
   TakuBotStatus,
   WhatsAppAccount,
   WhatsAppStatus,
+  DayClose,
   WeekClose,
   WorkspacePlan,
 } from "./types.js";
@@ -6504,6 +6507,129 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         entityType: "week_close",
         entityId: item.id,
         metadata: { weekStart },
+      });
+      ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
+    }),
+  );
+
+  router.get(
+    "/day-closes",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.dayCloses
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .sort((left, right) => right.dayKey.localeCompare(left.dayKey));
+      ok(res, rows);
+    }),
+  );
+
+  router.get(
+    "/day-closes/:dayKey",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const dayKey = requireString(req.params.dayKey, "dayKey");
+      const database = await store.read();
+      const item = database.dayCloses.find(
+        (found) =>
+          found.workspaceId === context.workspace.id && found.dayKey === dayKey,
+      );
+      if (!item)
+        throw new ApiError({
+          status: 404,
+          code: "DAY_CLOSE_NOT_FOUND",
+          message: "Cierre de caja no encontrado.",
+        });
+      ok(res, item);
+    }),
+  );
+
+  router.put(
+    "/day-closes/:dayKey",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const dayKey = requireString(req.params.dayKey, "dayKey");
+      if (!isDateKey(dayKey)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "El dia es invalido.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      if (!canCloseCashDay(dayKey, new Date(), timeZone)) {
+        throw new ApiError({
+          status: 400,
+          code: "DAY_STILL_OPEN",
+          message: "El cierre de caja se puede hacer despues de las 5:00 pm.",
+        });
+      }
+      const efectivo = requireNonNegativeNumber(req.body?.efectivo, "efectivo");
+      const transferencia = requireNonNegativeNumber(
+        req.body?.transferencia,
+        "transferencia",
+      );
+      const total = requireNonNegativeNumber(req.body?.total, "total");
+      const orderCount = requireNonNegativeNumber(
+        req.body?.orderCount,
+        "orderCount",
+        true,
+      );
+      const mojarras = requireNonNegativeNumber(
+        req.body?.mojarras,
+        "mojarras",
+        true,
+      );
+      const empanadas = requireNonNegativeNumber(
+        req.body?.empanadas,
+        "empanadas",
+        true,
+      );
+      const item = await store.update((database) => {
+        const current = database.dayCloses.find(
+          (found) =>
+            found.workspaceId === context.workspace.id &&
+            found.dayKey === dayKey,
+        );
+        const stamp = now();
+        if (current) {
+          current.efectivo = efectivo;
+          current.transferencia = transferencia;
+          current.total = total;
+          current.orderCount = orderCount;
+          current.mojarras = mojarras;
+          current.empanadas = empanadas;
+          current.closedByUserId = context.user.id;
+          current.updatedAt = stamp;
+          return current;
+        }
+        const created: DayClose = {
+          id: id("dayclose"),
+          workspaceId: context.workspace.id,
+          dayKey,
+          efectivo,
+          transferencia,
+          total,
+          orderCount,
+          mojarras,
+          empanadas,
+          closedByUserId: context.user.id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
+        database.dayCloses.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "day_close.saved",
+        entityType: "day_close",
+        entityId: item.id,
+        metadata: { dayKey },
       });
       ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
     }),

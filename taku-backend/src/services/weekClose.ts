@@ -35,6 +35,29 @@ export function weekEndFromStart(weekStart: string) {
   return addDateKey(weekStart, 6);
 }
 
+export function hourInZone(now: Date, timeZone: string) {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hour: "numeric",
+      hourCycle: "h23",
+    }).format(now),
+  );
+  return Number.isFinite(hour) ? hour : now.getHours();
+}
+
+export function isDateKey(dayKey: string) {
+  return DATE_KEY.test(dayKey);
+}
+
+export function canCloseCashDay(dayKey: string, now: Date, timeZone: string) {
+  if (!isDateKey(dayKey)) return false;
+  const today = todayDateKey(now, timeZone);
+  if (dayKey < today) return true;
+  if (dayKey > today) return false;
+  return hourInZone(now, timeZone) >= 17;
+}
+
 export function isPastWeek(weekStart: string, now: Date, timeZone: string) {
   const weekEnd = weekEndFromStart(weekStart);
   if (!weekEnd) return false;

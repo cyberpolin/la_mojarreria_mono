@@ -18,12 +18,22 @@ import {
 } from "./inboxReturn";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import {
+  canCloseDay,
+  formatDayLabel,
+  groupOrdersByDay,
+  openDailyCashClose,
+  withToday,
+} from "./dayClose";
+import { useInboxView } from "./inboxView";
+import {
   closeDeliveryOrder,
   orderNumber,
   orderStatus,
+  todayOrderKey,
   type DeliveryOrder,
 } from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
+import { useDayCloses } from "./useDayCloses";
 import { useDeliveryOrders } from "./useDeliveryOrders";
 import { useWeekCloses } from "./useWeekCloses";
 import {
@@ -214,13 +224,13 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-function initialOpenWeeks(
-  weeks: { weekStart: string; orders: DeliveryOrder[] }[],
-  thisWeek: string,
+function initialOpenKeys(
+  groups: { key: string; orders: DeliveryOrder[] }[],
+  currentKey: string,
 ) {
-  const open = new Set([thisWeek]);
-  const latestWithOrders = weeks.find((week) => week.orders.length > 0);
-  if (latestWithOrders) open.add(latestWithOrders.weekStart);
+  const open = new Set([currentKey]);
+  const latestWithOrders = groups.find((group) => group.orders.length > 0);
+  if (latestWithOrders) open.add(latestWithOrders.key);
   return open;
 }
 
@@ -232,14 +242,17 @@ export function OrdersList({
   detailsEnabled?: boolean;
 }) {
   const orders = useDeliveryOrders();
+  const view = useInboxView();
   const weekCloses = useWeekCloses();
+  const dayCloses = useDayCloses();
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const [menuOrder, setMenuOrder] = useState<DeliveryOrder | null>(null);
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const [thisWeek] = useState(() => currentWeekStart());
-  const [openWeeks, setOpenWeeks] = useState<Set<string> | null>(null);
+  const [today] = useState(() => todayOrderKey());
+  const [openGroups, setOpenGroups] = useState<Set<string> | null>(null);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return orders.filter((order) => matchesQuery(order, needle));
@@ -248,8 +261,21 @@ export function OrdersList({
     const grouped = groupOrdersByWeek(visible);
     return query.trim() ? grouped : withCurrentWeek(grouped);
   }, [visible, query]);
-  const resolvedOpenWeeks = openWeeks ?? initialOpenWeeks(weeks, thisWeek);
-  const now = useNow(visible.some(hasLiveCountdown));
+  const days = useMemo(() => {
+    const grouped = groupOrdersByDay(visible);
+    return query.trim() ? grouped : withToday(grouped);
+  }, [visible, query]);
+  const groupKeys =
+    view === "agent"
+      ? days.map((day) => ({ key: day.dayKey, orders: day.orders }))
+      : weeks.map((week) => ({ key: week.weekStart, orders: week.orders }));
+  const currentKey = view === "agent" ? today : thisWeek;
+  const resolvedOpen = openGroups ?? initialOpenKeys(groupKeys, currentKey);
+  const now = useNow(view === "agent" || visible.some(hasLiveCountdown));
+
+  useEffect(() => {
+    setOpenGroups(null);
+  }, [view]);
   const openOrder = detailsEnabled
     ? (orders.find((order) => order.id === openOrderId) ?? null)
     : null;
@@ -290,70 +316,109 @@ export function OrdersList({
     if (id) setOpenOrderId(id);
   }, [detailsEnabled, searchParams]);
 
-  function toggleWeek(weekStart: string) {
-    setOpenWeeks((current) => {
-      const next = new Set(current ?? initialOpenWeeks(weeks, thisWeek));
-      if (next.has(weekStart)) next.delete(weekStart);
-      else next.add(weekStart);
+  function toggleGroup(key: string) {
+    setOpenGroups((current) => {
+      const next = new Set(current ?? initialOpenKeys(groupKeys, currentKey));
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
+  const sections =
+    view === "agent"
+      ? days.map((day) => {
+          const total = day.orders.reduce((sum, order) => sum + order.total, 0);
+          return {
+            key: day.dayKey,
+            title: formatDayLabel(day.dayKey),
+            current: day.dayKey === today,
+            currentLabel: "Hoy",
+            empty: "No hay pedidos en este dia.",
+            orders: day.orders,
+            total,
+            action: canCloseDay(day.dayKey, new Date(now))
+              ? {
+                  label: dayCloses[day.dayKey] ? "Cerrada" : "Caja",
+                  onClick: () => openDailyCashClose(day.dayKey),
+                }
+              : null,
+          };
+        })
+      : weeks.map((week) => {
+          const total = week.orders.reduce(
+            (sum, order) => sum + order.total,
+            0,
+          );
+          return {
+            key: week.weekStart,
+            title: formatWeekRange(week.weekStart, week.weekEnd),
+            current: week.weekStart === thisWeek,
+            currentLabel: "Esta semana",
+            empty: "No hay pedidos en esta semana.",
+            orders: week.orders,
+            total,
+            action: canCloseWeek(week.weekStart)
+              ? {
+                  label: weekCloses[week.weekStart] ? "Cerrada" : "Cierre",
+                  onClick: () => openWeeklyReport(week.weekStart),
+                }
+              : null,
+          };
+        });
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-white">
-      {weeks.length === 0 ? (
+      {sections.length === 0 ? (
         <p className="p-4 text-sm text-slate-500">
           {query.trim()
             ? "No hay pedidos para esa busqueda."
             : "No hay pedidos."}
         </p>
       ) : (
-        weeks.map((week) => {
-          const open = resolvedOpenWeeks.has(week.weekStart);
-          const total = week.orders.reduce(
-            (sum, order) => sum + order.total,
-            0,
-          );
-          const current = week.weekStart === thisWeek;
+        sections.map((section) => {
+          const open = resolvedOpen.has(section.key);
           return (
-            <section key={week.weekStart}>
+            <section key={section.key}>
               <div className="flex items-stretch border-b border-slate-200 bg-slate-50">
                 <button
                   type="button"
                   aria-expanded={open}
-                  onClick={() => toggleWeek(week.weekStart)}
+                  onClick={() => toggleGroup(section.key)}
                   className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-100"
                 >
                   <Chevron open={open} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-950">
-                      {formatWeekRange(week.weekStart, week.weekEnd)}
-                      {current ? " · Esta semana" : ""}
+                    <p className="truncate text-sm font-semibold capitalize text-slate-950">
+                      {section.title}
+                      {section.current ? ` · ${section.currentLabel}` : ""}
                     </p>
                     <p className="mt-0.5 text-[11px] text-slate-500">
-                      {week.orders.length}{" "}
-                      {week.orders.length === 1 ? "pedido" : "pedidos"}
-                      {week.orders.length > 0 ? ` · ${formatMxn(total)}` : ""}
+                      {section.orders.length}{" "}
+                      {section.orders.length === 1 ? "pedido" : "pedidos"}
+                      {section.orders.length > 0
+                        ? ` · ${formatMxn(section.total)}`
+                        : ""}
                     </p>
                   </div>
                 </button>
-                {canCloseWeek(week.weekStart) ? (
+                {section.action ? (
                   <button
                     type="button"
-                    onClick={() => openWeeklyReport(week.weekStart)}
+                    onClick={section.action.onClick}
                     className="min-h-11 shrink-0 px-4 text-sm font-semibold text-slate-950 hover:bg-slate-100"
                   >
-                    {weekCloses[week.weekStart] ? "Cerrada" : "Cierre"}
+                    {section.action.label}
                   </button>
                 ) : null}
               </div>
               {open ? (
-                week.orders.length === 0 ? (
+                section.orders.length === 0 ? (
                   <p className="border-b border-slate-100 px-4 py-3 text-sm text-slate-500">
-                    No hay pedidos en esta semana.
+                    {section.empty}
                   </p>
                 ) : (
-                  week.orders.map((order) => (
+                  section.orders.map((order) => (
                     <OrderRow
                       key={order.id}
                       order={order}

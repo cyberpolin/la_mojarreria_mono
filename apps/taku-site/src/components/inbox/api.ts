@@ -306,3 +306,44 @@ export async function saveWeekClose(
     body: JSON.stringify(payload),
   });
 }
+
+export type DayCloseRecord = {
+  id: string;
+  dayKey: string;
+  efectivo: number;
+  transferencia: number;
+  total: number;
+  orderCount: number;
+  mojarras: number;
+  empanadas: number;
+  updatedAt: string;
+};
+
+export type DayClosePayload = {
+  efectivo: number;
+  transferencia: number;
+  total: number;
+  orderCount: number;
+  mojarras: number;
+  empanadas: number;
+};
+
+export async function fetchDayCloses() {
+  return takuApi<DayCloseRecord[]>("/day-closes");
+}
+
+export async function fetchDayClose(dayKey: string) {
+  try {
+    return await takuApi<DayCloseRecord>(`/day-closes/${dayKey}`);
+  } catch (error) {
+    if (error instanceof TakuApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function saveDayClose(dayKey: string, payload: DayClosePayload) {
+  return takuApi<DayCloseRecord>(`/day-closes/${dayKey}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
