@@ -310,9 +310,13 @@ export async function saveWeekClose(
 export type DayCloseRecord = {
   id: string;
   dayKey: string;
-  efectivo: number;
-  transferencia: number;
-  total: number;
+  expectedEfectivo: number;
+  expectedBanco: number;
+  expectedTotal: number;
+  countedEfectivo: number;
+  countedBanco: number;
+  extraGastos: number;
+  diferencia: number;
   orderCount: number;
   mojarras: number;
   empanadas: number;
@@ -320,9 +324,12 @@ export type DayCloseRecord = {
 };
 
 export type DayClosePayload = {
-  efectivo: number;
-  transferencia: number;
-  total: number;
+  expectedEfectivo: number;
+  expectedBanco: number;
+  expectedTotal: number;
+  countedEfectivo: number;
+  countedBanco: number;
+  extraGastos: number;
   orderCount: number;
   mojarras: number;
   empanadas: number;

@@ -3,6 +3,7 @@ import {
   todayOrderKey,
   type DeliveryOrder,
 } from "./pendingOrders";
+import { formatMxn } from "./raiseOrder";
 import { orderWeekDayKey } from "./weeklyReport";
 
 export const DAILY_CASH_CLOSE_OPEN_EVENT = "mojarreria-daily-cash-close-open";
@@ -59,6 +60,28 @@ export function formatDayLabel(dayKey: string) {
     day: "numeric",
     month: "short",
   }).format(date);
+}
+
+export function cashCloseDiferencia(input: {
+  expectedTotal: number;
+  countedEfectivo: number;
+  countedBanco: number;
+  extraGastos: number;
+}) {
+  return (
+    Math.round(
+      (input.countedEfectivo +
+        input.countedBanco -
+        (input.expectedTotal - input.extraGastos)) *
+        100,
+    ) / 100
+  );
+}
+
+export function formatCashDifference(value: number) {
+  if (value === 0) return "Cuadra";
+  if (value > 0) return `Sobra ${formatMxn(value)}`;
+  return `Falta ${formatMxn(Math.abs(value))}`;
 }
 
 export function daySales(orders: DeliveryOrder[]) {

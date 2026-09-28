@@ -42,6 +42,7 @@ import {
 import { botClient } from "./services/botClient.js";
 import {
   canCloseCashDay,
+  computeDayCloseDiferencia,
   computeWeekCloseTotals,
   isDateKey,
   isMondayDateKey,
@@ -6567,12 +6568,30 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           message: "El cierre de caja se puede hacer despues de las 5:00 pm.",
         });
       }
-      const efectivo = requireNonNegativeNumber(req.body?.efectivo, "efectivo");
-      const transferencia = requireNonNegativeNumber(
-        req.body?.transferencia,
-        "transferencia",
+      const expectedEfectivo = requireNonNegativeNumber(
+        req.body?.expectedEfectivo,
+        "expectedEfectivo",
       );
-      const total = requireNonNegativeNumber(req.body?.total, "total");
+      const expectedBanco = requireNonNegativeNumber(
+        req.body?.expectedBanco,
+        "expectedBanco",
+      );
+      const expectedTotal = requireNonNegativeNumber(
+        req.body?.expectedTotal,
+        "expectedTotal",
+      );
+      const countedEfectivo = requireNonNegativeNumber(
+        req.body?.countedEfectivo,
+        "countedEfectivo",
+      );
+      const countedBanco = requireNonNegativeNumber(
+        req.body?.countedBanco,
+        "countedBanco",
+      );
+      const extraGastos = requireNonNegativeNumber(
+        req.body?.extraGastos,
+        "extraGastos",
+      );
       const orderCount = requireNonNegativeNumber(
         req.body?.orderCount,
         "orderCount",
@@ -6588,6 +6607,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         "empanadas",
         true,
       );
+      const diferencia = computeDayCloseDiferencia({
+        expectedTotal,
+        countedEfectivo,
+        countedBanco,
+        extraGastos,
+      });
       const item = await store.update((database) => {
         const current = database.dayCloses.find(
           (found) =>
@@ -6596,9 +6621,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         );
         const stamp = now();
         if (current) {
-          current.efectivo = efectivo;
-          current.transferencia = transferencia;
-          current.total = total;
+          current.expectedEfectivo = expectedEfectivo;
+          current.expectedBanco = expectedBanco;
+          current.expectedTotal = expectedTotal;
+          current.countedEfectivo = countedEfectivo;
+          current.countedBanco = countedBanco;
+          current.extraGastos = extraGastos;
+          current.diferencia = diferencia;
           current.orderCount = orderCount;
           current.mojarras = mojarras;
           current.empanadas = empanadas;
@@ -6610,9 +6639,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           id: id("dayclose"),
           workspaceId: context.workspace.id,
           dayKey,
-          efectivo,
-          transferencia,
-          total,
+          expectedEfectivo,
+          expectedBanco,
+          expectedTotal,
+          countedEfectivo,
+          countedBanco,
+          extraGastos,
+          diferencia,
           orderCount,
           mojarras,
           empanadas,

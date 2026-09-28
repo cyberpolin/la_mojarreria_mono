@@ -4,9 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { TakuApiError } from "@/lib/taku-api";
 import { fetchDayClose, saveDayClose } from "./api";
-import { canCloseDay, daySales, formatDayLabel } from "./dayClose";
-import { formatMxn } from "./raiseOrder";
-import { Button } from "./ui";
+import {
+  canCloseDay,
+  cashCloseDiferencia,
+  daySales,
+  formatCashDifference,
+  formatDayLabel,
+} from "./dayClose";
+import { formatMxn, parseNonNegativeNumber } from "./raiseOrder";
+import { Button, Field, Input } from "./ui";
 import { useDeliveryOrders } from "./useDeliveryOrders";
 import { notifyDayClosesChanged } from "./useDayCloses";
 import { orderWeekDayKey } from "./weeklyReport";
@@ -42,14 +48,34 @@ export function DailyCashClosePanel({
   );
   const sales = daySales(dayOrders);
   const [alreadyClosed, setAlreadyClosed] = useState(false);
+  const [efectivo, setEfectivo] = useState("");
+  const [banco, setBanco] = useState("");
+  const [extras, setExtras] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const countedEfectivo = parseNonNegativeNumber(efectivo);
+  const countedBanco = parseNonNegativeNumber(banco);
+  const extraGastos = parseNonNegativeNumber(extras);
+  const diferencia = cashCloseDiferencia({
+    expectedTotal: sales.total,
+    countedEfectivo,
+    countedBanco,
+    extraGastos,
+  });
+  const expectedAfterExtras =
+    Math.round((sales.total - extraGastos) * 100) / 100;
+  const countedTotal = Math.round((countedEfectivo + countedBanco) * 100) / 100;
 
   useEffect(() => {
     let cancelled = false;
     void fetchDayClose(dayKey)
       .then((close) => {
-        if (!cancelled) setAlreadyClosed(Boolean(close));
+        if (cancelled || !close) return;
+        setAlreadyClosed(true);
+        setEfectivo(String(close.countedEfectivo ?? ""));
+        setBanco(String(close.countedBanco ?? ""));
+        setExtras(String(close.extraGastos ?? ""));
       })
       .catch(() => {
         if (!cancelled) setAlreadyClosed(false);
@@ -67,7 +93,17 @@ export function DailyCashClosePanel({
     setSaving(true);
     setError(null);
     try {
-      await saveDayClose(dayKey, sales);
+      await saveDayClose(dayKey, {
+        expectedEfectivo: sales.efectivo,
+        expectedBanco: sales.transferencia,
+        expectedTotal: sales.total,
+        countedEfectivo,
+        countedBanco,
+        extraGastos,
+        orderCount: sales.orderCount,
+        mojarras: sales.mojarras,
+        empanadas: sales.empanadas,
+      });
       notifyDayClosesChanged();
       onClose();
     } catch (caught) {
@@ -115,20 +151,74 @@ export function DailyCashClosePanel({
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 gap-2">
-            <Stat label="Pedidos" value={String(sales.orderCount)} />
-            <Stat label="Total" value={formatMxn(sales.total)} />
-            <Stat label="Efectivo" value={formatMxn(sales.efectivo)} />
-            <Stat
-              label="Transferencia"
-              value={formatMxn(sales.transferencia)}
-            />
-            <Stat label="Mojarras" value={String(sales.mojarras)} />
-            <Stat label="Empanadas" value={String(sales.empanadas)} />
-          </div>
-          <p className="mt-4 text-xs text-slate-500">
-            El cierre de caja se puede hacer despues de las 5:00 pm.
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Segun pedidos
           </p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Stat label="Efectivo" value={formatMxn(sales.efectivo)} />
+            <Stat label="Banco" value={formatMxn(sales.transferencia)} />
+            <Stat label="Total" value={formatMxn(sales.total)} />
+            <Stat label="Pedidos" value={String(sales.orderCount)} />
+          </div>
+
+          <div className="mt-6 grid gap-4">
+            <Field
+              label="Cuanto hay en efectivo"
+              hint={`Pedidos: ${formatMxn(sales.efectivo)}`}
+            >
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                placeholder="0"
+                value={efectivo}
+                onChange={setEfectivo}
+              />
+            </Field>
+            <Field
+              label="Cuanto hay en banco"
+              hint={`Pedidos: ${formatMxn(sales.transferencia)}`}
+            >
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                placeholder="0"
+                value={banco}
+                onChange={setBanco}
+              />
+            </Field>
+            <Field label="Gastos extras">
+              <Input
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                placeholder="0"
+                value={extras}
+                onChange={setExtras}
+              />
+            </Field>
+          </div>
+
+          <div className="mt-6 grid gap-2 rounded-xl border border-slate-200 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Diferencia
+            </p>
+            <p className="text-sm text-slate-700">
+              Contado {formatMxn(countedTotal)} · esperado{" "}
+              {formatMxn(expectedAfterExtras)}
+            </p>
+            <p className="text-base font-semibold tabular-nums text-slate-950">
+              {formatCashDifference(diferencia)}
+            </p>
+            <p className="text-xs text-slate-500">
+              Puedes cerrar aunque no cuadre. La diferencia se guarda.
+            </p>
+          </div>
+
           {error ? (
             <p className="mt-3 text-sm text-slate-700">{error}</p>
           ) : null}

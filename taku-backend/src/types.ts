@@ -314,9 +314,13 @@ export type DayClose = {
   id: string;
   workspaceId: string;
   dayKey: string;
-  efectivo: number;
-  transferencia: number;
-  total: number;
+  expectedEfectivo: number;
+  expectedBanco: number;
+  expectedTotal: number;
+  countedEfectivo: number;
+  countedBanco: number;
+  extraGastos: number;
+  diferencia: number;
   orderCount: number;
   mojarras: number;
   empanadas: number;

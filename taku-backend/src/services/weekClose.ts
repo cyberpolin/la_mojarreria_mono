@@ -68,6 +68,19 @@ export function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+export function computeDayCloseDiferencia(input: {
+  expectedTotal: number;
+  countedEfectivo: number;
+  countedBanco: number;
+  extraGastos: number;
+}) {
+  return roundMoney(
+    input.countedEfectivo +
+      input.countedBanco -
+      (input.expectedTotal - input.extraGastos),
+  );
+}
+
 export function computeWeekCloseTotals(input: {
   mojarrasBought: number;
   mojarraKg: number;
