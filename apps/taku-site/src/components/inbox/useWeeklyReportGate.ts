@@ -17,7 +17,6 @@ export function WeeklyReportGate() {
     const result = ensureWeeklyReport();
     setReport(result.report);
     setSaved(result.saved);
-    if (result.justGenerated) setOpen(true);
 
     const onOpen = () => {
       const next = ensureWeeklyReport();

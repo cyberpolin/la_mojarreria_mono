@@ -1,6 +1,6 @@
 import { cx } from "./helpers";
 
-export type InboxListTab = "chats" | "pedidos";
+export type InboxListTab = "chats" | "pedidos" | "reporte";
 
 export function InboxListTabs({
   value,
@@ -14,12 +14,13 @@ export function InboxListTabs({
   const tabs: Array<{ id: InboxListTab; label: string }> = [
     { id: "chats", label: "Chats" },
     { id: "pedidos", label: "Pedidos" },
+    { id: "reporte", label: "Reporte" },
   ];
 
   return (
     <div
       className={cx(
-        "grid grid-cols-2",
+        "grid grid-cols-3",
         tone === "dark" ? "bg-slate-900" : "bg-white",
       )}
     >

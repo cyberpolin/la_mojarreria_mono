@@ -15,7 +15,12 @@ import { clearReturnOrder, hasOrderReturn } from "./inboxReturn";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
-import { openWeeklyReport } from "./weeklyReport";
+import { WeeklyReportView } from "./WeeklyReportView";
+import {
+  WEEKLY_REPORT_OPEN_EVENT,
+  ensureWeeklyReport,
+  openWeeklyReport,
+} from "./weeklyReport";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import type {
@@ -83,6 +88,12 @@ export function ConversationList({
   useEffect(() => {
     if (hasOrderReturn(searchParams)) setListTab("pedidos");
   }, [searchParams]);
+  useEffect(() => {
+    if (ensureWeeklyReport().justGenerated) setListTab("reporte");
+    const onOpen = () => setListTab("reporte");
+    window.addEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
+  }, []);
 
   return (
     <aside className="relative flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -149,10 +160,11 @@ export function ConversationList({
       </div>
 
       {listTab === "pedidos" ? <OrdersList query={search} /> : null}
+      {listTab === "reporte" ? <WeeklyReportView /> : null}
       <div
         className={cx(
           "min-h-0 flex-1 overflow-y-auto",
-          listTab === "pedidos" && "hidden",
+          (listTab === "pedidos" || listTab === "reporte") && "hidden",
         )}
       >
         {error ? (

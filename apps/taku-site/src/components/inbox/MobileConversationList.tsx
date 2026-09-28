@@ -52,7 +52,12 @@ import {
   hasOrderReturn,
   inboxListReturnPath,
 } from "./inboxReturn";
-import { openWeeklyReport } from "./weeklyReport";
+import { WeeklyReportView } from "./WeeklyReportView";
+import {
+  WEEKLY_REPORT_OPEN_EVENT,
+  ensureWeeklyReport,
+  openWeeklyReport,
+} from "./weeklyReport";
 import {
   MobileAuthGate,
   MobileContextMenu,
@@ -140,6 +145,12 @@ export function MobileConversationList({
       setListTab("pedidos");
     }
   }, [searchParams, threadSlot]);
+  useEffect(() => {
+    if (ensureWeeklyReport().justGenerated) setListTab("reporte");
+    const onOpen = () => setListTab("reporte");
+    window.addEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(WEEKLY_REPORT_OPEN_EVENT, onOpen);
+  }, []);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [blockedContacts, setBlockedContacts] = useState<InboxBlockedContact[]>(
     [],
@@ -524,10 +535,11 @@ export function MobileConversationList({
           {listTab === "pedidos" ? (
             <OrdersList query={query} detailsEnabled={!threadSlot} />
           ) : null}
+          {listTab === "reporte" ? <WeeklyReportView /> : null}
           <div
             className={cx(
               "min-h-0 flex-1 overflow-y-auto bg-white",
-              listTab === "pedidos" && "hidden",
+              (listTab === "pedidos" || listTab === "reporte") && "hidden",
             )}
           >
             {loading ? (
