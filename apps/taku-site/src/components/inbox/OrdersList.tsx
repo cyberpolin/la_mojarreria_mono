@@ -25,7 +25,9 @@ import {
 } from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
 import { useDeliveryOrders } from "./useDeliveryOrders";
+import { useWeekCloses } from "./useWeekCloses";
 import {
+  canCloseWeek,
   currentWeekStart,
   formatWeekRange,
   groupOrdersByWeek,
@@ -230,6 +232,7 @@ export function OrdersList({
   detailsEnabled?: boolean;
 }) {
   const orders = useDeliveryOrders();
+  const weekCloses = useWeekCloses();
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
@@ -334,13 +337,15 @@ export function OrdersList({
                     </p>
                   </div>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => openWeeklyReport(week.weekStart)}
-                  className="min-h-11 shrink-0 px-4 text-sm font-semibold text-slate-950 hover:bg-slate-100"
-                >
-                  Cierre
-                </button>
+                {canCloseWeek(week.weekStart) ? (
+                  <button
+                    type="button"
+                    onClick={() => openWeeklyReport(week.weekStart)}
+                    className="min-h-11 shrink-0 px-4 text-sm font-semibold text-slate-950 hover:bg-slate-100"
+                  >
+                    {weekCloses[week.weekStart] ? "Cerrada" : "Cierre"}
+                  </button>
+                ) : null}
               </div>
               {open ? (
                 week.orders.length === 0 ? (

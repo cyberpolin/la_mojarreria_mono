@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TakuApiError } from "@/lib/taku-api";
+import { saveWeekClose } from "./api";
 import { formatMxn, parseNonNegativeNumber, parseQuantity } from "./raiseOrder";
-import { Field, Input } from "./ui";
+import { Button, Field, Input } from "./ui";
 import {
   WEEK_COSTS_CHANGED_EVENT,
   computeWeekPnl,
+  notifyWeekClosesChanged,
   readCostCatalog,
   readWeekInputs,
   writeCostCatalog,
@@ -39,11 +42,15 @@ export function WeeklyPnlForm({
   ingresos,
   mojarrasVendidas,
   showIntro = true,
+  alreadyClosed = false,
+  onSaved,
 }: {
   weekStart: string;
   ingresos: number;
   mojarrasVendidas: number;
   showIntro?: boolean;
+  alreadyClosed?: boolean;
+  onSaved?: () => void;
 }) {
   const [pnl, setPnl] = useState<WeekPnl>(() =>
     computeWeekPnl({
@@ -60,6 +67,8 @@ export function WeeklyPnlForm({
   const [publi, setPubli] = useState("");
   const [comida, setComida] = useState("");
   const [otros, setOtros] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const catalog = readCostCatalog();
@@ -100,6 +109,54 @@ export function WeeklyPnlForm({
     writeWeekInputs(weekStart, {
       mojarrasBought: value.trim() === "" ? null : parseQuantity(value),
     });
+  }
+
+  async function submitClose() {
+    if (bought.trim() === "") {
+      setError("Pon las mojarras compradas para cerrar la semana.");
+      return;
+    }
+    const catalog = readCostCatalog();
+    const week = readWeekInputs(weekStart);
+    const snapshot = computeWeekPnl({
+      weekStart,
+      ingresos,
+      mojarrasVendidas,
+      catalog,
+      week,
+    });
+    if (snapshot.mojarrasBought == null || snapshot.gastos == null) {
+      setError("Pon las mojarras compradas para cerrar la semana.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await saveWeekClose(weekStart, {
+        mojarrasBought: snapshot.mojarrasBought,
+        mojarraKg: catalog.mojarraKg,
+        kgCost: catalog.kgCost,
+        platosPerMojarra: catalog.platosPerMojarra,
+        gasPerMojarra: catalog.gasPerMojarra,
+        aceite: week.aceite,
+        raya: week.raya,
+        publi: week.publi,
+        comidaVerduras: week.comidaVerduras,
+        otros: week.otros,
+        ingresos: snapshot.ingresos,
+        mojarrasVendidas: snapshot.mojarrasVendidas,
+      });
+      notifyWeekClosesChanged();
+      onSaved?.();
+    } catch (caught) {
+      setError(
+        caught instanceof TakuApiError
+          ? caught.message
+          : "No se pudo guardar el cierre.",
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -264,6 +321,20 @@ export function WeeklyPnlForm({
           }}
         />
       </Field>
+      {error ? <p className="text-sm text-slate-700">{error}</p> : null}
+      <Button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          void submitClose();
+        }}
+      >
+        {saving
+          ? "Guardando..."
+          : alreadyClosed
+            ? "Guardar cierre"
+            : "Cerrar semana"}
+      </Button>
     </section>
   );
 }

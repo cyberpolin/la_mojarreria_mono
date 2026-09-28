@@ -310,6 +310,33 @@ export type AdminAuditLog = {
   createdAt: string;
 };
 
+export type WeekClose = {
+  id: string;
+  workspaceId: string;
+  weekStart: string;
+  weekEnd: string;
+  mojarrasBought: number;
+  mojarraKg: number;
+  kgCost: number;
+  platosPerMojarra: number;
+  gasPerMojarra: number;
+  aceite: number;
+  raya: number;
+  publi: number;
+  comidaVerduras: number;
+  otros: number;
+  ingresos: number;
+  mojarrasVendidas: number;
+  mojarraCost: number;
+  platos: number;
+  gas: number;
+  gastos: number;
+  neto: number;
+  closedByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Database = {
   adminUsers: AdminUser[];
   adminAuditLogs: AdminAuditLog[];
@@ -337,6 +364,7 @@ export type Database = {
   automationDecisionLogs: AutomationDecisionLog[];
   paymentIntents: PaymentIntent[];
   preferences: Preferences[];
+  weekCloses: WeekClose[];
   auditLogs: AuditLog[];
   refreshTokens: Array<{
     id: string;

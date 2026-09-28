@@ -41,6 +41,12 @@ import {
 } from "./serializers.js";
 import { botClient } from "./services/botClient.js";
 import {
+  computeWeekCloseTotals,
+  isMondayDateKey,
+  isPastWeek,
+  weekEndFromStart,
+} from "./services/weekClose.js";
+import {
   analyzeBotResponderProbability,
   isBotResponderConfirmation,
   isBotResponderDenial,
@@ -70,6 +76,7 @@ import type {
   TakuBotStatus,
   WhatsAppAccount,
   WhatsAppStatus,
+  WeekClose,
   WorkspacePlan,
 } from "./types.js";
 import type { Realtime } from "./realtime.js";
@@ -164,6 +171,23 @@ function pageResponse<T>(items: T[], query: Record<string, unknown>) {
     pagination,
     total: items.length,
   };
+}
+
+function requireNonNegativeNumber(
+  value: unknown,
+  name: string,
+  integer = false,
+) {
+  const parsed = readOptionalNumber(value);
+  if (parsed == null || parsed < 0 || (integer && !Number.isInteger(parsed))) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: `El campo ${name} es invalido.`,
+      details: { field: name },
+    });
+  }
+  return integer ? parsed : Math.round(parsed * 100) / 100;
 }
 
 function createTokens(userId: string) {
@@ -6303,6 +6327,185 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           result,
         );
       ok(res, { received: true });
+    }),
+  );
+
+  router.get(
+    "/week-closes",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.weekCloses
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .sort((left, right) => right.weekStart.localeCompare(left.weekStart));
+      ok(res, rows);
+    }),
+  );
+
+  router.get(
+    "/week-closes/:weekStart",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const weekStart = requireString(req.params.weekStart, "weekStart");
+      const database = await store.read();
+      const item = database.weekCloses.find(
+        (found) =>
+          found.workspaceId === context.workspace.id &&
+          found.weekStart === weekStart,
+      );
+      if (!item)
+        throw new ApiError({
+          status: 404,
+          code: "WEEK_CLOSE_NOT_FOUND",
+          message: "Cierre de semana no encontrado.",
+        });
+      ok(res, item);
+    }),
+  );
+
+  router.put(
+    "/week-closes/:weekStart",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const weekStart = requireString(req.params.weekStart, "weekStart");
+      if (!isMondayDateKey(weekStart)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La semana debe empezar en lunes.",
+        });
+      }
+      const weekEnd = weekEndFromStart(weekStart);
+      if (!weekEnd) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Semana invalida.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      if (!isPastWeek(weekStart, new Date(), timeZone)) {
+        throw new ApiError({
+          status: 400,
+          code: "WEEK_STILL_OPEN",
+          message: "Solo se puede cerrar una semana que ya termino.",
+        });
+      }
+      const mojarrasBought = requireNonNegativeNumber(
+        req.body?.mojarrasBought,
+        "mojarrasBought",
+        true,
+      );
+      const mojarraKg = requireNonNegativeNumber(
+        req.body?.mojarraKg,
+        "mojarraKg",
+      );
+      const kgCost = requireNonNegativeNumber(req.body?.kgCost, "kgCost");
+      const platosPerMojarra = requireNonNegativeNumber(
+        req.body?.platosPerMojarra ?? 3,
+        "platosPerMojarra",
+      );
+      const gasPerMojarra = requireNonNegativeNumber(
+        req.body?.gasPerMojarra ?? 5,
+        "gasPerMojarra",
+      );
+      const aceite = requireNonNegativeNumber(req.body?.aceite, "aceite");
+      const raya = requireNonNegativeNumber(req.body?.raya, "raya");
+      const publi = requireNonNegativeNumber(req.body?.publi, "publi");
+      const comidaVerduras = requireNonNegativeNumber(
+        req.body?.comidaVerduras,
+        "comidaVerduras",
+      );
+      const otros = requireNonNegativeNumber(req.body?.otros, "otros");
+      const ingresos = requireNonNegativeNumber(req.body?.ingresos, "ingresos");
+      const mojarrasVendidas = requireNonNegativeNumber(
+        req.body?.mojarrasVendidas,
+        "mojarrasVendidas",
+        true,
+      );
+      const totals = computeWeekCloseTotals({
+        mojarrasBought,
+        mojarraKg,
+        kgCost,
+        platosPerMojarra,
+        gasPerMojarra,
+        aceite,
+        raya,
+        publi,
+        comidaVerduras,
+        otros,
+        ingresos,
+      });
+      const item = await store.update((database) => {
+        const current = database.weekCloses.find(
+          (found) =>
+            found.workspaceId === context.workspace.id &&
+            found.weekStart === weekStart,
+        );
+        const stamp = now();
+        if (current) {
+          current.mojarrasBought = mojarrasBought;
+          current.mojarraKg = mojarraKg;
+          current.kgCost = kgCost;
+          current.platosPerMojarra = platosPerMojarra;
+          current.gasPerMojarra = gasPerMojarra;
+          current.aceite = aceite;
+          current.raya = raya;
+          current.publi = publi;
+          current.comidaVerduras = comidaVerduras;
+          current.otros = otros;
+          current.ingresos = ingresos;
+          current.mojarrasVendidas = mojarrasVendidas;
+          current.mojarraCost = totals.mojarraCost;
+          current.platos = totals.platos;
+          current.gas = totals.gas;
+          current.gastos = totals.gastos;
+          current.neto = totals.neto;
+          current.closedByUserId = context.user.id;
+          current.updatedAt = stamp;
+          return current;
+        }
+        const created: WeekClose = {
+          id: id("weekclose"),
+          workspaceId: context.workspace.id,
+          weekStart,
+          weekEnd,
+          mojarrasBought,
+          mojarraKg,
+          kgCost,
+          platosPerMojarra,
+          gasPerMojarra,
+          aceite,
+          raya,
+          publi,
+          comidaVerduras,
+          otros,
+          ingresos,
+          mojarrasVendidas,
+          mojarraCost: totals.mojarraCost,
+          platos: totals.platos,
+          gas: totals.gas,
+          gastos: totals.gastos,
+          neto: totals.neto,
+          closedByUserId: context.user.id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
+        database.weekCloses.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "week_close.saved",
+        entityType: "week_close",
+        entityId: item.id,
+        metadata: { weekStart },
+      });
+      ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
     }),
   );
 

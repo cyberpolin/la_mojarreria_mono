@@ -1,6 +1,7 @@
 export const WEEK_COSTS_KEY = "MOJARRERIA_TAKU_WEEK_COSTS";
 export const WEEK_COSTS_VERSION = 1;
 export const WEEK_COSTS_CHANGED_EVENT = "mojarreria-week-costs-changed";
+export const WEEK_CLOSES_CHANGED_EVENT = "mojarreria-week-closes-changed";
 
 export const DEFAULT_MOJARRA_KG = 0.7;
 export const DEFAULT_MOJARRA_KG_COST = 95;
@@ -237,4 +238,38 @@ export function computeWeekPnl(input: {
     gastos,
     neto: gastos == null ? null : roundMoney(input.ingresos - gastos),
   };
+}
+
+export function applyWeekCloseLocal(close: {
+  weekStart: string;
+  mojarrasBought: number;
+  mojarraKg: number;
+  kgCost: number;
+  platosPerMojarra: number;
+  gasPerMojarra: number;
+  aceite: number;
+  raya: number;
+  publi: number;
+  comidaVerduras: number;
+  otros: number;
+}) {
+  writeCostCatalog({
+    mojarraKg: close.mojarraKg,
+    kgCost: close.kgCost,
+    platosPerMojarra: close.platosPerMojarra,
+    gasPerMojarra: close.gasPerMojarra,
+  });
+  writeWeekInputs(close.weekStart, {
+    mojarrasBought: close.mojarrasBought,
+    aceite: close.aceite,
+    raya: close.raya,
+    publi: close.publi,
+    comidaVerduras: close.comidaVerduras,
+    otros: close.otros,
+  });
+}
+
+export function notifyWeekClosesChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(WEEK_CLOSES_CHANGED_EVENT));
 }

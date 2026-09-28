@@ -1,4 +1,4 @@
-import { takuApi, takuPaginated } from "@/lib/taku-api";
+import { TakuApiError, takuApi, takuPaginated } from "@/lib/taku-api";
 import { buildConversationQuery } from "./helpers";
 import type {
   ConversationFilterId,
@@ -243,4 +243,66 @@ export async function updateAutomationBlock(blockId: string, enabled: boolean) {
       body: JSON.stringify({ enabled }),
     },
   );
+}
+
+export type WeekCloseRecord = {
+  id: string;
+  weekStart: string;
+  weekEnd: string;
+  mojarrasBought: number;
+  mojarraKg: number;
+  kgCost: number;
+  platosPerMojarra: number;
+  gasPerMojarra: number;
+  aceite: number;
+  raya: number;
+  publi: number;
+  comidaVerduras: number;
+  otros: number;
+  ingresos: number;
+  mojarrasVendidas: number;
+  mojarraCost: number;
+  platos: number;
+  gas: number;
+  gastos: number;
+  neto: number;
+  updatedAt: string;
+};
+
+export type WeekClosePayload = {
+  mojarrasBought: number;
+  mojarraKg: number;
+  kgCost: number;
+  platosPerMojarra: number;
+  gasPerMojarra: number;
+  aceite: number;
+  raya: number;
+  publi: number;
+  comidaVerduras: number;
+  otros: number;
+  ingresos: number;
+  mojarrasVendidas: number;
+};
+
+export async function fetchWeekCloses() {
+  return takuApi<WeekCloseRecord[]>("/week-closes");
+}
+
+export async function fetchWeekClose(weekStart: string) {
+  try {
+    return await takuApi<WeekCloseRecord>(`/week-closes/${weekStart}`);
+  } catch (error) {
+    if (error instanceof TakuApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function saveWeekClose(
+  weekStart: string,
+  payload: WeekClosePayload,
+) {
+  return takuApi<WeekCloseRecord>(`/week-closes/${weekStart}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }

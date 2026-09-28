@@ -1,10 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { fetchWeekClose } from "./api";
 import { useDeliveryOrders } from "./useDeliveryOrders";
 import { WeeklyPnlForm } from "./WeeklyPnlForm";
-import { addDayKey, formatWeekRange, orderWeekDayKey } from "./weeklyReport";
+import { applyWeekCloseLocal } from "./weekCosts";
+import {
+  addDayKey,
+  canCloseWeek,
+  formatWeekRange,
+  orderWeekDayKey,
+} from "./weeklyReport";
 
 function reportHost() {
   return document.getElementById("taku-mobile-window") ?? document.body;
@@ -19,6 +26,8 @@ export function WeeklyReportPanel({
 }) {
   const orders = useDeliveryOrders();
   const weekEnd = addDayKey(weekStart, 6);
+  const [alreadyClosed, setAlreadyClosed] = useState(false);
+  const [ready, setReady] = useState(false);
   const weekOrders = useMemo(
     () =>
       orders.filter((order) => {
@@ -32,8 +41,35 @@ export function WeeklyReportPanel({
     (sum, order) => sum + order.mojarras,
     0,
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    void fetchWeekClose(weekStart)
+      .then((close) => {
+        if (cancelled) return;
+        if (close) {
+          applyWeekCloseLocal(close);
+          setAlreadyClosed(true);
+        } else {
+          setAlreadyClosed(false);
+        }
+        setReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAlreadyClosed(false);
+          setReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [weekStart]);
+
   const host = typeof document !== "undefined" ? reportHost() : null;
   if (!host) return null;
+  if (!canCloseWeek(weekStart)) return null;
 
   const overlayClass =
     host.id === "taku-mobile-window"
@@ -64,16 +100,23 @@ export function WeeklyReportPanel({
             </h2>
             <p className="truncate text-xs text-slate-500">
               {formatWeekRange(weekStart, weekEnd)}
+              {alreadyClosed ? " · cerrada" : ""}
             </p>
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto pt-4">
-          <WeeklyPnlForm
-            weekStart={weekStart}
-            ingresos={ingresos}
-            mojarrasVendidas={mojarrasVendidas}
-            showIntro={false}
-          />
+          {ready ? (
+            <WeeklyPnlForm
+              weekStart={weekStart}
+              ingresos={ingresos}
+              mojarrasVendidas={mojarrasVendidas}
+              showIntro={false}
+              alreadyClosed={alreadyClosed}
+              onSaved={onClose}
+            />
+          ) : (
+            <p className="px-4 text-sm text-slate-500">Cargando cierre...</p>
+          )}
         </div>
       </div>
     </div>

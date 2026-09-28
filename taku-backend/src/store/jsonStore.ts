@@ -63,6 +63,7 @@ function createEmptyDatabase(): Database {
     automationDecisionLogs: [],
     paymentIntents: [],
     preferences: [],
+    weekCloses: [],
     auditLogs: [],
     refreshTokens: [],
   };
@@ -89,6 +90,7 @@ function ensureDatabaseCollections(database: Database) {
   target.automationDecisionLogs ??= [];
   target.paymentIntents ??= [];
   target.preferences ??= [];
+  target.weekCloses ??= [];
   target.auditLogs ??= [];
   target.refreshTokens ??= [];
 }
@@ -720,6 +722,7 @@ function createTestSeed(): Database {
     automationDecisionLogs: [],
     paymentIntents: [] as PaymentIntent[],
     preferences: [preferences],
+    weekCloses: [],
     auditLogs: [],
     refreshTokens: [],
   };

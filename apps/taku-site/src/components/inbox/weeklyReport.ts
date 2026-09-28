@@ -248,11 +248,25 @@ export function withCurrentWeek(
   ];
 }
 
+export function isPastWeek(weekEnd: string, now = new Date()) {
+  return todayOrderKey(now) > weekEnd;
+}
+
+export function lastPastWeekStart(now = new Date()) {
+  return addDayKey(currentWeekStart(now), -7);
+}
+
+export function canCloseWeek(weekStart: string, now = new Date()) {
+  return isPastWeek(addDayKey(weekStart, 6), now);
+}
+
 export function openWeeklyReport(weekStart?: string) {
   if (typeof window === "undefined") return;
+  const start = weekStart ?? lastPastWeekStart();
+  if (!canCloseWeek(start)) return;
   window.dispatchEvent(
     new CustomEvent(WEEKLY_REPORT_OPEN_EVENT, {
-      detail: { weekStart: weekStart ?? currentWeekStart() },
+      detail: { weekStart: start },
     }),
   );
 }
