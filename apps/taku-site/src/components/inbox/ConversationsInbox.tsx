@@ -42,7 +42,7 @@ import type {
 } from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
-import { WeeklyReportGate } from "./useWeeklyReportGate";
+import { WeeklyReportGate } from "./WeeklyReportGate";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const POLL_INTERVAL_MS = 6000;

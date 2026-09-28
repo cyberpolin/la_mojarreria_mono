@@ -22,7 +22,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function WeeklyReportView() {
+export function WeeklyReportView({ embedded = false }: { embedded?: boolean }) {
   const [report, setReport] = useState<WeeklyReport | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -42,7 +42,13 @@ export function WeeklyReportView() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+    <div
+      className={
+        embedded
+          ? "border-b border-slate-200 bg-white"
+          : "min-h-0 flex-1 overflow-y-auto bg-white"
+      }
+    >
       <div className="px-4 pt-4">
         <h2 className="text-base font-semibold text-slate-950">
           Reporte de la semana

@@ -10,7 +10,7 @@ import { MobileConversation } from "./MobileConversation";
 import { MobileConversationList } from "./MobileConversationList";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
-import { WeeklyReportGate } from "./useWeeklyReportGate";
+import { WeeklyReportGate } from "./WeeklyReportGate";
 import type { InboxWhatsAppAccount } from "./types";
 
 function useAssignedAccounts() {

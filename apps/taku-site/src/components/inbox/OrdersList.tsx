@@ -25,7 +25,7 @@ import {
 } from "./pendingOrders";
 import { formatMxn } from "./raiseOrder";
 import { useDeliveryOrders } from "./useDeliveryOrders";
-import { openWeeklyReport } from "./weeklyReport";
+import { WeeklyReportView } from "./WeeklyReportView";
 
 function ClockIcon({ className }: { className?: string }) {
   return (
@@ -136,7 +136,7 @@ function OrderRow({
         className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
       >
         <ConversationAvatar
-          label={label}
+          label={number || order.customerPhone || "Pedido"}
           isDriver={isDriverInList(driverPhones, order.assignedDriver?.phone)}
         />
         <div className="min-w-0 flex-1">
@@ -244,14 +244,10 @@ export function OrdersList({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-white">
-      <button
-        type="button"
-        onClick={() => openWeeklyReport()}
-        className="flex min-h-11 w-full items-center justify-between border-b border-slate-100 px-4 text-left text-sm font-semibold text-slate-950 hover:bg-slate-50"
-      >
-        Reporte de la semana
-        <span className="text-slate-400">›</span>
-      </button>
+      <WeeklyReportView embedded />
+      <p className="px-4 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        Todos los pedidos
+      </p>
       {visible.length === 0 ? (
         <p className="p-4 text-sm text-slate-500">
           {query.trim()
