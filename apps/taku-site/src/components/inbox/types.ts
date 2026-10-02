@@ -25,6 +25,7 @@ export type InboxWhatsAppAccount = {
   phoneNumber: string | null;
   status: string;
   enabled?: boolean;
+  timeClockEnabled?: boolean;
 };
 
 export type InboxContact = {

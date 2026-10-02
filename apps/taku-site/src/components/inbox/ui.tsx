@@ -84,6 +84,8 @@ export function Input({
   min,
   step,
   inputMode,
+  maxLength,
+  autoComplete,
 }: {
   placeholder: string;
   readOnly?: boolean;
@@ -93,6 +95,8 @@ export function Input({
   min?: number;
   step?: string | number;
   inputMode?: "decimal" | "numeric" | "text";
+  maxLength?: number;
+  autoComplete?: string;
 }) {
   return (
     <input
@@ -100,6 +104,8 @@ export function Input({
       min={min}
       step={step}
       inputMode={inputMode}
+      maxLength={maxLength}
+      autoComplete={autoComplete}
       readOnly={readOnly}
       placeholder={placeholder}
       value={value}

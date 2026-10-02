@@ -41,6 +41,11 @@ import {
 } from "./serializers.js";
 import { botClient } from "./services/botClient.js";
 import {
+  findEmployee,
+  nextPunchType,
+  punchDayKey,
+} from "./services/attendance.js";
+import {
   canCloseCashDay,
   computeDayCloseDiferencia,
   computeWeekCloseTotals,
@@ -79,6 +84,7 @@ import type {
   TakuBotStatus,
   WhatsAppAccount,
   WhatsAppStatus,
+  AttendancePunch,
   DayClose,
   WeekClose,
   WorkspacePlan,
@@ -3709,6 +3715,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           status: "pending" as WhatsAppStatus,
           qrCode: null,
           enabled: true,
+          timeClockEnabled: false,
           useWorkspaceBusinessHours:
             req.body?.useWorkspaceBusinessHours !== false,
           useWorkspaceBotSettings: req.body?.useWorkspaceBotSettings !== false,
@@ -3868,6 +3875,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             readOptionalString(req.body?.description) ?? null;
         if (typeof req.body?.enabled === "boolean")
           account.enabled = req.body.enabled;
+        if (typeof req.body?.timeClockEnabled === "boolean")
+          account.timeClockEnabled = req.body.timeClockEnabled;
         if (readOptionalString(req.body?.timezone))
           account.timezone = readOptionalString(req.body?.timezone)!;
         if (typeof req.body?.useWorkspaceBusinessHours === "boolean")
@@ -6665,6 +6674,95 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         metadata: { dayKey },
       });
       ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
+    }),
+  );
+
+  router.get(
+    "/attendance/punches",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId = readOptionalString(req.query?.whatsappAccountId);
+      const database = await store.read();
+      const rows = database.attendancePunches
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          accountId ? item.whatsappAccountId === accountId : true,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      ok(res, rows);
+    }),
+  );
+
+  router.post(
+    "/attendance/punches",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const whatsappAccountId = requireString(
+        req.body?.whatsappAccountId,
+        "whatsappAccountId",
+      );
+      const phoneNumber = requireString(req.body?.phoneNumber, "phoneNumber");
+      const pin = requireString(req.body?.pin, "pin");
+      const employee = findEmployee(phoneNumber, pin);
+      if (!employee) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_TIME_CLOCK",
+          message: "Numero o PIN incorrecto.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      const punch = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          whatsappAccountId,
+        );
+        if (!account.timeClockEnabled) {
+          throw new ApiError({
+            status: 403,
+            code: "TIME_CLOCK_DISABLED",
+            message: "El checador no esta activo para este numero.",
+          });
+        }
+        database.attendancePunches ??= [];
+        const type = nextPunchType(
+          database.attendancePunches.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.whatsappAccountId === account.id,
+          ),
+          employee.id,
+        );
+        const created: AttendancePunch = {
+          id: id("punch"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: account.id,
+          employeeId: employee.id,
+          employeeName: employee.name,
+          phoneNumber: employee.phone,
+          type,
+          dayKey: punchDayKey(new Date(), timeZone),
+          createdAt: now(),
+        };
+        database.attendancePunches.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "attendance.punched",
+        entityType: "attendance_punch",
+        entityId: punch.id,
+        metadata: {
+          employeeId: punch.employeeId,
+          type: punch.type,
+          whatsappAccountId: punch.whatsappAccountId,
+        },
+      });
+      ok(res, punch, 201);
     }),
   );
 

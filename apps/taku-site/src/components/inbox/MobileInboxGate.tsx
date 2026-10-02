@@ -10,8 +10,10 @@ import { MobileConversation } from "./MobileConversation";
 import { MobileConversationList } from "./MobileConversationList";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
+import { ChecadorGate } from "./ChecadorGate";
 import { DailyCashCloseGate } from "./DailyCashCloseGate";
 import { WeeklyReportGate } from "./WeeklyReportGate";
+import { WHATSAPP_ACCOUNTS_CHANGED_EVENT } from "./attendance";
 import type { InboxWhatsAppAccount } from "./types";
 
 function useAssignedAccounts() {
@@ -27,21 +29,28 @@ function useAssignedAccounts() {
       return;
     }
     setNeedsAuth(false);
-    void fetchWhatsAppAccounts()
-      .then((rows) => {
-        setAccounts(rows);
-        setError(null);
-      })
-      .catch((caught: unknown) => {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "No se pudieron cargar los telefonos.",
-        );
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    const load = () => {
+      void fetchWhatsAppAccounts()
+        .then((rows) => {
+          setAccounts(rows);
+          setError(null);
+        })
+        .catch((caught: unknown) => {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "No se pudieron cargar los telefonos.",
+          );
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    };
+    load();
+    window.addEventListener(WHATSAPP_ACCOUNTS_CHANGED_EVENT, load);
+    return () => {
+      window.removeEventListener(WHATSAPP_ACCOUNTS_CHANGED_EVENT, load);
+    };
   }, []);
 
   return { needsAuth, loading, error, accounts };
@@ -96,6 +105,7 @@ export function MobileInboxApp() {
     <MobilePhoneFrame>
       <WeeklyReportGate />
       <DailyCashCloseGate />
+      <ChecadorGate />
       {loading ? <GateMessage>Cargando...</GateMessage> : null}
       {error ? <GateMessage>{error}</GateMessage> : null}
       {!loading && !error && accounts.length === 0 ? (

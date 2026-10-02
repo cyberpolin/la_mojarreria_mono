@@ -28,6 +28,7 @@ import {
   upsertMessage,
 } from "./helpers";
 import { inboxViewMenuItems } from "./inboxView";
+import { openChecador } from "./attendance";
 import { inboxListReturnPath } from "./inboxReturn";
 import type {
   InboxConversation,
@@ -700,6 +701,14 @@ export function MobileConversation({
               label: "Pedidos del dia",
               onSelect: () => setDailyOrdersOpen(true),
             },
+            ...(account
+              ? [
+                  {
+                    label: "Checador",
+                    onSelect: () => openChecador(account),
+                  },
+                ]
+              : []),
             ...inboxViewMenuItems(),
             ...(conversation && !isGroupConversation(conversation)
               ? [

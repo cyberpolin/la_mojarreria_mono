@@ -354,3 +354,44 @@ export async function saveDayClose(dayKey: string, payload: DayClosePayload) {
     body: JSON.stringify(payload),
   });
 }
+
+export type AttendancePunchRecord = {
+  id: string;
+  whatsappAccountId: string;
+  employeeId: string;
+  employeeName: string;
+  phoneNumber: string;
+  type: "entrada" | "salida";
+  dayKey: string;
+  createdAt: string;
+};
+
+export async function fetchAttendancePunches(whatsappAccountId: string) {
+  const query = new URLSearchParams({ whatsappAccountId });
+  return takuApi<AttendancePunchRecord[]>(`/attendance/punches?${query}`);
+}
+
+export async function punchAttendance(params: {
+  whatsappAccountId: string;
+  phoneNumber: string;
+  pin: string;
+}) {
+  return takuApi<AttendancePunchRecord>("/attendance/punches", {
+    method: "POST",
+    body: JSON.stringify({
+      whatsappAccountId: params.whatsappAccountId,
+      phoneNumber: params.phoneNumber,
+      pin: params.pin,
+    }),
+  });
+}
+
+export async function setWhatsAppTimeClock(
+  accountId: string,
+  timeClockEnabled: boolean,
+) {
+  return takuApi<InboxWhatsAppAccount>(`/whatsapp-accounts/${accountId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ timeClockEnabled }),
+  });
+}

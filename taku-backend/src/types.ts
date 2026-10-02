@@ -96,6 +96,7 @@ export type WhatsAppAccount = {
   status: WhatsAppStatus;
   qrCode: string | null;
   enabled: boolean;
+  timeClockEnabled: boolean;
   useWorkspaceBusinessHours: boolean;
   useWorkspaceBotSettings: boolean;
   lastConnectedAt: string | null;
@@ -310,6 +311,18 @@ export type AdminAuditLog = {
   createdAt: string;
 };
 
+export type AttendancePunch = {
+  id: string;
+  workspaceId: string;
+  whatsappAccountId: string;
+  employeeId: string;
+  employeeName: string;
+  phoneNumber: string;
+  type: "entrada" | "salida";
+  dayKey: string;
+  createdAt: string;
+};
+
 export type DayClose = {
   id: string;
   workspaceId: string;
@@ -385,6 +398,7 @@ export type Database = {
   preferences: Preferences[];
   weekCloses: WeekClose[];
   dayCloses: DayClose[];
+  attendancePunches: AttendancePunch[];
   auditLogs: AuditLog[];
   refreshTokens: Array<{
     id: string;

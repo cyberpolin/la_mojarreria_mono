@@ -65,6 +65,7 @@ function createEmptyDatabase(): Database {
     preferences: [],
     weekCloses: [],
     dayCloses: [],
+    attendancePunches: [],
     auditLogs: [],
     refreshTokens: [],
   };
@@ -93,6 +94,13 @@ function ensureDatabaseCollections(database: Database) {
   target.preferences ??= [];
   target.weekCloses ??= [];
   target.dayCloses ??= [];
+  target.attendancePunches ??= [];
+  for (const account of target.whatsappAccounts) {
+    account.timeClockEnabled ??= false;
+  }
+  for (const punch of target.attendancePunches) {
+    punch.whatsappAccountId ??= "";
+  }
   target.auditLogs ??= [];
   target.refreshTokens ??= [];
 }
@@ -589,6 +597,7 @@ function createTestSeed(): Database {
     status: "connected",
     qrCode: null,
     enabled: true,
+    timeClockEnabled: false,
     useWorkspaceBusinessHours: true,
     useWorkspaceBotSettings: true,
     lastConnectedAt: timestamp,
@@ -607,6 +616,7 @@ function createTestSeed(): Database {
     status: "disconnected",
     qrCode: null,
     enabled: true,
+    timeClockEnabled: false,
     useWorkspaceBusinessHours: true,
     useWorkspaceBotSettings: true,
     lastConnectedAt: null,
@@ -726,6 +736,7 @@ function createTestSeed(): Database {
     preferences: [preferences],
     weekCloses: [],
     dayCloses: [],
+    attendancePunches: [],
     auditLogs: [],
     refreshTokens: [],
   };

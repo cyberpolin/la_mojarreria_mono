@@ -53,6 +53,7 @@ import {
   inboxListReturnPath,
 } from "./inboxReturn";
 import { inboxViewMenuItems } from "./inboxView";
+import { openChecador } from "./attendance";
 import { ensureWeeklyReport } from "./weeklyReport";
 import {
   MobileAuthGate,
@@ -769,6 +770,12 @@ export function MobileConversationList({
                     label: "Pedidos del dia",
                     onSelect: () => setListTab("pedidos"),
                   },
+                  {
+                    label: "Checador",
+                    onSelect: () => {
+                      if (account) openChecador(account);
+                    },
+                  },
                   ...inboxViewMenuItems(),
                   {
                     label: "Bloquear",
@@ -791,6 +798,12 @@ export function MobileConversationList({
                   {
                     label: "Pedidos del dia",
                     onSelect: () => setListTab("pedidos"),
+                  },
+                  {
+                    label: "Checador",
+                    onSelect: () => {
+                      if (account) openChecador(account);
+                    },
                   },
                   ...inboxViewMenuItems(),
                   {

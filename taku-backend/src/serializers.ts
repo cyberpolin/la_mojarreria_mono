@@ -76,6 +76,7 @@ export function whatsappAccountView(
     useWorkspaceBusinessHours: account.useWorkspaceBusinessHours,
     useWorkspaceBotSettings: account.useWorkspaceBotSettings,
     enabled: account.enabled,
+    timeClockEnabled: Boolean(account.timeClockEnabled),
     lastConnectedAt: account.lastConnectedAt,
     lastDisconnectedAt: account.lastDisconnectedAt,
     createdAt: account.createdAt,
