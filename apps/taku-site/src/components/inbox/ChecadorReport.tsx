@@ -9,6 +9,7 @@ import {
 } from "./attendance";
 import { formatDayLabel } from "./dayClose";
 import { formatTime } from "./helpers";
+import { formatMxn } from "./raiseOrder";
 import { currentWeekStart, formatWeekRange } from "./weeklyReport";
 
 function Chevron({ open }: { open: boolean }) {
@@ -20,6 +21,10 @@ function Chevron({ open }: { open: boolean }) {
 }
 
 function dayStatus(day: EmployeeDayAttendance) {
+  if (day.late && day.entrada && day.salida) {
+    return `Retardo · ${formatWorkedHours(day.minutes)}`;
+  }
+  if (day.late) return "Retardo";
   if (day.entrada && day.salida) return formatWorkedHours(day.minutes);
   if (day.entrada) return "Sin salida";
   if (day.salida) return "Sin entrada";
@@ -76,8 +81,11 @@ export function ChecadorReport({
                   {formatWeekRange(week.weekStart, week.weekEnd)}
                   {week.weekStart === thisWeek ? " · Esta semana" : ""}
                 </p>
-                <p className="mt-0.5 text-[11px] text-slate-500">
-                  {week.employees.length} empleados
+                <p className="mt-0.5 text-[11px] tabular-nums text-slate-500">
+                  A pagar{" "}
+                  {formatMxn(
+                    week.employees.reduce((sum, item) => sum + item.pay, 0),
+                  )}
                 </p>
               </div>
             </button>
@@ -87,17 +95,23 @@ export function ChecadorReport({
                     key={employee.employeeId}
                     className="border-t border-slate-200 px-3 py-3"
                   >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-950">
-                        {employee.employeeName}
-                      </p>
-                      <p className="shrink-0 text-[11px] tabular-nums text-slate-500">
-                        {employee.completeDays} dias ·{" "}
-                        {formatWorkedHours(
-                          employee.totalMinutes > 0
-                            ? employee.totalMinutes
-                            : null,
-                        )}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-950">
+                          {employee.employeeName}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          {employee.workedDays}{" "}
+                          {employee.workedDays === 1 ? "dia" : "dias"} ·{" "}
+                          {employee.lateDays}{" "}
+                          {employee.lateDays === 1 ? "retardo" : "retardos"}
+                          {employee.totalMinutes > 0
+                            ? ` · ${formatWorkedHours(employee.totalMinutes)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums text-slate-950">
+                        {formatMxn(employee.pay)}
                       </p>
                     </div>
                     <ul className="mt-2 divide-y divide-slate-100">
@@ -112,6 +126,7 @@ export function ChecadorReport({
                             </p>
                             <p className="mt-0.5 text-[11px] tabular-nums text-slate-500">
                               Ent {formatTime(day.entrada?.createdAt) || "—"}
+                              {day.late ? " retardo" : ""}
                               {" · "}
                               Sal {formatTime(day.salida?.createdAt) || "—"}
                             </p>

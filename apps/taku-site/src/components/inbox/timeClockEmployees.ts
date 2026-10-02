@@ -3,6 +3,7 @@ export type TimeClockEmployee = {
   name: string;
   phone: string;
   pin: string;
+  dailyRate: number;
 };
 
 export const TIME_CLOCK_EMPLOYEES: TimeClockEmployee[] = [
@@ -11,12 +12,14 @@ export const TIME_CLOCK_EMPLOYEES: TimeClockEmployee[] = [
     name: "Lucy Cruz",
     phone: "9932080328",
     pin: "1323",
+    dailyRate: 400,
   },
   {
     id: "emp_america",
     name: "America",
     phone: "9932357200",
     pin: "3454",
+    dailyRate: 300,
   },
 ];
 

@@ -59,6 +59,8 @@ export function isTimeClockEnabled(
 
 export const TIME_CLOCK_ZONE = "America/Mexico_City";
 export const ENTRADA_AFTER_MINUTES = 8 * 60 + 59;
+export const ENTRADA_SHIFT_MINUTES = 9 * 60;
+export const ENTRADA_LATE_GRACE_MINUTES = 10;
 export const SALIDA_AFTER_MINUTES = 17 * 60 + 30;
 export const AGENT_ENTRADA_REMINDER_MINUTES = 9 * 60;
 export const AGENT_SALIDA_REMINDER_MINUTES = 17 * 60;
@@ -333,13 +335,18 @@ export type EmployeeDayAttendance = {
   entrada: AttendancePunchRecord | null;
   salida: AttendancePunchRecord | null;
   minutes: number | null;
+  late: boolean;
 };
 
 export type EmployeeWeekAttendance = {
   employeeId: string;
   employeeName: string;
+  dailyRate: number;
   days: EmployeeDayAttendance[];
+  workedDays: number;
   completeDays: number;
+  lateDays: number;
+  pay: number;
   totalMinutes: number;
 };
 
@@ -376,6 +383,16 @@ function workedMinutes(
     return null;
   }
   return Math.round((end - start) / 60_000);
+}
+
+export function isLateEntrada(createdAt: string | null | undefined) {
+  if (!createdAt) return false;
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    clockMinutesInZone(date) >
+    ENTRADA_SHIFT_MINUTES + ENTRADA_LATE_GRACE_MINUTES
+  );
 }
 
 export function formatWorkedHours(minutes: number | null) {
@@ -419,14 +436,20 @@ export function buildAttendanceWeeks(
               entrada,
               salida,
               minutes: workedMinutes(entrada, salida),
+              late: isLateEntrada(entrada?.createdAt),
             };
           });
+          const workedDays = days.filter((day) => day.entrada).length;
           return {
             employeeId: employee.id,
             employeeName: employee.name,
+            dailyRate: employee.dailyRate,
             days,
+            workedDays,
             completeDays: days.filter((day) => day.entrada && day.salida)
               .length,
+            lateDays: days.filter((day) => day.late).length,
+            pay: workedDays * employee.dailyRate,
             totalMinutes: days.reduce(
               (sum, day) => sum + (day.minutes ?? 0),
               0,
