@@ -98,10 +98,15 @@ export function ChecadorPanel({
     setSaving(true);
     setError(null);
     try {
-      const recorded = await clockEmployee(phone, pin, {
-        ...account,
-        timeClockEnabled: enabled,
-      });
+      const recorded = await clockEmployee(
+        phone,
+        pin,
+        {
+          ...account,
+          timeClockEnabled: enabled,
+        },
+        punches,
+      );
       setPunch(recorded);
       setPunches((current) => [
         recorded,
@@ -214,6 +219,10 @@ export function ChecadorPanel({
                 void submit();
               }}
             >
+              <p className="text-xs text-slate-500">
+                Una entrada y una salida por dia. Entrada desde las 8:59 a.m.
+                Salida desde las 5:30 p.m.
+              </p>
               <Field label="Numero">
                 <Input
                   type="tel"

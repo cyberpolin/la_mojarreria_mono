@@ -41,8 +41,8 @@ import {
 } from "./serializers.js";
 import { botClient } from "./services/botClient.js";
 import {
+  evaluateDayPunch,
   findEmployee,
-  nextPunchType,
   punchDayKey,
 } from "./services/attendance.js";
 import {
@@ -6728,14 +6728,26 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           });
         }
         database.attendancePunches ??= [];
-        const type = nextPunchType(
-          database.attendancePunches.filter(
+        const at = new Date();
+        const dayKey = punchDayKey(at, timeZone);
+        const decision = evaluateDayPunch({
+          punches: database.attendancePunches.filter(
             (item) =>
               item.workspaceId === context.workspace.id &&
               item.whatsappAccountId === account.id,
           ),
-          employee.id,
-        );
+          employeeId: employee.id,
+          dayKey,
+          now: at,
+          timeZone,
+        });
+        if (!decision.ok) {
+          throw new ApiError({
+            status: 400,
+            code: decision.code,
+            message: decision.message,
+          });
+        }
         const created: AttendancePunch = {
           id: id("punch"),
           workspaceId: context.workspace.id,
@@ -6743,8 +6755,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           employeeId: employee.id,
           employeeName: employee.name,
           phoneNumber: employee.phone,
-          type,
-          dayKey: punchDayKey(new Date(), timeZone),
+          type: decision.type,
+          dayKey,
           createdAt: now(),
         };
         database.attendancePunches.push(created);

@@ -10,6 +10,7 @@ import { MobileConversation } from "./MobileConversation";
 import { MobileConversationList } from "./MobileConversationList";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
+import { ChecadorFab } from "./ChecadorFab";
 import { ChecadorGate } from "./ChecadorGate";
 import { DailyCashCloseGate } from "./DailyCashCloseGate";
 import { WeeklyReportGate } from "./WeeklyReportGate";
@@ -106,6 +107,7 @@ export function MobileInboxApp() {
       <WeeklyReportGate />
       <DailyCashCloseGate />
       <ChecadorGate />
+      <ChecadorFab account={listAccount ?? singleAccount} />
       {loading ? <GateMessage>Cargando...</GateMessage> : null}
       {error ? <GateMessage>{error}</GateMessage> : null}
       {!loading && !error && accounts.length === 0 ? (
