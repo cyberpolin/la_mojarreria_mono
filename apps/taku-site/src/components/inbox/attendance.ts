@@ -9,6 +9,7 @@ import {
   type TimeClockEmployee,
 } from "./timeClockEmployees";
 import type { InboxWhatsAppAccount } from "./types";
+import { addDayKey, currentWeekStart, mondayOfWeek } from "./weeklyReport";
 
 export type { AttendancePunchRecord };
 export const ATTENDANCE_KEY = "MOJARRERIA_TAKU_ATTENDANCE";
@@ -325,4 +326,113 @@ export async function clockEmployee(
     rememberPunch(punch);
     return punch;
   }
+}
+
+export type EmployeeDayAttendance = {
+  dayKey: string;
+  entrada: AttendancePunchRecord | null;
+  salida: AttendancePunchRecord | null;
+  minutes: number | null;
+};
+
+export type EmployeeWeekAttendance = {
+  employeeId: string;
+  employeeName: string;
+  days: EmployeeDayAttendance[];
+  completeDays: number;
+  totalMinutes: number;
+};
+
+export type AttendanceWeekGroup = {
+  weekStart: string;
+  weekEnd: string;
+  employees: EmployeeWeekAttendance[];
+};
+
+function punchOfType(
+  punches: AttendancePunchRecord[],
+  employeeId: string,
+  dayKey: string,
+  type: AttendancePunchType,
+) {
+  return (
+    punches.find(
+      (punch) =>
+        punch.employeeId === employeeId &&
+        punch.dayKey === dayKey &&
+        punch.type === type,
+    ) ?? null
+  );
+}
+
+function workedMinutes(
+  entrada: AttendancePunchRecord | null,
+  salida: AttendancePunchRecord | null,
+) {
+  if (!entrada || !salida) return null;
+  const start = Date.parse(entrada.createdAt);
+  const end = Date.parse(salida.createdAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+  return Math.round((end - start) / 60_000);
+}
+
+export function formatWorkedHours(minutes: number | null) {
+  if (minutes == null) return "—";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours > 0 && rest > 0) return `${hours}h ${rest}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${rest}m`;
+}
+
+export function buildAttendanceWeeks(
+  punches: AttendancePunchRecord[],
+  now = new Date(),
+): AttendanceWeekGroup[] {
+  const weekStarts = new Set<string>([currentWeekStart(now)]);
+  for (const punch of punches) {
+    if (punch.dayKey) weekStarts.add(mondayOfWeek(punch.dayKey));
+  }
+  return [...weekStarts]
+    .sort((left, right) => right.localeCompare(left))
+    .map((weekStart) => {
+      const weekEnd = addDayKey(weekStart, 6);
+      const dayKeys = Array.from({ length: 7 }, (_, index) =>
+        addDayKey(weekStart, index),
+      );
+      return {
+        weekStart,
+        weekEnd,
+        employees: TIME_CLOCK_EMPLOYEES.map((employee) => {
+          const days = dayKeys.map((dayKey) => {
+            const entrada = punchOfType(
+              punches,
+              employee.id,
+              dayKey,
+              "entrada",
+            );
+            const salida = punchOfType(punches, employee.id, dayKey, "salida");
+            return {
+              dayKey,
+              entrada,
+              salida,
+              minutes: workedMinutes(entrada, salida),
+            };
+          });
+          return {
+            employeeId: employee.id,
+            employeeName: employee.name,
+            days,
+            completeDays: days.filter((day) => day.entrada && day.salida)
+              .length,
+            totalMinutes: days.reduce(
+              (sum, day) => sum + (day.minutes ?? 0),
+              0,
+            ),
+          };
+        }),
+      };
+    });
 }

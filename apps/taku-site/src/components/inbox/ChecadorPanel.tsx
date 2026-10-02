@@ -11,6 +11,7 @@ import {
   notifyWhatsAppAccountsChanged,
   type AttendancePunchRecord,
 } from "./attendance";
+import { ChecadorReport } from "./ChecadorReport";
 import { formatTime } from "./helpers";
 import { useInboxView } from "./inboxView";
 import { todayOrderKey } from "./pendingOrders";
@@ -46,6 +47,7 @@ export function ChecadorPanel({
   const [error, setError] = useState<string | null>(null);
   const [punch, setPunch] = useState<AttendancePunchRecord | null>(null);
   const [punches, setPunches] = useState<AttendancePunchRecord[]>([]);
+  const [markOpen, setMarkOpen] = useState(false);
   const dayKey = todayOrderKey();
   const todayPunches = useMemo(
     () => punches.filter((item) => item.dayKey === dayKey),
@@ -154,6 +156,12 @@ export function ChecadorPanel({
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {canManage ? (
+            <div className="mb-6">
+              <ChecadorReport punches={punches} loading={loading} />
+            </div>
+          ) : null}
+
           {!enabled ? (
             <div className="grid gap-4">
               <div className="rounded-xl border border-slate-200 p-4">
@@ -182,84 +190,88 @@ export function ChecadorPanel({
                 </p>
               )}
             </div>
-          ) : punch ? (
-            <div className="grid gap-4">
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {punchLabel(punch.type)} marcada
-                </p>
-                <p className="mt-2 text-lg font-semibold text-slate-950">
-                  {punch.employeeName}
-                </p>
-                <p className="mt-1 text-sm tabular-nums text-slate-700">
-                  {formatTime(punch.createdAt)}
-                </p>
+          ) : enabled && (!canManage || markOpen || punch) ? (
+            punch ? (
+              <div className="grid gap-4">
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {punchLabel(punch.type)} marcada
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {punch.employeeName}
+                  </p>
+                  <p className="mt-1 text-sm tabular-nums text-slate-700">
+                    {formatTime(punch.createdAt)}
+                  </p>
+                </div>
+                <Button type="button" onClick={onClose}>
+                  Listo
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setPunch(null);
+                    setPhone("");
+                    setPin("");
+                    setError(null);
+                  }}
+                >
+                  Marcar otra
+                </Button>
               </div>
-              <Button type="button" onClick={onClose}>
-                Listo
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  setPunch(null);
-                  setPhone("");
-                  setPin("");
-                  setError(null);
+            ) : (
+              <form
+                className="grid gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submit();
                 }}
               >
-                Marcar otra
-              </Button>
-            </div>
-          ) : (
-            <form
-              className="grid gap-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <p className="text-xs text-slate-500">
-                Una entrada y una salida por dia. Entrada desde las 8:59 a.m.
-                Salida desde las 5:30 p.m.
-              </p>
-              <Field label="Numero">
-                <Input
-                  type="tel"
-                  inputMode="numeric"
-                  autoComplete="tel"
-                  maxLength={15}
-                  placeholder="9930000000"
-                  value={phone}
-                  onChange={setPhone}
-                />
-              </Field>
-              <Field label="PIN">
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  maxLength={4}
-                  placeholder="••••"
-                  value={pin}
-                  onChange={setPin}
-                />
-              </Field>
-              {error ? <p className="text-sm text-slate-700">{error}</p> : null}
-              <Button
-                type="submit"
-                disabled={
-                  saving ||
-                  phone.replace(/\D/g, "").length < 10 ||
-                  pin.trim().length !== 4
-                }
-              >
-                {saving ? "Marcando..." : "Marcar"}
-              </Button>
-            </form>
-          )}
+                <p className="text-xs text-slate-500">
+                  Una entrada y una salida por dia. Entrada desde las 8:59 a.m.
+                  Salida desde las 5:30 p.m.
+                </p>
+                <Field label="Numero">
+                  <Input
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    maxLength={15}
+                    placeholder="9930000000"
+                    value={phone}
+                    onChange={setPhone}
+                  />
+                </Field>
+                <Field label="PIN">
+                  <Input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={4}
+                    placeholder="••••"
+                    value={pin}
+                    onChange={setPin}
+                  />
+                </Field>
+                {error ? (
+                  <p className="text-sm text-slate-700">{error}</p>
+                ) : null}
+                <Button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    phone.replace(/\D/g, "").length < 10 ||
+                    pin.trim().length !== 4
+                  }
+                >
+                  {saving ? "Marcando..." : "Marcar"}
+                </Button>
+              </form>
+            )
+          ) : null}
 
-          {enabled ? (
+          {enabled && !canManage ? (
             <div className="mt-8">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Hoy
@@ -292,20 +304,30 @@ export function ChecadorPanel({
                   ))}
                 </ul>
               )}
-              {canManage ? (
-                <div className="mt-6">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={saving}
-                    onClick={() => {
-                      void toggleClock(false);
-                    }}
-                  >
-                    Desactivar checador
-                  </Button>
-                </div>
+            </div>
+          ) : null}
+
+          {canManage && enabled ? (
+            <div className="mt-6 grid gap-3">
+              {!punch ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setMarkOpen((open) => !open)}
+                >
+                  {markOpen ? "Ocultar marca" : "Marcar asistencia"}
+                </Button>
               ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={saving}
+                onClick={() => {
+                  void toggleClock(false);
+                }}
+              >
+                Desactivar checador
+              </Button>
             </div>
           ) : null}
         </div>
