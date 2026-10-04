@@ -51,8 +51,8 @@ const UBICACION: Pattern[] = [
 ];
 
 const ENVIO: Pattern[] = [
-  { re: /costo(?:s)? de envio/, weight: 80 },
-  { re: /precio(?:s)? de envio/, weight: 80 },
+  { re: /costo(?:s)?(?:\s+\w+){0,2}\s+envio/, weight: 80 },
+  { re: /precio(?:s)?(?:\s+\w+){0,2}\s+envio/, weight: 80 },
   { re: /cuanto (?:cuesta|sale|es) (?:el )?envio/, weight: 80 },
   { re: /cuanto (?:el )?envio/, weight: 75 },
   { re: /cuanto (?:cuesta|sale) (?:el )?delivery/, weight: 75 },
