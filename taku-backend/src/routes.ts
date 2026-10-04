@@ -1404,7 +1404,26 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       });
       return;
     }
-    if (!account.enabled || !settings?.enabled) return;
+    if (!account.enabled) return;
+
+    const faqReply = findMatchingFaqAutoReply(
+      database.faqAutoReplies ?? [],
+      params.workspaceId,
+      params.text,
+    );
+    if (faqReply) {
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: faqReply.responseText,
+        botId: null,
+        assignmentId: null,
+        reason: `faq_auto_reply:${faqReply.intent}`,
+      });
+      return;
+    }
+
+    if (!settings?.enabled) return;
 
     const initialBotResponderDecision = await handleBotResponderDetection({
       ...params,
@@ -1437,22 +1456,6 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       params.workspaceId,
       params.accountId,
     );
-    const faqReply = findMatchingFaqAutoReply(
-      database.faqAutoReplies,
-      params.workspaceId,
-      params.text,
-    );
-    if (faqReply) {
-      await sendAutomationReply({
-        ...params,
-        to: params.from,
-        text: faqReply.responseText,
-        botId: null,
-        assignmentId: null,
-        reason: `faq_auto_reply:${faqReply.intent}`,
-      });
-      return;
-    }
 
     const rule = settings.rulesEnabled
       ? findMatchingAutomationRule(
