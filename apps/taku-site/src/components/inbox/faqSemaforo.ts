@@ -157,6 +157,12 @@ export function lastInboundFaqSignal(
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   const last = inbound[inbound.length - 1];
   if (!last) return null;
+  const answered = messages.some(
+    (message) =>
+      (message.direction === "outbound" || message.direction === "bot") &&
+      message.createdAt >= last.createdAt,
+  );
+  if (answered) return null;
 
   const key = senderKey(last);
   const fromUser = key
@@ -181,4 +187,28 @@ export function shouldShowFaqSemaforo(
 ) {
   const signal = lastInboundFaqSignal(messages);
   return Boolean(signal?.match && signal.lastMessageId === messageId);
+}
+
+export function lastMessageLooksLikeFaq(conversation: {
+  unreadCount: number;
+  lastMessage: {
+    body: string | null;
+    direction: string;
+    createdAt: string;
+  } | null;
+}) {
+  if (conversation.unreadCount <= 0) return false;
+  const last = conversation.lastMessage;
+  if (!last || last.direction !== "inbound" || !last.body?.trim()) return false;
+  return Boolean(
+    lastInboundFaqSignal([
+      {
+        id: "list-last",
+        direction: last.direction,
+        body: last.body,
+        status: "received",
+        createdAt: last.createdAt,
+      },
+    ])?.match,
+  );
 }

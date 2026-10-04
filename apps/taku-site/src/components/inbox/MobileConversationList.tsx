@@ -611,14 +611,19 @@ export function MobileConversationList({
                       <div className="flex items-baseline justify-between gap-2">
                         <p
                           className={cx(
-                            "truncate text-sm",
+                            "flex min-w-0 items-center gap-1.5 truncate text-sm",
                             unread
                               ? "font-semibold text-slate-950"
                               : "font-medium text-slate-900",
                           )}
                         >
-                          {conversation.pinned ? "📌 " : ""}
-                          {title}
+                          <span className="truncate">
+                            {conversation.pinned ? "📌 " : ""}
+                            {title}
+                          </span>
+                          <FaqIntentLight
+                            visible={faqLights.has(conversation.id)}
+                          />
                         </p>
                         <span
                           className={cx(
@@ -647,10 +652,6 @@ export function MobileConversationList({
                             {conversation.unreadCount}
                           </span>
                         ) : null}
-                        <FaqIntentLight
-                          visible={faqLights.has(conversation.id)}
-                          className=""
-                        />
                       </div>
                     </div>
                   </button>

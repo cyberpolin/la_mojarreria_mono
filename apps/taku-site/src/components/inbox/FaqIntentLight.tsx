@@ -11,8 +11,8 @@ export function FaqIntentLight({
   return (
     <span
       className={cx(
-        "h-3 w-3 shrink-0 rounded-full bg-emerald-500",
-        className ?? "mb-2",
+        "inline-block h-3.5 w-3.5 shrink-0 rounded-full bg-emerald-500 ring-2 ring-white",
+        className,
       )}
       title="Semaforo verde: horarios, ubicacion o costo de envio"
       aria-label="Semaforo verde: horarios, ubicacion o costo de envio"

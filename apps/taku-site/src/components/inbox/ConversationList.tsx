@@ -202,9 +202,14 @@ export function ConversationList({
                 <div className="grid min-w-0 flex-1 gap-2">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-950">
-                        {conversation.pinned ? "📌 " : ""}
-                        {conversationTitle(conversation)}
+                      <p className="flex min-w-0 items-center gap-2 font-semibold text-slate-950">
+                        <span className="truncate">
+                          {conversation.pinned ? "📌 " : ""}
+                          {conversationTitle(conversation)}
+                        </span>
+                        <FaqIntentLight
+                          visible={faqLights.has(conversation.id)}
+                        />
                       </p>
                       <p className="truncate text-xs text-slate-500">
                         {isGroupConversation(conversation)
@@ -222,10 +227,6 @@ export function ConversationList({
                       {conversation.unreadCount > 0 ? (
                         <Badge tone="dark">{conversation.unreadCount}</Badge>
                       ) : null}
-                      <FaqIntentLight
-                        visible={faqLights.has(conversation.id)}
-                        className=""
-                      />
                     </div>
                   </div>
                   <p className="line-clamp-2 text-sm text-slate-600">

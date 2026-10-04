@@ -112,6 +112,30 @@ export function scoreReplyAcceptance(text: string, phrases: string[]) {
   return clampScore(Math.max(...hits, (1 - miss) * 100));
 }
 
+export const FAQ_AUTO_REPLY_WINDOW = 3;
+
+export function unansweredInboundWindow<
+  T extends {
+    direction: string;
+    body?: string | null;
+    createdAt: string;
+  },
+>(messages: T[]) {
+  const sorted = [...messages].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+  const tail: T[] = [];
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const message = sorted[index];
+    if (message.direction === "outbound" || message.direction === "bot") break;
+    if (message.direction === "inbound" && message.body?.trim()) {
+      tail.unshift(message);
+    }
+    if (tail.length >= FAQ_AUTO_REPLY_WINDOW) break;
+  }
+  return tail;
+}
+
 export function findMatchingFaqAutoReply<
   T extends {
     workspaceId: string;

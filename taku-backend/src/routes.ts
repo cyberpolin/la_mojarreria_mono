@@ -52,6 +52,7 @@ import {
   isFaqAutoReplyIntent,
   parsePhrases,
   parseThreshold,
+  unansweredInboundWindow,
 } from "./services/faqAutoReplies.js";
 import {
   canCloseCashDay,
@@ -1211,6 +1212,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       });
       conversation.lastMessageBody = params.text;
       conversation.lastMessageAt = message.createdAt;
+      if (status !== "failed") conversation.unreadCount = 0;
       conversation.updatedAt = now();
       return {
         message: messageView(message, database),
@@ -1220,12 +1222,111 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     realtime.emitToWorkspace(params.workspaceId, "message.created", {
       conversationId: params.conversationId,
       message: result.message,
+      conversation: result.conversation,
     });
     realtime.emitToWorkspace(
       params.workspaceId,
       "conversation.updated",
       result.conversation,
     );
+  }
+
+  const faqSweepInFlight = new Set<string>();
+
+  async function sweepUnansweredFaqAutoReplies(workspaceId: string) {
+    if (faqSweepInFlight.has(workspaceId)) return;
+    faqSweepInFlight.add(workspaceId);
+    try {
+      const database = await store.read();
+      const workspace = database.workspaces.find(
+        (item) => item.id === workspaceId,
+      );
+      if (!workspace || workspace.status === "suspended") return;
+
+      const replies = (database.faqAutoReplies ?? []).filter(
+        (item) =>
+          item.workspaceId === workspaceId &&
+          item.enabled &&
+          Boolean(item.responseText.trim()),
+      );
+      if (replies.length === 0) return;
+
+      const alreadyReplied = new Set(
+        database.automationDecisionLogs
+          .filter(
+            (log) =>
+              log.workspaceId === workspaceId &&
+              log.reason.startsWith("faq_auto_reply:"),
+          )
+          .map((log) => `${log.conversationId}:${log.messageId}`),
+      );
+
+      const unanswered = database.conversations
+        .filter(
+          (item) =>
+            item.workspaceId === workspaceId &&
+            item.unreadCount > 0 &&
+            item.status !== "archived" &&
+            !isGroupConversation(database, item),
+        )
+        .sort((left, right) =>
+          (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+        )
+        .slice(0, 25);
+
+      for (const conversation of unanswered) {
+        const account = database.whatsappAccounts.find(
+          (item) => item.id === conversation.whatsappAccountId,
+        );
+        if (!account?.enabled) continue;
+        const contact = database.contacts.find(
+          (item) => item.id === conversation.contactId,
+        );
+        if (
+          !contact ||
+          findBlockedAutomationContact(
+            database,
+            workspaceId,
+            contact.phoneNumber,
+          )
+        ) {
+          continue;
+        }
+
+        const window = unansweredInboundWindow(
+          database.messages.filter(
+            (item) => item.conversationId === conversation.id,
+          ),
+        );
+        const lastInbound = window[window.length - 1];
+        if (!lastInbound) continue;
+        const replyKey = `${conversation.id}:${lastInbound.id}`;
+        if (alreadyReplied.has(replyKey)) continue;
+
+        const text = window
+          .map((item) => item.body?.trim() ?? "")
+          .filter(Boolean)
+          .join(" ");
+        const faqReply = findMatchingFaqAutoReply(replies, workspaceId, text);
+        if (!faqReply) continue;
+
+        alreadyReplied.add(replyKey);
+        await sendAutomationReply({
+          workspaceId,
+          accountId: account.id,
+          conversationId: conversation.id,
+          contactId: contact.id,
+          inboundMessageId: lastInbound.id,
+          to: contact.phoneNumber,
+          text: faqReply.responseText,
+          botId: null,
+          assignmentId: null,
+          reason: `faq_auto_reply:${faqReply.intent}`,
+        });
+      }
+    } finally {
+      faqSweepInFlight.delete(workspaceId);
+    }
   }
 
   async function handleBotResponderDetection(params: {
@@ -4564,6 +4665,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         });
       const page = pageResponse(rows, req.query);
       paginated(res, page.items, { ...page.pagination, total: page.total });
+      void sweepUnansweredFaqAutoReplies(context.workspace.id);
     }),
   );
 
@@ -4915,6 +5017,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         database.messages.push(message);
         conversation.lastMessageBody = body;
         conversation.lastMessageAt = message.createdAt;
+        if (status !== "failed") conversation.unreadCount = 0;
         conversation.updatedAt = now();
         return { message: messageView(message, database), conversation };
       });
@@ -5343,6 +5446,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         database.faqAutoReplies.push(created);
         return created;
       });
+      void sweepUnansweredFaqAutoReplies(context.workspace.id);
       ok(res, item, 201);
     }),
   );
@@ -5406,6 +5510,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         database.faqAutoReplies.push(created);
         return created;
       });
+      void sweepUnansweredFaqAutoReplies(context.workspace.id);
       ok(res, item);
     }),
   );

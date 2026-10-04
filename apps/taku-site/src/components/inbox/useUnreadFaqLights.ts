@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { lastInboundFaqSignal } from "./faqSemaforo";
-import { loadConversationMessages } from "./threadCache";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { lastInboundFaqSignal, lastMessageLooksLikeFaq } from "./faqSemaforo";
+import { loadConversationMessages, readThreadCache } from "./threadCache";
 import type { InboxConversation } from "./types";
 
 const MAX_UNREAD_TO_SCAN = 25;
 
+function initialFaqLights(conversations: InboxConversation[]) {
+  return new Set(
+    conversations
+      .filter(lastMessageLooksLikeFaq)
+      .map((conversation) => conversation.id),
+  );
+}
+
 export function useUnreadFaqLights(conversations: InboxConversation[]) {
-  const [litIds, setLitIds] = useState<Set<string>>(() => new Set());
   const unread = useMemo(
     () =>
       conversations
@@ -22,19 +29,38 @@ export function useUnreadFaqLights(conversations: InboxConversation[]) {
         `${conversation.id}:${conversation.lastMessageAt ?? ""}:${conversation.unreadCount}`,
     )
     .join("|");
+  const unreadRef = useRef(unread);
+  unreadRef.current = unread;
+
+  const [litIds, setLitIds] = useState<Set<string>>(() =>
+    initialFaqLights(unread),
+  );
 
   useEffect(() => {
-    if (!unreadKey) {
-      setLitIds(new Set());
-      return;
-    }
+    const rows = unreadRef.current;
+    setLitIds(initialFaqLights(rows));
+    if (!unreadKey) return;
+
     let cancelled = false;
     void (async () => {
       const next = new Set<string>();
-      for (const conversation of unread) {
-        const thread = await loadConversationMessages(conversation);
+      for (const conversation of rows) {
+        const cached = conversation.contact?.phoneNumber
+          ? readThreadCache(
+              conversation.contact.phoneNumber,
+              conversation.whatsappAccount?.id,
+            )
+          : null;
+        const thread =
+          cached && cached.conversation.id === conversation.id
+            ? cached
+            : await loadConversationMessages(conversation);
         if (cancelled) return;
         if (thread && lastInboundFaqSignal(thread.messages)?.match) {
+          next.add(conversation.id);
+          continue;
+        }
+        if (!thread && lastMessageLooksLikeFaq(conversation)) {
           next.add(conversation.id);
         }
       }
@@ -43,7 +69,7 @@ export function useUnreadFaqLights(conversations: InboxConversation[]) {
     return () => {
       cancelled = true;
     };
-  }, [unread, unreadKey]);
+  }, [unreadKey]);
 
   return litIds;
 }
