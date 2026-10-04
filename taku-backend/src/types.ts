@@ -206,6 +206,18 @@ export type BotAssignment = {
   updatedAt: string;
 };
 
+export type FaqAutoReply = {
+  id: string;
+  workspaceId: string;
+  intent: "horarios" | "ubicacion" | "envio";
+  title: string;
+  phrases: string[];
+  responseText: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AutomationRule = {
   id: string;
   workspaceId: string;
@@ -392,6 +404,7 @@ export type Database = {
   bots: TakuBot[];
   botAssignments: BotAssignment[];
   automationRules: AutomationRule[];
+  faqAutoReplies: FaqAutoReply[];
   automationBlockedContacts: AutomationBlockedContact[];
   automationDecisionLogs: AutomationDecisionLog[];
   paymentIntents: PaymentIntent[];

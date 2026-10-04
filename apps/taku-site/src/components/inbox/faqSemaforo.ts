@@ -1,3 +1,4 @@
+import { getCachedFaqAutoReplyPhrases } from "./autoReplies";
 import type { InboxMessage } from "./types";
 
 export const FAQ_SEMAFORO_THRESHOLD = 80;
@@ -79,6 +80,18 @@ export function normalizeFaqText(value: string) {
     .trim();
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function phrasePatterns(phrases: string[]): Pattern[] {
+  return phrases.flatMap((phrase) => {
+    const normalized = normalizeFaqText(phrase);
+    if (normalized.length < 3) return [];
+    return [{ re: new RegExp(escapeRegExp(normalized)), weight: 80 }];
+  });
+}
+
 function scorePatterns(text: string, patterns: Pattern[]) {
   let score = 0;
   for (const pattern of patterns) {
@@ -100,9 +113,18 @@ export function scoreFaqIntents(text: string): FaqScores {
   if (!normalized) {
     return { horarios: 0, ubicacion: 0, envio: 0, combined: 0 };
   }
-  const horarios = scorePatterns(normalized, HORARIOS);
-  const ubicacion = scorePatterns(normalized, UBICACION);
-  const envio = scorePatterns(normalized, ENVIO);
+  const horarios = scorePatterns(normalized, [
+    ...HORARIOS,
+    ...phrasePatterns(getCachedFaqAutoReplyPhrases("horarios")),
+  ]);
+  const ubicacion = scorePatterns(normalized, [
+    ...UBICACION,
+    ...phrasePatterns(getCachedFaqAutoReplyPhrases("ubicacion")),
+  ]);
+  const envio = scorePatterns(normalized, [
+    ...ENVIO,
+    ...phrasePatterns(getCachedFaqAutoReplyPhrases("envio")),
+  ]);
   const combined = Math.max(
     horarios,
     ubicacion,

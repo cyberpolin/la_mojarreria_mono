@@ -59,6 +59,7 @@ function createEmptyDatabase(): Database {
     bots: [],
     botAssignments: [],
     automationRules: [],
+    faqAutoReplies: [],
     automationBlockedContacts: [],
     automationDecisionLogs: [],
     paymentIntents: [],
@@ -88,6 +89,7 @@ function ensureDatabaseCollections(database: Database) {
   target.bots ??= [];
   target.botAssignments ??= [];
   target.automationRules ??= [];
+  target.faqAutoReplies ??= [];
   target.automationBlockedContacts ??= [];
   target.automationDecisionLogs ??= [];
   target.paymentIntents ??= [];
@@ -730,6 +732,7 @@ function createTestSeed(): Database {
     bots,
     botAssignments,
     automationRules,
+    faqAutoReplies: [],
     automationBlockedContacts,
     automationDecisionLogs: [],
     paymentIntents: [] as PaymentIntent[],

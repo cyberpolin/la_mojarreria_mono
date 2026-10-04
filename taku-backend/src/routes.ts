@@ -46,6 +46,13 @@ import {
   punchDayKey,
 } from "./services/attendance.js";
 import {
+  FAQ_AUTO_REPLY_DEFAULTS,
+  FAQ_AUTO_REPLY_INTENTS,
+  findMatchingFaqAutoReply,
+  isFaqAutoReplyIntent,
+  parsePhrases,
+} from "./services/faqAutoReplies.js";
+import {
   canCloseCashDay,
   computeDayCloseDiferencia,
   computeWeekCloseTotals,
@@ -86,6 +93,7 @@ import type {
   WhatsAppStatus,
   AttendancePunch,
   DayClose,
+  FaqAutoReply,
   WeekClose,
   WorkspacePlan,
 } from "./types.js";
@@ -1428,6 +1436,23 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       params.workspaceId,
       params.accountId,
     );
+    const faqReply = findMatchingFaqAutoReply(
+      database.faqAutoReplies,
+      params.workspaceId,
+      params.text,
+    );
+    if (faqReply) {
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: faqReply.responseText,
+        botId: null,
+        assignmentId: null,
+        reason: `faq_auto_reply:${faqReply.intent}`,
+      });
+      return;
+    }
+
     const rule = settings.rulesEnabled
       ? findMatchingAutomationRule(
           database,
@@ -5225,6 +5250,103 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         }));
       const page = pageResponse(rows, req.query);
       paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.get(
+    "/faq-auto-replies",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const items = await store.update((database) => {
+        const createdAt = now();
+        for (const intent of FAQ_AUTO_REPLY_INTENTS) {
+          const existing = database.faqAutoReplies.find(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.intent === intent,
+          );
+          if (existing) continue;
+          const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
+          const item: FaqAutoReply = {
+            id: id("faq_auto_reply"),
+            workspaceId: context.workspace.id,
+            intent,
+            title: defaults.title,
+            phrases: [...defaults.phrases],
+            responseText: defaults.responseText,
+            enabled: true,
+            createdAt,
+            updatedAt: createdAt,
+          };
+          database.faqAutoReplies.push(item);
+        }
+        return FAQ_AUTO_REPLY_INTENTS.map(
+          (intent) =>
+            database.faqAutoReplies.find(
+              (item) =>
+                item.workspaceId === context.workspace.id &&
+                item.intent === intent,
+            )!,
+        );
+      });
+      ok(res, items);
+    }),
+  );
+
+  router.put(
+    "/faq-auto-replies/:intent",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const intent = String(req.params.intent ?? "");
+      if (!isFaqAutoReplyIntent(intent)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Intento invalido.",
+        });
+      }
+      const phrases = parsePhrases(req.body?.phrases);
+      const responseText =
+        typeof req.body?.responseText === "string" ? req.body.responseText : "";
+      if (responseText.length > 1000) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Respuesta demasiado larga.",
+        });
+      }
+      const enabled =
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const item = await store.update((database) => {
+        const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
+        const existing = database.faqAutoReplies.find(
+          (row) =>
+            row.workspaceId === context.workspace.id && row.intent === intent,
+        );
+        if (existing) {
+          existing.phrases = phrases;
+          existing.responseText = responseText;
+          existing.enabled = enabled;
+          existing.updatedAt = now();
+          return existing;
+        }
+        const created: FaqAutoReply = {
+          id: id("faq_auto_reply"),
+          workspaceId: context.workspace.id,
+          intent,
+          title: defaults.title,
+          phrases,
+          responseText,
+          enabled,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.faqAutoReplies.push(created);
+        return created;
+      });
+      ok(res, item);
     }),
   );
 

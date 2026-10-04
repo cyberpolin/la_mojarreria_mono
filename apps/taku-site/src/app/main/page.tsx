@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { AutoRepliesPanel } from "@/components/inbox/AutoRepliesPanel";
 import { ConversationsInbox } from "@/components/inbox/ConversationsInbox";
 import {
   conversationIdFromPathname,
@@ -2602,6 +2603,9 @@ function AutomationSectionConnected({
   const [numberSettings, setNumberSettings] = useState<AutomationSettingsForm>(
     () => settingsFormFromBotSettings(data.botSettings),
   );
+  const [automationTab, setAutomationTab] = useState<"general" | "respuestas">(
+    "general",
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [loadingNumberSettings, setLoadingNumberSettings] = useState(false);
@@ -3063,661 +3067,721 @@ function AutomationSectionConnected({
         title="Bots, reglas y asignaciones"
         description="TAKU decide cuando responder: reglas, fuera de horario o bot asignado a un numero."
         action={
-          <Button disabled={savingSettings} onClick={() => void saveSettings()}>
-            {savingSettings ? "Guardando..." : "Guardar configuracion"}
-          </Button>
+          automationTab === "general" ? (
+            <Button
+              disabled={savingSettings}
+              onClick={() => void saveSettings()}
+            >
+              {savingSettings ? "Guardando..." : "Guardar configuracion"}
+            </Button>
+          ) : undefined
         }
       />
-      {message ? (
+      <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {[
+          { id: "general" as const, label: "General" },
+          { id: "respuestas" as const, label: "Respuestas automaticas" },
+        ].map((tab) => {
+          const selected = automationTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setAutomationTab(tab.id)}
+              className={`min-h-11 border-b-2 text-sm font-semibold ${
+                selected
+                  ? "border-slate-950 text-slate-950"
+                  : "border-transparent text-slate-400 hover:text-slate-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+      {automationTab === "respuestas" ? <AutoRepliesPanel /> : null}
+      {automationTab === "general" && message ? (
         <div className="rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
           {message}
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="font-semibold text-slate-950">
-            Motor global de respuestas
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Base general para todos los numeros. Puedes ajustar cada numero en
-            la seccion por numero.
-          </p>
-          <div className="mt-5 grid gap-3">
-            <Switch
-              checked={settings.enabled}
-              label="Automatizacion activa"
-              onChange={(enabled) =>
-                setSettings((current) => ({ ...current, enabled }))
-              }
-            />
-            <Switch
-              checked={settings.afterHoursEnabled}
-              label="Respuesta fuera de horario"
-              onChange={(afterHoursEnabled) =>
-                setSettings((current) => ({ ...current, afterHoursEnabled }))
-              }
-            />
-            <Field label="Fuera de horario responde con">
-              <Select
-                value={settings.afterHoursResponder}
-                onChange={(afterHoursResponder) =>
-                  setSettings((current) => ({
-                    ...current,
-                    afterHoursResponder: afterHoursResponder as
-                      | "static_message"
-                      | "assigned_bot"
-                      | "none",
-                    afterHoursEnabled:
-                      afterHoursResponder === "assigned_bot"
-                        ? true
-                        : current.afterHoursEnabled,
-                    aiEnabled:
-                      afterHoursResponder === "assigned_bot"
-                        ? true
-                        : current.aiEnabled,
-                  }))
-                }
-              >
-                <option value="static_message">Mensaje fijo</option>
-                <option value="assigned_bot">Bot asignado</option>
-                <option value="none">Nada</option>
-              </Select>
-            </Field>
-            <Switch
-              checked={settings.rulesEnabled}
-              label="Reglas por palabra clave"
-              onChange={(rulesEnabled) =>
-                setSettings((current) => ({ ...current, rulesEnabled }))
-              }
-            />
-            <Switch
-              checked={settings.aiEnabled}
-              label="Bots IA asignados a numeros"
-              onChange={(aiEnabled) =>
-                setSettings((current) => ({ ...current, aiEnabled }))
-              }
-            />
-            <Field label="Mensaje fuera de horario">
-              <TextArea
-                placeholder="Gracias por escribir. Estamos fuera de horario."
-                value={settings.afterHoursMessage}
-                readOnly={settings.afterHoursResponder !== "static_message"}
-                onChange={(afterHoursMessage) =>
-                  setSettings((current) => ({ ...current, afterHoursMessage }))
-                }
-              />
-            </Field>
-          </div>
-        </section>
-
-        <form
-          onSubmit={createBot}
-          className="rounded-lg border border-slate-200 bg-white p-5"
-        >
-          <h2 className="font-semibold text-slate-950">Crear bot</h2>
-          <div className="mt-5 grid gap-4">
-            <Field label="Nombre">
-              <Input
-                placeholder="Ej. Ventas automaticas"
-                value={botName}
-                onChange={setBotName}
-              />
-            </Field>
-            <Field label="Instrucciones">
-              <TextArea
-                placeholder="Responde breve, pide nombre y pasa a un agente si falta informacion."
-                value={instructions}
-                onChange={setInstructions}
-              />
-            </Field>
-            <Button
-              type="submit"
-              disabled={!botName.trim() || !instructions.trim() || creatingBot}
-            >
-              {creatingBot ? "Creando..." : "Crear bot"}
-            </Button>
-          </div>
-        </form>
-      </div>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-950">Bots</h2>
-          <Badge>{localBots.length}</Badge>
-        </div>
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
-              <tr>
-                {[
-                  "Nombre",
-                  "Estado",
-                  "Assistant",
-                  "Client ID",
-                  "Token",
-                  "Acciones",
-                ].map((head) => (
-                  <th key={head} className="px-4 py-3">
-                    {head}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {localBots.map((bot) => (
-                <tr key={bot.id}>
-                  <td className="px-4 py-3 font-medium text-slate-950">
-                    {bot.name}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge>{bot.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {bot.externalAssistantId ?? "-"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {bot.clientId ?? "-"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {bot.hasClientToken ? "Configurado" : "Falta"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="ghost"
-                        disabled={savingBotEdit || deletingBotId === bot.id}
-                        onClick={() => startEditingBot(bot)}
-                      >
-                        Editar
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        disabled={
-                          savingBotStatusId === bot.id ||
-                          deletingBotId === bot.id
-                        }
-                        onClick={() =>
-                          void updateBotStatus(
-                            bot,
-                            bot.status === "active" ? "paused" : "active",
-                          )
-                        }
-                      >
-                        {savingBotStatusId === bot.id
-                          ? "Guardando..."
-                          : bot.status === "active"
-                            ? "Desactivar"
-                            : "Reactivar"}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        disabled={
-                          savingBotStatusId === bot.id ||
-                          deletingBotId === bot.id
-                        }
-                        onClick={() => void deleteBot(bot)}
-                      >
-                        {deletingBotId === bot.id
-                          ? "Eliminando..."
-                          : "Eliminar"}
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {editingBot ? (
-          <form
-            onSubmit={saveBotEdit}
-            className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4"
-          >
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <h3 className="font-semibold text-slate-950">Editar bot</h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  Cambia nombre, instrucciones o estado. Las instrucciones se
-                  sincronizan con Bot Service.
-                </p>
-              </div>
-              <Badge>{editingBot.name}</Badge>
-            </div>
-            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_220px]">
-              <Field label="Nombre">
-                <Input
-                  placeholder="Ej. Ventas automaticas"
-                  value={editBotName}
-                  onChange={setEditBotName}
-                />
-              </Field>
-              <Field label="Estado">
-                <Select
-                  value={editBotStatus}
-                  onChange={(status) =>
-                    setEditBotStatus(status as "draft" | "active" | "paused")
+      {automationTab === "general" ? (
+        <>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <section className="rounded-lg border border-slate-200 bg-white p-5">
+              <h2 className="font-semibold text-slate-950">
+                Motor global de respuestas
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Base general para todos los numeros. Puedes ajustar cada numero
+                en la seccion por numero.
+              </p>
+              <div className="mt-5 grid gap-3">
+                <Switch
+                  checked={settings.enabled}
+                  label="Automatizacion activa"
+                  onChange={(enabled) =>
+                    setSettings((current) => ({ ...current, enabled }))
                   }
-                >
-                  <option value="active">Activo</option>
-                  <option value="paused">Pausado</option>
-                  <option value="draft">Borrador</option>
-                </Select>
-              </Field>
-              <div className="lg:col-span-2">
+                />
+                <Switch
+                  checked={settings.afterHoursEnabled}
+                  label="Respuesta fuera de horario"
+                  onChange={(afterHoursEnabled) =>
+                    setSettings((current) => ({
+                      ...current,
+                      afterHoursEnabled,
+                    }))
+                  }
+                />
+                <Field label="Fuera de horario responde con">
+                  <Select
+                    value={settings.afterHoursResponder}
+                    onChange={(afterHoursResponder) =>
+                      setSettings((current) => ({
+                        ...current,
+                        afterHoursResponder: afterHoursResponder as
+                          | "static_message"
+                          | "assigned_bot"
+                          | "none",
+                        afterHoursEnabled:
+                          afterHoursResponder === "assigned_bot"
+                            ? true
+                            : current.afterHoursEnabled,
+                        aiEnabled:
+                          afterHoursResponder === "assigned_bot"
+                            ? true
+                            : current.aiEnabled,
+                      }))
+                    }
+                  >
+                    <option value="static_message">Mensaje fijo</option>
+                    <option value="assigned_bot">Bot asignado</option>
+                    <option value="none">Nada</option>
+                  </Select>
+                </Field>
+                <Switch
+                  checked={settings.rulesEnabled}
+                  label="Reglas por palabra clave"
+                  onChange={(rulesEnabled) =>
+                    setSettings((current) => ({ ...current, rulesEnabled }))
+                  }
+                />
+                <Switch
+                  checked={settings.aiEnabled}
+                  label="Bots IA asignados a numeros"
+                  onChange={(aiEnabled) =>
+                    setSettings((current) => ({ ...current, aiEnabled }))
+                  }
+                />
+                <Field label="Mensaje fuera de horario">
+                  <TextArea
+                    placeholder="Gracias por escribir. Estamos fuera de horario."
+                    value={settings.afterHoursMessage}
+                    readOnly={settings.afterHoursResponder !== "static_message"}
+                    onChange={(afterHoursMessage) =>
+                      setSettings((current) => ({
+                        ...current,
+                        afterHoursMessage,
+                      }))
+                    }
+                  />
+                </Field>
+              </div>
+            </section>
+
+            <form
+              onSubmit={createBot}
+              className="rounded-lg border border-slate-200 bg-white p-5"
+            >
+              <h2 className="font-semibold text-slate-950">Crear bot</h2>
+              <div className="mt-5 grid gap-4">
+                <Field label="Nombre">
+                  <Input
+                    placeholder="Ej. Ventas automaticas"
+                    value={botName}
+                    onChange={setBotName}
+                  />
+                </Field>
                 <Field label="Instrucciones">
                   <TextArea
-                    rows={8}
                     placeholder="Responde breve, pide nombre y pasa a un agente si falta informacion."
-                    value={editBotInstructions}
-                    onChange={setEditBotInstructions}
+                    value={instructions}
+                    onChange={setInstructions}
+                  />
+                </Field>
+                <Button
+                  type="submit"
+                  disabled={
+                    !botName.trim() || !instructions.trim() || creatingBot
+                  }
+                >
+                  {creatingBot ? "Creando..." : "Crear bot"}
+                </Button>
+              </div>
+            </form>
+          </div>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-slate-950">Bots</h2>
+              <Badge>{localBots.length}</Badge>
+            </div>
+            <div className="mt-5 overflow-x-auto">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                  <tr>
+                    {[
+                      "Nombre",
+                      "Estado",
+                      "Assistant",
+                      "Client ID",
+                      "Token",
+                      "Acciones",
+                    ].map((head) => (
+                      <th key={head} className="px-4 py-3">
+                        {head}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {localBots.map((bot) => (
+                    <tr key={bot.id}>
+                      <td className="px-4 py-3 font-medium text-slate-950">
+                        {bot.name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge>{bot.status}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {bot.externalAssistantId ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {bot.clientId ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {bot.hasClientToken ? "Configurado" : "Falta"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="ghost"
+                            disabled={savingBotEdit || deletingBotId === bot.id}
+                            onClick={() => startEditingBot(bot)}
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={
+                              savingBotStatusId === bot.id ||
+                              deletingBotId === bot.id
+                            }
+                            onClick={() =>
+                              void updateBotStatus(
+                                bot,
+                                bot.status === "active" ? "paused" : "active",
+                              )
+                            }
+                          >
+                            {savingBotStatusId === bot.id
+                              ? "Guardando..."
+                              : bot.status === "active"
+                                ? "Desactivar"
+                                : "Reactivar"}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            disabled={
+                              savingBotStatusId === bot.id ||
+                              deletingBotId === bot.id
+                            }
+                            onClick={() => void deleteBot(bot)}
+                          >
+                            {deletingBotId === bot.id
+                              ? "Eliminando..."
+                              : "Eliminar"}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {editingBot ? (
+              <form
+                onSubmit={saveBotEdit}
+                className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-950">Editar bot</h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Cambia nombre, instrucciones o estado. Las instrucciones
+                      se sincronizan con Bot Service.
+                    </p>
+                  </div>
+                  <Badge>{editingBot.name}</Badge>
+                </div>
+                <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_220px]">
+                  <Field label="Nombre">
+                    <Input
+                      placeholder="Ej. Ventas automaticas"
+                      value={editBotName}
+                      onChange={setEditBotName}
+                    />
+                  </Field>
+                  <Field label="Estado">
+                    <Select
+                      value={editBotStatus}
+                      onChange={(status) =>
+                        setEditBotStatus(
+                          status as "draft" | "active" | "paused",
+                        )
+                      }
+                    >
+                      <option value="active">Activo</option>
+                      <option value="paused">Pausado</option>
+                      <option value="draft">Borrador</option>
+                    </Select>
+                  </Field>
+                  <div className="lg:col-span-2">
+                    <Field label="Instrucciones">
+                      <TextArea
+                        rows={8}
+                        placeholder="Responde breve, pide nombre y pasa a un agente si falta informacion."
+                        value={editBotInstructions}
+                        onChange={setEditBotInstructions}
+                      />
+                    </Field>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button
+                    type="submit"
+                    disabled={
+                      savingBotEdit ||
+                      !editBotName.trim() ||
+                      !editBotInstructions.trim()
+                    }
+                  >
+                    {savingBotEdit ? "Guardando..." : "Guardar cambios"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={savingBotEdit}
+                    onClick={() => setEditingBotId(null)}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </form>
+            ) : null}
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h2 className="font-semibold text-slate-950">
+                  Automatizacion por numero
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Selecciona un numero, activa o pausa su automatizacion y
+                  define cuando responde el bot.
+                </p>
+              </div>
+              <Button
+                disabled={!assignmentPhone || savingNumberSettings}
+                onClick={() => void saveNumberSettings()}
+              >
+                {savingNumberSettings ? "Guardando..." : "Guardar numero"}
+              </Button>
+            </div>
+
+            <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+              <div className="grid gap-4">
+                <Field label="Numero">
+                  <Select value={assignmentPhone} onChange={setAssignmentPhone}>
+                    <option value="">Selecciona numero</option>
+                    {data.accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.displayName} · {statusLabel(account.status)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {data.accounts.length === 0 ? (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                    Primero agrega y vincula un numero de WhatsApp.
+                  </p>
+                ) : null}
+                {loadingNumberSettings ? (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                    Cargando configuracion del numero...
+                  </p>
+                ) : null}
+                <Switch
+                  checked={numberSettings.enabled}
+                  label="Automatizacion activa para este numero"
+                  onChange={(enabled) =>
+                    setNumberSettings((current) => ({ ...current, enabled }))
+                  }
+                />
+                <Switch
+                  checked={numberSettings.rulesEnabled}
+                  label="Aplicar reglas por palabra clave a este numero"
+                  onChange={(rulesEnabled) =>
+                    setNumberSettings((current) => ({
+                      ...current,
+                      rulesEnabled,
+                    }))
+                  }
+                />
+                <Switch
+                  checked={numberSettings.aiEnabled}
+                  label="Permitir bot asignado en este numero"
+                  onChange={(aiEnabled) =>
+                    setNumberSettings((current) => ({ ...current, aiEnabled }))
+                  }
+                />
+              </div>
+
+              <div className="grid gap-4">
+                <Switch
+                  checked={numberSettings.afterHoursEnabled}
+                  label="Respuesta fuera de horario para este numero"
+                  onChange={(afterHoursEnabled) =>
+                    setNumberSettings((current) => ({
+                      ...current,
+                      afterHoursEnabled,
+                    }))
+                  }
+                />
+                <Field label="Fuera de horario responde con">
+                  <Select
+                    value={numberSettings.afterHoursResponder}
+                    onChange={(afterHoursResponder) =>
+                      setNumberSettings((current) => ({
+                        ...current,
+                        afterHoursResponder: afterHoursResponder as
+                          | "static_message"
+                          | "assigned_bot"
+                          | "none",
+                        afterHoursEnabled:
+                          afterHoursResponder === "assigned_bot"
+                            ? true
+                            : current.afterHoursEnabled,
+                        aiEnabled:
+                          afterHoursResponder === "assigned_bot"
+                            ? true
+                            : current.aiEnabled,
+                      }))
+                    }
+                  >
+                    <option value="static_message">Mensaje fijo</option>
+                    <option value="assigned_bot">Bot asignado</option>
+                    <option value="none">Nada</option>
+                  </Select>
+                </Field>
+                <Field label="Mensaje fijo fuera de horario">
+                  <TextArea
+                    placeholder="Gracias por escribir. Estamos fuera de horario."
+                    value={numberSettings.afterHoursMessage}
+                    readOnly={
+                      numberSettings.afterHoursResponder !== "static_message"
+                    }
+                    onChange={(afterHoursMessage) =>
+                      setNumberSettings((current) => ({
+                        ...current,
+                        afterHoursMessage,
+                      }))
+                    }
                   />
                 </Field>
               </div>
             </div>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button
-                type="submit"
-                disabled={
-                  savingBotEdit ||
-                  !editBotName.trim() ||
-                  !editBotInstructions.trim()
-                }
-              >
-                {savingBotEdit ? "Guardando..." : "Guardar cambios"}
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={savingBotEdit}
-                onClick={() => setEditingBotId(null)}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </form>
-        ) : null}
-      </section>
+          </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <form
+              onSubmit={assignBot}
+              className="rounded-lg border border-slate-200 bg-white p-5"
+            >
+              <h2 className="font-semibold text-slate-950">
+                Bot y horario de respuesta
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Define que bot usa el numero seleccionado y en que horario puede
+                responder.
+              </p>
+              <div className="mt-5 grid gap-4">
+                <Field label="Numero">
+                  <Select value={assignmentPhone} onChange={setAssignmentPhone}>
+                    <option value="">Selecciona numero</option>
+                    {data.accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.displayName} · {statusLabel(account.status)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {data.accounts.length === 0 ? (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                    Primero agrega y vincula un numero de WhatsApp.
+                  </p>
+                ) : null}
+                <Field label="Bot">
+                  <Select value={assignmentBot} onChange={setAssignmentBot}>
+                    <option value="">Selecciona bot</option>
+                    {activeBots.map((bot) => (
+                      <option key={bot.id} value={bot.id}>
+                        {bot.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {activeBots.length === 0 ? (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                    Primero crea o reactiva un bot.
+                  </p>
+                ) : null}
+                <Field label="Horario en que responde el bot">
+                  <Select value={assignmentMode} onChange={setAssignmentMode}>
+                    <option value="outside_business_hours">
+                      Fuera de horario
+                    </option>
+                    <option value="business_hours">Dentro de horario</option>
+                    <option value="always">Siempre</option>
+                    <option value="disabled">Deshabilitado</option>
+                  </Select>
+                </Field>
+                <Button
+                  type="submit"
+                  disabled={!assignmentPhone || !assignmentBot || assigningBot}
+                >
+                  {assigningBot ? "Guardando..." : "Guardar asignacion"}
+                </Button>
+              </div>
+            </form>
+
+            <form
+              onSubmit={createRule}
+              className="rounded-lg border border-slate-200 bg-white p-5"
+            >
+              <h2 className="font-semibold text-slate-950">Crear regla</h2>
+              <div className="mt-5 grid gap-4">
+                <Field label="Palabra clave">
+                  <Input
+                    placeholder="horario"
+                    value={keyword}
+                    onChange={setKeyword}
+                  />
+                </Field>
+                <Field label="Tipo de coincidencia">
+                  <Select value={matchType} onChange={setMatchType}>
+                    <option value="contains">Contiene</option>
+                    <option value="exact">Exacta</option>
+                    <option value="starts_with">Empieza con</option>
+                  </Select>
+                </Field>
+                <Field label="Respuesta">
+                  <TextArea
+                    placeholder="Nuestro horario es de lunes a viernes..."
+                    value={responseText}
+                    onChange={setResponseText}
+                  />
+                </Field>
+                <Button
+                  type="submit"
+                  disabled={
+                    !keyword.trim() || !responseText.trim() || creatingRule
+                  }
+                >
+                  {creatingRule ? "Guardando..." : "Guardar regla"}
+                </Button>
+              </div>
+            </form>
+          </div>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h2 className="font-semibold text-slate-950">
+                  Nunca responder
+                </h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Numeros que TAKU puede recibir y guardar en conversaciones,
+                  pero nunca contestara con reglas ni bot.
+                </p>
+              </div>
+              <Badge>{data.blockedContacts.length}</Badge>
+            </div>
+
+            <form
+              onSubmit={createBlockedContact}
+              className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]"
+            >
+              <Field label="Numero">
+                <Input
+                  placeholder="5219931175435"
+                  value={blockedPhoneNumber}
+                  onChange={setBlockedPhoneNumber}
+                />
+              </Field>
+              <Field label="Nombre o etiqueta">
+                <Input
+                  placeholder="Proveedor, socio, equipo interno"
+                  value={blockedLabel}
+                  onChange={setBlockedLabel}
+                />
+              </Field>
+              <Field label="Motivo">
+                <Input
+                  placeholder="No automatizar este contacto"
+                  value={blockedReason}
+                  onChange={setBlockedReason}
+                />
+              </Field>
+              <div className="flex items-end">
+                <Button
+                  type="submit"
+                  disabled={
+                    blockedPhoneNumber.replace(/\D/g, "").length < 8 ||
+                    creatingBlockedContact
+                  }
+                >
+                  {creatingBlockedContact ? "Agregando..." : "Agregar"}
+                </Button>
+              </div>
+            </form>
+
+            <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200">
+              <table className="w-full min-w-[780px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                  <tr>
+                    {["Numero", "Etiqueta", "Motivo", "Estado", "Acciones"].map(
+                      (head) => (
+                        <th key={head} className="px-4 py-3">
+                          {head}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {data.blockedContacts.map((contact) => (
+                    <tr key={contact.id}>
+                      <td className="px-4 py-3 font-medium text-slate-950">
+                        {contact.phoneNumber}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {contact.label ?? "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {contact.reason ?? "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Switch
+                          compact
+                          checked={contact.enabled}
+                          disabled={savingBlockedContactId === contact.id}
+                          label={
+                            savingBlockedContactId === contact.id
+                              ? "Guardando"
+                              : contact.enabled
+                                ? "Activo"
+                                : "Inactivo"
+                          }
+                          onChange={(enabled) =>
+                            void updateBlockedContact(contact, enabled)
+                          }
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button
+                          variant="secondary"
+                          disabled={deletingBlockedContactId === contact.id}
+                          onClick={() => void deleteBlockedContact(contact)}
+                        >
+                          {deletingBlockedContactId === contact.id
+                            ? "Eliminando..."
+                            : "Eliminar"}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {data.blockedContacts.length === 0 ? (
+                    <tr>
+                      <td
+                        className="px-4 py-8 text-sm text-slate-500"
+                        colSpan={5}
+                      >
+                        No hay numeros excluidos de respuestas automaticas.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5">
             <h2 className="font-semibold text-slate-950">
-              Automatizacion por numero
+              Asignaciones y reglas
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Selecciona un numero, activa o pausa su automatizacion y define
-              cuando responde el bot.
-            </p>
-          </div>
-          <Button
-            disabled={!assignmentPhone || savingNumberSettings}
-            onClick={() => void saveNumberSettings()}
-          >
-            {savingNumberSettings ? "Guardando..." : "Guardar numero"}
-          </Button>
-        </div>
-
-        <div className="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="grid gap-4">
-            <Field label="Numero">
-              <Select value={assignmentPhone} onChange={setAssignmentPhone}>
-                <option value="">Selecciona numero</option>
-                {data.accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.displayName} · {statusLabel(account.status)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {data.accounts.length === 0 ? (
-              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Primero agrega y vincula un numero de WhatsApp.
-              </p>
-            ) : null}
-            {loadingNumberSettings ? (
-              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Cargando configuracion del numero...
-              </p>
-            ) : null}
-            <Switch
-              checked={numberSettings.enabled}
-              label="Automatizacion activa para este numero"
-              onChange={(enabled) =>
-                setNumberSettings((current) => ({ ...current, enabled }))
-              }
-            />
-            <Switch
-              checked={numberSettings.rulesEnabled}
-              label="Aplicar reglas por palabra clave a este numero"
-              onChange={(rulesEnabled) =>
-                setNumberSettings((current) => ({ ...current, rulesEnabled }))
-              }
-            />
-            <Switch
-              checked={numberSettings.aiEnabled}
-              label="Permitir bot asignado en este numero"
-              onChange={(aiEnabled) =>
-                setNumberSettings((current) => ({ ...current, aiEnabled }))
-              }
-            />
-          </div>
-
-          <div className="grid gap-4">
-            <Switch
-              checked={numberSettings.afterHoursEnabled}
-              label="Respuesta fuera de horario para este numero"
-              onChange={(afterHoursEnabled) =>
-                setNumberSettings((current) => ({
-                  ...current,
-                  afterHoursEnabled,
-                }))
-              }
-            />
-            <Field label="Fuera de horario responde con">
-              <Select
-                value={numberSettings.afterHoursResponder}
-                onChange={(afterHoursResponder) =>
-                  setNumberSettings((current) => ({
-                    ...current,
-                    afterHoursResponder: afterHoursResponder as
-                      | "static_message"
-                      | "assigned_bot"
-                      | "none",
-                    afterHoursEnabled:
-                      afterHoursResponder === "assigned_bot"
-                        ? true
-                        : current.afterHoursEnabled,
-                    aiEnabled:
-                      afterHoursResponder === "assigned_bot"
-                        ? true
-                        : current.aiEnabled,
-                  }))
-                }
-              >
-                <option value="static_message">Mensaje fijo</option>
-                <option value="assigned_bot">Bot asignado</option>
-                <option value="none">Nada</option>
-              </Select>
-            </Field>
-            <Field label="Mensaje fijo fuera de horario">
-              <TextArea
-                placeholder="Gracias por escribir. Estamos fuera de horario."
-                value={numberSettings.afterHoursMessage}
-                readOnly={
-                  numberSettings.afterHoursResponder !== "static_message"
-                }
-                onChange={(afterHoursMessage) =>
-                  setNumberSettings((current) => ({
-                    ...current,
-                    afterHoursMessage,
-                  }))
-                }
-              />
-            </Field>
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <form
-          onSubmit={assignBot}
-          className="rounded-lg border border-slate-200 bg-white p-5"
-        >
-          <h2 className="font-semibold text-slate-950">
-            Bot y horario de respuesta
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Define que bot usa el numero seleccionado y en que horario puede
-            responder.
-          </p>
-          <div className="mt-5 grid gap-4">
-            <Field label="Numero">
-              <Select value={assignmentPhone} onChange={setAssignmentPhone}>
-                <option value="">Selecciona numero</option>
-                {data.accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.displayName} · {statusLabel(account.status)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {data.accounts.length === 0 ? (
-              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Primero agrega y vincula un numero de WhatsApp.
-              </p>
-            ) : null}
-            <Field label="Bot">
-              <Select value={assignmentBot} onChange={setAssignmentBot}>
-                <option value="">Selecciona bot</option>
-                {activeBots.map((bot) => (
-                  <option key={bot.id} value={bot.id}>
-                    {bot.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {activeBots.length === 0 ? (
-              <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Primero crea o reactiva un bot.
-              </p>
-            ) : null}
-            <Field label="Horario en que responde el bot">
-              <Select value={assignmentMode} onChange={setAssignmentMode}>
-                <option value="outside_business_hours">Fuera de horario</option>
-                <option value="business_hours">Dentro de horario</option>
-                <option value="always">Siempre</option>
-                <option value="disabled">Deshabilitado</option>
-              </Select>
-            </Field>
-            <Button
-              type="submit"
-              disabled={!assignmentPhone || !assignmentBot || assigningBot}
-            >
-              {assigningBot ? "Guardando..." : "Guardar asignacion"}
-            </Button>
-          </div>
-        </form>
-
-        <form
-          onSubmit={createRule}
-          className="rounded-lg border border-slate-200 bg-white p-5"
-        >
-          <h2 className="font-semibold text-slate-950">Crear regla</h2>
-          <div className="mt-5 grid gap-4">
-            <Field label="Palabra clave">
-              <Input
-                placeholder="horario"
-                value={keyword}
-                onChange={setKeyword}
-              />
-            </Field>
-            <Field label="Tipo de coincidencia">
-              <Select value={matchType} onChange={setMatchType}>
-                <option value="contains">Contiene</option>
-                <option value="exact">Exacta</option>
-                <option value="starts_with">Empieza con</option>
-              </Select>
-            </Field>
-            <Field label="Respuesta">
-              <TextArea
-                placeholder="Nuestro horario es de lunes a viernes..."
-                value={responseText}
-                onChange={setResponseText}
-              />
-            </Field>
-            <Button
-              type="submit"
-              disabled={!keyword.trim() || !responseText.trim() || creatingRule}
-            >
-              {creatingRule ? "Guardando..." : "Guardar regla"}
-            </Button>
-          </div>
-        </form>
-      </div>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-950">Nunca responder</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              Numeros que TAKU puede recibir y guardar en conversaciones, pero
-              nunca contestara con reglas ni bot.
-            </p>
-          </div>
-          <Badge>{data.blockedContacts.length}</Badge>
-        </div>
-
-        <form
-          onSubmit={createBlockedContact}
-          className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto]"
-        >
-          <Field label="Numero">
-            <Input
-              placeholder="5219931175435"
-              value={blockedPhoneNumber}
-              onChange={setBlockedPhoneNumber}
-            />
-          </Field>
-          <Field label="Nombre o etiqueta">
-            <Input
-              placeholder="Proveedor, socio, equipo interno"
-              value={blockedLabel}
-              onChange={setBlockedLabel}
-            />
-          </Field>
-          <Field label="Motivo">
-            <Input
-              placeholder="No automatizar este contacto"
-              value={blockedReason}
-              onChange={setBlockedReason}
-            />
-          </Field>
-          <div className="flex items-end">
-            <Button
-              type="submit"
-              disabled={
-                blockedPhoneNumber.replace(/\D/g, "").length < 8 ||
-                creatingBlockedContact
-              }
-            >
-              {creatingBlockedContact ? "Agregando..." : "Agregar"}
-            </Button>
-          </div>
-        </form>
-
-        <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[780px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
-              <tr>
-                {["Numero", "Etiqueta", "Motivo", "Estado", "Acciones"].map(
-                  (head) => (
-                    <th key={head} className="px-4 py-3">
-                      {head}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {data.blockedContacts.map((contact) => (
-                <tr key={contact.id}>
-                  <td className="px-4 py-3 font-medium text-slate-950">
-                    {contact.phoneNumber}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {contact.label ?? "-"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {contact.reason ?? "-"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Switch
-                      compact
-                      checked={contact.enabled}
-                      disabled={savingBlockedContactId === contact.id}
-                      label={
-                        savingBlockedContactId === contact.id
-                          ? "Guardando"
-                          : contact.enabled
-                            ? "Activo"
-                            : "Inactivo"
-                      }
-                      onChange={(enabled) =>
-                        void updateBlockedContact(contact, enabled)
-                      }
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Button
-                      variant="secondary"
-                      disabled={deletingBlockedContactId === contact.id}
-                      onClick={() => void deleteBlockedContact(contact)}
-                    >
-                      {deletingBlockedContactId === contact.id
-                        ? "Eliminando..."
-                        : "Eliminar"}
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-              {data.blockedContacts.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-8 text-sm text-slate-500" colSpan={5}>
-                    No hay numeros excluidos de respuestas automaticas.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="font-semibold text-slate-950">Asignaciones y reglas</h2>
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border border-slate-200">
-            <div className="border-b border-slate-200 p-3 font-semibold">
-              Asignaciones
-            </div>
-            <div className="divide-y divide-slate-200">
-              {data.assignments.map((assignment) => (
-                <div key={assignment.id} className="grid gap-1 p-3 text-sm">
-                  <p className="font-medium text-slate-950">
-                    {data.accounts.find(
-                      (account) => account.id === assignment.whatsappAccountId,
-                    )?.displayName ?? "Numero"}{" "}
-                    ·{" "}
-                    {assignment.bot?.name ??
-                      localBots.find((bot) => bot.id === assignment.botId)
-                        ?.name ??
-                      "Bot"}
-                  </p>
-                  <p className="text-slate-500">
-                    {assignment.mode} ·{" "}
-                    {assignment.enabled ? "activo" : "inactivo"}
-                  </p>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border border-slate-200">
+                <div className="border-b border-slate-200 p-3 font-semibold">
+                  Asignaciones
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-lg border border-slate-200">
-            <div className="border-b border-slate-200 p-3 font-semibold">
-              Reglas
-            </div>
-            <div className="divide-y divide-slate-200">
-              {data.rules.map((rule) => (
-                <div key={rule.id} className="grid gap-1 p-3 text-sm">
-                  <p className="font-medium text-slate-950">{rule.keyword}</p>
-                  <p className="text-slate-500">
-                    {rule.matchType} · {rule.enabled ? "activa" : "inactiva"}
-                  </p>
-                  <p className="text-slate-700">{rule.responseText}</p>
+                <div className="divide-y divide-slate-200">
+                  {data.assignments.map((assignment) => (
+                    <div key={assignment.id} className="grid gap-1 p-3 text-sm">
+                      <p className="font-medium text-slate-950">
+                        {data.accounts.find(
+                          (account) =>
+                            account.id === assignment.whatsappAccountId,
+                        )?.displayName ?? "Numero"}{" "}
+                        ·{" "}
+                        {assignment.bot?.name ??
+                          localBots.find((bot) => bot.id === assignment.botId)
+                            ?.name ??
+                          "Bot"}
+                      </p>
+                      <p className="text-slate-500">
+                        {assignment.mode} ·{" "}
+                        {assignment.enabled ? "activo" : "inactivo"}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+              <div className="rounded-lg border border-slate-200">
+                <div className="border-b border-slate-200 p-3 font-semibold">
+                  Reglas
+                </div>
+                <div className="divide-y divide-slate-200">
+                  {data.rules.map((rule) => (
+                    <div key={rule.id} className="grid gap-1 p-3 text-sm">
+                      <p className="font-medium text-slate-950">
+                        {rule.keyword}
+                      </p>
+                      <p className="text-slate-500">
+                        {rule.matchType} ·{" "}
+                        {rule.enabled ? "activa" : "inactiva"}
+                      </p>
+                      <p className="text-slate-700">{rule.responseText}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }
