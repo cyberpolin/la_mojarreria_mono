@@ -11,6 +11,8 @@ import {
   isGroupConversation,
   messageStatusLabel,
 } from "./helpers";
+import { FaqIntentLight } from "./FaqIntentLight";
+import { shouldShowFaqSemaforo } from "./faqSemaforo";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
 import { MotoIcon } from "./ConversationAvatar";
@@ -282,6 +284,9 @@ export function ConversationThread({
             message.direction === "inbound";
           return (
             <div key={message.id} className="flex items-end gap-1">
+              <FaqIntentLight
+                visible={shouldShowFaqSemaforo(messages, message.id)}
+              />
               <MessageBubble
                 message={message}
                 account={account}

@@ -35,6 +35,8 @@ import type {
   InboxMessage,
   InboxWhatsAppAccount,
 } from "./types";
+import { FaqIntentLight } from "./FaqIntentLight";
+import { shouldShowFaqSemaforo } from "./faqSemaforo";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
 import { AssignOrderSheet } from "./AssignOrderSheet";
@@ -609,6 +611,9 @@ export function MobileConversation({
                 showDriverMenu ? "self-start" : "",
               )}
             >
+              <FaqIntentLight
+                visible={shouldShowFaqSemaforo(messages, message.id)}
+              />
               <MobileBubble
                 message={message}
                 account={conversation?.whatsappAccount ?? account}
