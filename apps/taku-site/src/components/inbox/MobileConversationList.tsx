@@ -71,8 +71,10 @@ import type {
   InboxConversation,
   InboxWhatsAppAccount,
 } from "./types";
+import { FaqIntentLight } from "./FaqIntentLight";
 import { PREFETCH_TOP_THREADS, prefetchTopThreads } from "./threadCache";
 import { useInboxRealtime } from "./useInboxRealtime";
+import { useUnreadFaqLights } from "./useUnreadFaqLights";
 
 const POLL_INTERVAL_MS = 6000;
 
@@ -227,6 +229,7 @@ export function MobileConversationList({
       : inboxVisible;
     return sortConversationsUnreadFirst(filtered);
   }, [conversations, query]);
+  const faqLights = useUnreadFaqLights(conversations);
 
   const prefetchKey = visible
     .slice(0, PREFETCH_TOP_THREADS)
@@ -644,6 +647,10 @@ export function MobileConversationList({
                             {conversation.unreadCount}
                           </span>
                         ) : null}
+                        <FaqIntentLight
+                          visible={faqLights.has(conversation.id)}
+                          className=""
+                        />
                       </div>
                     </div>
                   </button>

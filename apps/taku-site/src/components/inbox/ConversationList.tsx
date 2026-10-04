@@ -24,7 +24,9 @@ import type {
   InboxConversation,
   InboxWhatsAppAccount,
 } from "./types";
+import { FaqIntentLight } from "./FaqIntentLight";
 import { Badge } from "./ui";
+import { useUnreadFaqLights } from "./useUnreadFaqLights";
 
 const filters: Array<{ id: ConversationFilterId; label: string }> = [
   { id: "all", label: "Todas" },
@@ -78,6 +80,7 @@ export function ConversationList({
       ? "No hay conversaciones."
       : "No hay conversaciones para este filtro.";
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
+  const faqLights = useUnreadFaqLights(conversations);
   const [listTab, setListTab] = useState<InboxListTab>("chats");
   const searchParams = useSearchParams();
   const driverPhones = useKnownDriverPhones();
@@ -219,6 +222,10 @@ export function ConversationList({
                       {conversation.unreadCount > 0 ? (
                         <Badge tone="dark">{conversation.unreadCount}</Badge>
                       ) : null}
+                      <FaqIntentLight
+                        visible={faqLights.has(conversation.id)}
+                        className=""
+                      />
                     </div>
                   </div>
                   <p className="line-clamp-2 text-sm text-slate-600">

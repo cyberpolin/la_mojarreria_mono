@@ -36,7 +36,9 @@ export function writeThreadCache(entry: CachedThread) {
   cache.set(key, entry);
 }
 
-async function loadConversationMessages(conversation: InboxConversation) {
+export async function loadConversationMessages(
+  conversation: InboxConversation,
+) {
   const key = keyForConversation(conversation);
   if (!key) return null;
   const pending = inflight.get(key);
