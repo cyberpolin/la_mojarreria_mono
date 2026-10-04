@@ -358,16 +358,17 @@ export type AttendanceWeekGroup = {
 
 function punchOfType(
   punches: AttendancePunchRecord[],
-  employeeId: string,
+  employee: { id: string; name: string },
   dayKey: string,
   type: AttendancePunchType,
 ) {
   return (
     punches.find(
       (punch) =>
-        punch.employeeId === employeeId &&
         punch.dayKey === dayKey &&
-        punch.type === type,
+        punch.type === type &&
+        (punch.employeeId === employee.id ||
+          punch.employeeName === employee.name),
     ) ?? null
   );
 }
@@ -424,13 +425,8 @@ export function buildAttendanceWeeks(
         weekEnd,
         employees: TIME_CLOCK_EMPLOYEES.map((employee) => {
           const days = dayKeys.map((dayKey) => {
-            const entrada = punchOfType(
-              punches,
-              employee.id,
-              dayKey,
-              "entrada",
-            );
-            const salida = punchOfType(punches, employee.id, dayKey, "salida");
+            const entrada = punchOfType(punches, employee, dayKey, "entrada");
+            const salida = punchOfType(punches, employee, dayKey, "salida");
             return {
               dayKey,
               entrada,

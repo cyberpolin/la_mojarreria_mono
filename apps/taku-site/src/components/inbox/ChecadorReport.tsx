@@ -64,6 +64,10 @@ export function ChecadorReport({
       </p>
       {weeks.map((week) => {
         const open = openWeeks.has(week.weekStart);
+        const weekPay = week.employees.reduce(
+          (sum, item) => sum + (item.pay || 0),
+          0,
+        );
         return (
           <section
             key={week.weekStart}
@@ -81,14 +85,34 @@ export function ChecadorReport({
                   {formatWeekRange(week.weekStart, week.weekEnd)}
                   {week.weekStart === thisWeek ? " · Esta semana" : ""}
                 </p>
-                <p className="mt-0.5 text-[11px] tabular-nums text-slate-500">
-                  A pagar{" "}
-                  {formatMxn(
-                    week.employees.reduce((sum, item) => sum + item.pay, 0),
-                  )}
-                </p>
               </div>
             </button>
+            <div className="border-t border-slate-200 px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                A pagar
+              </p>
+              <ul className="mt-2 grid gap-2">
+                {week.employees.map((employee) => (
+                  <li
+                    key={`${week.weekStart}-${employee.employeeId}-pay`}
+                    className="flex items-baseline justify-between gap-3"
+                  >
+                    <p className="min-w-0 truncate text-sm text-slate-800">
+                      {employee.employeeName}
+                    </p>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-slate-950">
+                      {formatMxn(employee.pay || 0)}
+                    </p>
+                  </li>
+                ))}
+                <li className="flex items-baseline justify-between gap-3 border-t border-slate-200 pt-2">
+                  <p className="text-sm font-semibold text-slate-950">Total</p>
+                  <p className="text-sm font-semibold tabular-nums text-slate-950">
+                    {formatMxn(weekPay)}
+                  </p>
+                </li>
+              </ul>
+            </div>
             {open
               ? week.employees.map((employee) => (
                   <div
@@ -101,6 +125,7 @@ export function ChecadorReport({
                           {employee.employeeName}
                         </p>
                         <p className="mt-0.5 text-[11px] text-slate-500">
+                          {formatMxn(employee.dailyRate)} / dia ·{" "}
                           {employee.workedDays}{" "}
                           {employee.workedDays === 1 ? "dia" : "dias"} ·{" "}
                           {employee.lateDays}{" "}
@@ -111,7 +136,7 @@ export function ChecadorReport({
                         </p>
                       </div>
                       <p className="shrink-0 text-sm font-semibold tabular-nums text-slate-950">
-                        {formatMxn(employee.pay)}
+                        {formatMxn(employee.pay || 0)}
                       </p>
                     </div>
                     <ul className="mt-2 divide-y divide-slate-100">
