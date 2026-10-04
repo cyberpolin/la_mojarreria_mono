@@ -1,4 +1,7 @@
-import { getCachedFaqAutoReplyPhrases } from "./autoReplies";
+import {
+  getCachedFaqAutoReplyPhrases,
+  getCachedFaqAutoReplyThreshold,
+} from "./autoReplies";
 import type { InboxMessage } from "./types";
 
 export const FAQ_SEMAFORO_THRESHOLD = 80;
@@ -164,7 +167,11 @@ export function lastInboundFaqSignal(
   return {
     lastMessageId: last.id,
     ...scores,
-    match: scores.combined >= FAQ_SEMAFORO_THRESHOLD,
+    match:
+      scores.horarios >= getCachedFaqAutoReplyThreshold("horarios") ||
+      scores.ubicacion >= getCachedFaqAutoReplyThreshold("ubicacion") ||
+      scores.envio >= getCachedFaqAutoReplyThreshold("envio") ||
+      scores.combined >= FAQ_SEMAFORO_THRESHOLD,
   };
 }
 

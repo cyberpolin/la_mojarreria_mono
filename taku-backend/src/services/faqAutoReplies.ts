@@ -68,29 +68,71 @@ export function normalizeFaqPhrase(value: string) {
     .trim();
 }
 
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+export function parseThreshold(value: unknown, fallback = 80) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(100, Math.round(parsed)));
+}
+
+function scorePhrase(text: string, phrase: string) {
+  const needle = normalizeFaqPhrase(phrase);
+  if (needle.length < 3) return 0;
+  if (text === needle) return 100;
+  if (text.includes(needle)) {
+    return clampScore(70 + (needle.length / text.length) * 30);
+  }
+  const words = needle.split(" ").filter((word) => word.length >= 2);
+  if (words.length === 0) return 0;
+  let cursor = 0;
+  let found = 0;
+  for (const word of words) {
+    const at = text.indexOf(word, cursor);
+    if (at === -1) continue;
+    found += 1;
+    cursor = at + word.length;
+  }
+  if (found === 0) return 0;
+  const ratio = found / words.length;
+  if (ratio === 1) return 80;
+  return clampScore(ratio * 70);
+}
+
+export function scoreReplyAcceptance(text: string, phrases: string[]) {
+  const normalized = normalizeFaqPhrase(text);
+  if (!normalized) return 0;
+  const hits = phrases
+    .map((phrase) => scorePhrase(normalized, phrase))
+    .filter((score) => score > 0);
+  if (hits.length === 0) return 0;
+  const miss = hits.reduce((product, score) => product * (1 - score / 100), 1);
+  return clampScore(Math.max(...hits, (1 - miss) * 100));
+}
+
 export function findMatchingFaqAutoReply<
   T extends {
     workspaceId: string;
-    intent: FaqAutoReplyIntent;
     phrases: string[];
     responseText: string;
     enabled: boolean;
+    threshold?: number;
   },
 >(replies: T[], workspaceId: string, incomingText: string) {
   const text = normalizeFaqPhrase(incomingText);
   if (!text) return null;
-  for (const intent of FAQ_AUTO_REPLY_INTENTS) {
-    const reply = replies.find(
-      (item) => item.workspaceId === workspaceId && item.intent === intent,
-    );
-    if (!reply?.enabled || !reply.responseText.trim()) continue;
-    const matched = reply.phrases.some((phrase) => {
-      const needle = normalizeFaqPhrase(phrase);
-      return needle.length >= 3 && text.includes(needle);
-    });
-    if (matched) return reply;
+  let best: { reply: T; score: number } | null = null;
+  for (const reply of replies) {
+    if (reply.workspaceId !== workspaceId) continue;
+    if (!reply.enabled || !reply.responseText.trim()) continue;
+    const score = scoreReplyAcceptance(incomingText, reply.phrases);
+    const threshold = parseThreshold(reply.threshold);
+    if (score < threshold) continue;
+    if (!best || score > best.score) best = { reply, score };
   }
-  return null;
+  return best?.reply ?? null;
 }
 
 export function parsePhrases(value: unknown) {

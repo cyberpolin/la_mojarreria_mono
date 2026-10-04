@@ -51,6 +51,7 @@ import {
   findMatchingFaqAutoReply,
   isFaqAutoReplyIntent,
   parsePhrases,
+  parseThreshold,
 } from "./services/faqAutoReplies.js";
 import {
   canCloseCashDay,
@@ -5266,7 +5267,10 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               item.workspaceId === context.workspace.id &&
               item.intent === intent,
           );
-          if (existing) continue;
+          if (existing) {
+            existing.threshold = parseThreshold(existing.threshold);
+            continue;
+          }
           const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
           const item: FaqAutoReply = {
             id: id("faq_auto_reply"),
@@ -5276,70 +5280,123 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             phrases: [...defaults.phrases],
             responseText: defaults.responseText,
             enabled: true,
+            threshold: 80,
             createdAt,
             updatedAt: createdAt,
           };
           database.faqAutoReplies.push(item);
         }
-        return FAQ_AUTO_REPLY_INTENTS.map(
-          (intent) =>
-            database.faqAutoReplies.find(
-              (item) =>
-                item.workspaceId === context.workspace.id &&
-                item.intent === intent,
-            )!,
+        const workspaceItems = database.faqAutoReplies.filter(
+          (item) => item.workspaceId === context.workspace.id,
         );
+        const system = FAQ_AUTO_REPLY_INTENTS.flatMap((intent) => {
+          const item = workspaceItems.find((row) => row.intent === intent);
+          return item ? [item] : [];
+        });
+        const custom = workspaceItems
+          .filter((item) => !isFaqAutoReplyIntent(item.intent))
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+        return [...system, ...custom];
       });
       ok(res, items);
     }),
   );
 
-  router.put(
-    "/faq-auto-replies/:intent",
+  router.post(
+    "/faq-auto-replies",
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
-      const intent = String(req.params.intent ?? "");
-      if (!isFaqAutoReplyIntent(intent)) {
-        throw new ApiError({
-          status: 400,
-          code: "VALIDATION_ERROR",
-          message: "Intento invalido.",
-        });
-      }
+      const title =
+        typeof req.body?.title === "string" && req.body.title.trim()
+          ? req.body.title.trim()
+          : "Nueva respuesta";
       const phrases = parsePhrases(req.body?.phrases);
       const responseText =
         typeof req.body?.responseText === "string" ? req.body.responseText : "";
-      if (responseText.length > 1000) {
+      if (title.length > 80 || responseText.length > 1000) {
         throw new ApiError({
           status: 400,
           code: "VALIDATION_ERROR",
-          message: "Respuesta demasiado larga.",
+          message: "Respuesta invalida.",
         });
       }
       const enabled =
         typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const threshold = parseThreshold(req.body?.threshold);
       const item = await store.update((database) => {
-        const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
-        const existing = database.faqAutoReplies.find(
-          (row) =>
-            row.workspaceId === context.workspace.id && row.intent === intent,
-        );
-        if (existing) {
-          existing.phrases = phrases;
-          existing.responseText = responseText;
-          existing.enabled = enabled;
-          existing.updatedAt = now();
-          return existing;
-        }
         const created: FaqAutoReply = {
           id: id("faq_auto_reply"),
           workspaceId: context.workspace.id,
-          intent,
-          title: defaults.title,
+          intent: id("faq_intent"),
+          title,
           phrases,
           responseText,
           enabled,
+          threshold,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.faqAutoReplies.push(created);
+        return created;
+      });
+      ok(res, item, 201);
+    }),
+  );
+
+  router.put(
+    "/faq-auto-replies/:key",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const key = String(req.params.key ?? "");
+      const phrases = parsePhrases(req.body?.phrases);
+      const responseText =
+        typeof req.body?.responseText === "string" ? req.body.responseText : "";
+      const title =
+        typeof req.body?.title === "string" ? req.body.title.trim() : "";
+      if (title.length > 80 || responseText.length > 1000) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Respuesta invalida.",
+        });
+      }
+      const enabled =
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const threshold = parseThreshold(req.body?.threshold);
+      const item = await store.update((database) => {
+        const existing = database.faqAutoReplies.find(
+          (row) =>
+            row.workspaceId === context.workspace.id &&
+            (row.id === key || row.intent === key),
+        );
+        if (existing) {
+          if (title) existing.title = title;
+          existing.phrases = phrases;
+          existing.responseText = responseText;
+          existing.enabled = enabled;
+          existing.threshold = threshold;
+          existing.updatedAt = now();
+          return existing;
+        }
+        if (!isFaqAutoReplyIntent(key)) {
+          throw new ApiError({
+            status: 404,
+            code: "NOT_FOUND",
+            message: "Respuesta automatica no encontrada.",
+          });
+        }
+        const defaults = FAQ_AUTO_REPLY_DEFAULTS[key];
+        const created: FaqAutoReply = {
+          id: id("faq_auto_reply"),
+          workspaceId: context.workspace.id,
+          intent: key,
+          title: title || defaults.title,
+          phrases,
+          responseText,
+          enabled,
+          threshold,
           createdAt: now(),
           updatedAt: now(),
         };
@@ -5347,6 +5404,39 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         return created;
       });
       ok(res, item);
+    }),
+  );
+
+  router.delete(
+    "/faq-auto-replies/:key",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const key = String(req.params.key ?? "");
+      await store.update((database) => {
+        const index = database.faqAutoReplies.findIndex(
+          (row) =>
+            row.workspaceId === context.workspace.id &&
+            (row.id === key || row.intent === key),
+        );
+        if (index < 0) {
+          throw new ApiError({
+            status: 404,
+            code: "NOT_FOUND",
+            message: "Respuesta automatica no encontrada.",
+          });
+        }
+        const item = database.faqAutoReplies[index];
+        if (isFaqAutoReplyIntent(item.intent)) {
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "No se pueden eliminar las respuestas de banderas.",
+          });
+        }
+        database.faqAutoReplies.splice(index, 1);
+      });
+      ok(res, { deleted: true });
     }),
   );
 

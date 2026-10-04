@@ -209,11 +209,12 @@ export type BotAssignment = {
 export type FaqAutoReply = {
   id: string;
   workspaceId: string;
-  intent: "horarios" | "ubicacion" | "envio";
+  intent: string;
   title: string;
   phrases: string[];
   responseText: string;
   enabled: boolean;
+  threshold: number;
   createdAt: string;
   updatedAt: string;
 };

@@ -90,6 +90,9 @@ function ensureDatabaseCollections(database: Database) {
   target.botAssignments ??= [];
   target.automationRules ??= [];
   target.faqAutoReplies ??= [];
+  for (const reply of target.faqAutoReplies) {
+    reply.threshold ??= 80;
+  }
   target.automationBlockedContacts ??= [];
   target.automationDecisionLogs ??= [];
   target.paymentIntents ??= [];
