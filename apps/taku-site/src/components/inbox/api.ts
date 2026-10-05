@@ -1,4 +1,5 @@
 import { TakuApiError, takuApi, takuPaginated } from "@/lib/taku-api";
+import { persistLocalFaqAutoReplies } from "./autoReplies";
 import { buildConversationQuery } from "./helpers";
 import type {
   ConversationFilterId,
@@ -15,6 +16,7 @@ export async function fetchConversations(params: {
   search: string;
   accountId: string;
 }) {
+  await persistLocalFaqAutoReplies();
   const query = buildConversationQuery(params);
   const result = await takuPaginated<InboxConversation>(
     `/conversations?${query}`,

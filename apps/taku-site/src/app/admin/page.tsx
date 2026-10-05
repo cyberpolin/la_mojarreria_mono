@@ -130,7 +130,7 @@ export default function AdminDashboardPage() {
         { method: "POST" },
       );
       saveOwnerModeSession(session);
-      router.push("/main/home");
+      router.push("/owner/select");
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -156,7 +156,7 @@ export default function AdminDashboardPage() {
         { method: "POST" },
       );
       saveOwnerModeSession(session);
-      router.push("/main/home");
+      router.push("/owner/select");
     } catch (caught) {
       setError(
         caught instanceof Error

@@ -53,6 +53,7 @@ import {
   parsePhrases,
   parseThreshold,
   unansweredInboundWindow,
+  wasFaqAutoReplySentToday,
 } from "./services/faqAutoReplies.js";
 import {
   canCloseCashDay,
@@ -1231,17 +1232,17 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     );
   }
 
-  const faqSweepInFlight = new Set<string>();
+  const faqSweepInFlight = new Map<string, Promise<number>>();
 
   async function sweepUnansweredFaqAutoReplies(workspaceId: string) {
-    if (faqSweepInFlight.has(workspaceId)) return;
-    faqSweepInFlight.add(workspaceId);
-    try {
+    const pending = faqSweepInFlight.get(workspaceId);
+    if (pending) return pending;
+    const task = (async () => {
       const database = await store.read();
       const workspace = database.workspaces.find(
         (item) => item.id === workspaceId,
       );
-      if (!workspace || workspace.status === "suspended") return;
+      if (!workspace || workspace.status === "suspended") return 0;
 
       const replies = (database.faqAutoReplies ?? []).filter(
         (item) =>
@@ -1249,17 +1250,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           item.enabled &&
           Boolean(item.responseText.trim()),
       );
-      if (replies.length === 0) return;
-
-      const alreadyReplied = new Set(
-        database.automationDecisionLogs
-          .filter(
-            (log) =>
-              log.workspaceId === workspaceId &&
-              log.reason.startsWith("faq_auto_reply:"),
-          )
-          .map((log) => `${log.conversationId}:${log.messageId}`),
-      );
+      if (replies.length === 0) return 0;
 
       const unanswered = database.conversations
         .filter(
@@ -1274,6 +1265,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         )
         .slice(0, 25);
 
+      let sent = 0;
       for (const conversation of unanswered) {
         const account = database.whatsappAccounts.find(
           (item) => item.id === conversation.whatsappAccountId,
@@ -1300,8 +1292,15 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         );
         const lastInbound = window[window.length - 1];
         if (!lastInbound) continue;
-        const replyKey = `${conversation.id}:${lastInbound.id}`;
-        if (alreadyReplied.has(replyKey)) continue;
+        if (
+          wasFaqAutoReplySentToday(
+            database.automationDecisionLogs,
+            conversation.id,
+            workspace.timezone || "America/Mexico_City",
+          )
+        ) {
+          continue;
+        }
 
         const text = window
           .map((item) => item.body?.trim() ?? "")
@@ -1310,7 +1309,6 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         const faqReply = findMatchingFaqAutoReply(replies, workspaceId, text);
         if (!faqReply) continue;
 
-        alreadyReplied.add(replyKey);
         await sendAutomationReply({
           workspaceId,
           accountId: account.id,
@@ -1323,10 +1321,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           assignmentId: null,
           reason: `faq_auto_reply:${faqReply.intent}`,
         });
+        sent += 1;
       }
-    } finally {
+      return sent;
+    })().finally(() => {
       faqSweepInFlight.delete(workspaceId);
-    }
+    });
+    faqSweepInFlight.set(workspaceId, task);
+    return task;
   }
 
   async function handleBotResponderDetection(params: {
@@ -1512,7 +1514,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       params.workspaceId,
       params.text,
     );
-    if (faqReply) {
+    const faqAlreadySentToday = wasFaqAutoReplySentToday(
+      database.automationDecisionLogs,
+      params.conversationId,
+      workspaceRecord?.timezone ?? "America/Mexico_City",
+    );
+    if (faqReply && !faqAlreadySentToday) {
       await sendAutomationReply({
         ...params,
         to: params.from,
@@ -4605,6 +4612,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     "/conversations",
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      await sweepUnansweredFaqAutoReplies(context.workspace.id);
       const database = await store.read();
       const search = readOptionalString(req.query.search)?.toLowerCase();
       const rows = database.conversations
@@ -4665,7 +4673,6 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         });
       const page = pageResponse(rows, req.query);
       paginated(res, page.items, { ...page.pagination, total: page.total });
-      void sweepUnansweredFaqAutoReplies(context.workspace.id);
     }),
   );
 

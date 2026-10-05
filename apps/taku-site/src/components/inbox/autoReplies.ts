@@ -276,6 +276,25 @@ export function createLocalFaqAutoReply(): FaqAutoReply {
   };
 }
 
+let faqPersistPromise: Promise<void> | null = null;
+
+export async function persistLocalFaqAutoReplies() {
+  if (faqPersistPromise) return faqPersistPromise;
+  faqPersistPromise = (async () => {
+    const items = readCachedFaqAutoReplies().filter(
+      (item) => item.enabled && item.responseText.trim().length > 0,
+    );
+    for (const item of items) {
+      try {
+        await saveFaqAutoReply(item);
+      } catch {
+        // Keep listing even if one reply cannot sync.
+      }
+    }
+  })();
+  return faqPersistPromise;
+}
+
 export async function fetchFaqAutoReplies() {
   const items = await takuApi<FaqAutoReply[]>("/faq-auto-replies");
   writeCachedFaqAutoReplies(

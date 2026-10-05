@@ -1,3 +1,5 @@
+import { todayDateKey } from "./weekClose.js";
+
 export type FaqAutoReplyIntent = "horarios" | "ubicacion" | "envio";
 
 export const FAQ_AUTO_REPLY_INTENTS: FaqAutoReplyIntent[] = [
@@ -101,6 +103,62 @@ function scorePhrase(text: string, phrase: string) {
   return clampScore(ratio * 70);
 }
 
+const SYSTEM_PATTERNS: Record<
+  FaqAutoReplyIntent,
+  Array<{ re: RegExp; weight: number }>
+> = {
+  horarios: [
+    { re: /horario(?:s)? de atencion/, weight: 75 },
+    { re: /fuera de horario/, weight: 70 },
+    { re: /a que hora (?:abren|cierran|atienden)/, weight: 75 },
+    { re: /hasta que hora/, weight: 70 },
+    { re: /que hora/, weight: 55 },
+    { re: /cuando (?:abren|cierran|atienden)/, weight: 70 },
+    { re: /siguen abiertos?/, weight: 65 },
+    { re: /ya cerraron/, weight: 60 },
+    { re: /estan abiertos?/, weight: 60 },
+    { re: /horario(?:s)?/, weight: 55 },
+    { re: /\b(?:abren|cierran|atienden)\b/, weight: 40 },
+    { re: /dias? de atencion/, weight: 65 },
+  ],
+  ubicacion: [
+    { re: /donde (?:estan|queda|quedan|se ubican)/, weight: 75 },
+    { re: /en donde (?:estan|queda|quedan)/, weight: 75 },
+    { re: /como llego/, weight: 70 },
+    { re: /cual es la (?:direccion|ubicacion)/, weight: 75 },
+    { re: /me pasan? la (?:ubicacion|direccion)/, weight: 70 },
+    { re: /ubicacion/, weight: 60 },
+    { re: /direccion/, weight: 50 },
+    { re: /sucursal/, weight: 45 },
+    { re: /\bmapa\b/, weight: 40 },
+    { re: /donde quedan?/, weight: 70 },
+  ],
+  envio: [
+    { re: /costo(?:s)?(?:\s+\w+){0,2}\s+envio/, weight: 80 },
+    { re: /precio(?:s)?(?:\s+\w+){0,2}\s+envio/, weight: 80 },
+    { re: /cuanto (?:cuesta|sale|es) (?:el )?envio/, weight: 80 },
+    { re: /cuanto (?:el )?envio/, weight: 75 },
+    { re: /cuanto (?:cuesta|sale) (?:el )?delivery/, weight: 75 },
+    { re: /hacen envios?/, weight: 70 },
+    { re: /envian a/, weight: 65 },
+    { re: /mandan a domicilio/, weight: 70 },
+    { re: /a domicilio/, weight: 55 },
+    { re: /\benvio\b/, weight: 50 },
+    { re: /\bdelivery\b/, weight: 50 },
+    { re: /hasta donde (?:envian|llegan|mandan)/, weight: 70 },
+    { re: /cobertura/, weight: 45 },
+  ],
+};
+
+function scoreSystemPatterns(intent: string, text: string) {
+  if (!isFaqAutoReplyIntent(intent)) return 0;
+  let score = 0;
+  for (const pattern of SYSTEM_PATTERNS[intent]) {
+    if (pattern.re.test(text)) score += pattern.weight;
+  }
+  return clampScore(score);
+}
+
 export function scoreReplyAcceptance(text: string, phrases: string[]) {
   const normalized = normalizeFaqPhrase(text);
   if (!normalized) return 0;
@@ -118,6 +176,7 @@ export function unansweredInboundWindow<
   T extends {
     direction: string;
     body?: string | null;
+    status?: string;
     createdAt: string;
   },
 >(messages: T[]) {
@@ -127,7 +186,10 @@ export function unansweredInboundWindow<
   const tail: T[] = [];
   for (let index = sorted.length - 1; index >= 0; index -= 1) {
     const message = sorted[index];
-    if (message.direction === "outbound" || message.direction === "bot") break;
+    const answered =
+      (message.direction === "outbound" || message.direction === "bot") &&
+      message.status !== "failed";
+    if (answered) break;
     if (message.direction === "inbound" && message.body?.trim()) {
       tail.unshift(message);
     }
@@ -136,9 +198,28 @@ export function unansweredInboundWindow<
   return tail;
 }
 
+export function wasFaqAutoReplySentToday(
+  logs: Array<{
+    conversationId: string;
+    reason: string;
+    createdAt: string;
+  }>,
+  conversationId: string,
+  timeZone = "America/Mexico_City",
+) {
+  const today = todayDateKey(new Date(), timeZone);
+  return logs.some(
+    (log) =>
+      log.conversationId === conversationId &&
+      log.reason.startsWith("faq_auto_reply:") &&
+      todayDateKey(new Date(log.createdAt), timeZone) === today,
+  );
+}
+
 export function findMatchingFaqAutoReply<
   T extends {
     workspaceId: string;
+    intent?: string;
     phrases: string[];
     responseText: string;
     enabled: boolean;
@@ -151,7 +232,10 @@ export function findMatchingFaqAutoReply<
   for (const reply of replies) {
     if (reply.workspaceId !== workspaceId) continue;
     if (!reply.enabled || !reply.responseText.trim()) continue;
-    const score = scoreReplyAcceptance(incomingText, reply.phrases);
+    const score = Math.max(
+      scoreReplyAcceptance(incomingText, reply.phrases),
+      scoreSystemPatterns(reply.intent ?? "", text),
+    );
     const threshold = parseThreshold(reply.threshold);
     if (score < threshold) continue;
     if (!best || score > best.score) best = { reply, score };

@@ -91,9 +91,13 @@ export const config = {
   allowedOrigins: Array.from(
     new Set([
       ...stringList("TAKU_BACKEND_ALLOWED_ORIGINS", [
+        "https://taku.lat",
+        "https://www.taku.lat",
         "http://localhost:3006",
         "http://localhost:3003",
       ]),
+      "https://taku.lat",
+      "https://www.taku.lat",
       "http://localhost:3006",
       "http://127.0.0.1:3006",
       "http://localhost:3003",
