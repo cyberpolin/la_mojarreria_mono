@@ -15,7 +15,6 @@ import {
   DELIVERY_INCLUDED_KM,
   DELIVERY_PER_KM,
   DRIVERS_ORDER_MESSAGE,
-  SEND_DRIVERS_ORDER_MESSAGE,
   EMPANADA_PRICE,
   MOJARRA_PRICE,
   formatMxn,
@@ -97,9 +96,7 @@ export function RaiseOrderModal({
       : "fixed inset-0 z-[80]";
 
   async function sendToDriversGroup(conversationId: string) {
-    if (SEND_DRIVERS_ORDER_MESSAGE) {
-      await sendConversationMessage(conversationId, DRIVERS_ORDER_MESSAGE);
-    }
+    await sendConversationMessage(conversationId, DRIVERS_ORDER_MESSAGE);
     setError(null);
     setStep("done");
   }
