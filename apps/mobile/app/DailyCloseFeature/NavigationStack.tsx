@@ -1,6 +1,7 @@
 import { createStackNavigator } from "@react-navigation/stack";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
+import { OpenAppMenuContext } from "./appMenuContext";
 import * as ScreenOrientation from "expo-screen-orientation";
 // import available screens
 import LandingScreen from "./LandingScreen";
@@ -107,22 +108,25 @@ const ScreenFrame = ({
   );
   useBlockBackNavigation();
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
+  const openMenu = useCallback(() => setIsDrawerVisible(true), []);
 
   return (
-    <View style={{ flex: 1 }}>
-      <SyncStatusBar onSwipeDown={() => setIsDrawerVisible(true)} />
-      <View style={{ flex: 1 }}>{children}</View>
-      <TopActionDrawer
-        visible={isDrawerVisible}
-        onClose={() => setIsDrawerVisible(false)}
-      />
-    </View>
+    <OpenAppMenuContext.Provider value={openMenu}>
+      <View style={{ flex: 1 }}>
+        <SyncStatusBar onSwipeDown={() => setIsDrawerVisible(true)} />
+        <View style={{ flex: 1 }}>{children}</View>
+        <TopActionDrawer
+          visible={isDrawerVisible}
+          onClose={() => setIsDrawerVisible(false)}
+        />
+      </View>
+    </OpenAppMenuContext.Provider>
   );
 };
 
 export default (_props: { initialPosition?: number | null }) => (
   <Navigator
-    initialRouteName={Screens.PortraitLandingScreen}
+    initialRouteName={Screens.ConversationMobileScreen}
     screenOptions={noBackNavigationOptions}
   >
     <Screen name={Screens.PortraitLandingScreen}>

@@ -10,6 +10,7 @@ import {
   SecondaryButton,
 } from "@/components/ui/Buttons";
 import { Screens } from "./Types";
+import { canStartDailyClose } from "./helpers";
 import { useDailyCloseStore } from "./useDailyCloseStore";
 import { hasCachedOperators } from "./operatorCache";
 import { APP_CONFIG } from "@/constants/config";
@@ -20,12 +21,6 @@ type Props = NativeStackScreenProps<
   RootStackParamList,
   Screens.PortraitLandingScreen
 >;
-
-const canStartDailyClose = (date = new Date()) => {
-  if (APP_CONFIG.env === "development") return true;
-  const currentMinutes = date.getHours() * 60 + date.getMinutes();
-  return currentMinutes > 16 * 60 + 59;
-};
 
 export default function PortraitLandingScreen(props: Props) {
   const {

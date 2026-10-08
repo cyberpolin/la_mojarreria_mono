@@ -3,15 +3,105 @@
 import {
   useEffect,
   useRef,
+  useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
+
+const PULL_REFRESH_THRESHOLD = 56;
+
+export function PullToRefresh({
+  onRefresh,
+  className,
+  children,
+  id,
+  onClick,
+}: {
+  onRefresh: () => Promise<void> | void;
+  className?: string;
+  children: ReactNode;
+  id?: string;
+  onClick?: () => void;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const startY = useRef(0);
+  const pulling = useRef(false);
+  const [offset, setOffset] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const atTop = () => (scrollerRef.current?.scrollTop ?? 0) <= 0;
+
+  const onTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (refreshing || !atTop()) {
+      pulling.current = false;
+      return;
+    }
+    pulling.current = true;
+    startY.current = event.touches[0]?.clientY ?? 0;
+  };
+
+  const onTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!pulling.current || refreshing) return;
+    if (!atTop()) {
+      pulling.current = false;
+      setOffset(0);
+      return;
+    }
+    const dy = (event.touches[0]?.clientY ?? 0) - startY.current;
+    if (dy <= 0) {
+      setOffset(0);
+      return;
+    }
+    setOffset(Math.min(dy * 0.45, 88));
+  };
+
+  const onTouchEnd = () => {
+    if (!pulling.current) return;
+    pulling.current = false;
+    if (offset < PULL_REFRESH_THRESHOLD) {
+      setOffset(0);
+      return;
+    }
+    setRefreshing(true);
+    setOffset(48);
+    void Promise.resolve(onRefresh()).finally(() => {
+      setRefreshing(false);
+      setOffset(0);
+    });
+  };
+
+  return (
+    <div
+      ref={scrollerRef}
+      id={id}
+      className={className}
+      onClick={onClick}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+    >
+      <div
+        className="flex items-end justify-center overflow-hidden text-[11px] font-medium text-slate-500"
+        style={{ height: offset }}
+      >
+        {refreshing || offset >= PULL_REFRESH_THRESHOLD
+          ? "Actualizando..."
+          : offset > 12
+            ? "Suelta para recargar"
+            : null}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export function MobileAuthGate({ next }: { next: string }) {
   return (
-    <main className="flex min-h-dvh items-stretch justify-center bg-slate-950">
-      <div className="grid h-dvh w-full max-w-[390px] place-items-center bg-slate-100 px-4">
+    <main className="flex min-h-dvh w-full items-stretch justify-center bg-slate-950">
+      <div className="grid h-dvh w-full place-items-center bg-slate-100 px-4">
         <a
           href={`/login?next=${encodeURIComponent(next)}`}
           className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white"
@@ -27,11 +117,11 @@ export function MobilePhoneFrame({ children }: { children: ReactNode }) {
   return (
     <main
       id="taku-mobile-frame"
-      className="flex min-h-dvh items-stretch justify-center bg-slate-950"
+      className="flex min-h-dvh w-full items-stretch bg-slate-950"
     >
       <div
         id="taku-mobile-window"
-        className="relative flex h-dvh w-full max-w-[390px] flex-col overflow-hidden bg-slate-100 text-slate-950 shadow-2xl"
+        className="relative flex h-dvh w-full flex-col overflow-hidden bg-slate-100 text-slate-950"
       >
         {children}
       </div>

@@ -40,7 +40,12 @@ import { shouldShowFaqSemaforo } from "./faqSemaforo";
 import { LinkedMessageText } from "./LinkedMessageText";
 import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
 import { AssignOrderSheet } from "./AssignOrderSheet";
-import { KebabIcon, MobileAuthGate, MobileContextMenu } from "./mobile-shell";
+import {
+  KebabIcon,
+  MobileAuthGate,
+  MobileContextMenu,
+  PullToRefresh,
+} from "./mobile-shell";
 import { ConversationAvatar, MotoIcon } from "./ConversationAvatar";
 import { DailyOrdersPanel } from "./DailyOrdersPanel";
 import { EditContactModal } from "./EditContactModal";
@@ -585,8 +590,9 @@ export function MobileConversation({
         </header>
       )}
 
-      <div
+      <PullToRefresh
         id="taku-mobile-thread-content"
+        onRefresh={loadThread}
         className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-slate-200 px-3 py-3"
         onClick={unlockIncomingSound}
       >
@@ -640,7 +646,7 @@ export function MobileConversation({
           );
         })}
         <div ref={endRef} />
-      </div>
+      </PullToRefresh>
 
       {!canSend && conversation ? (
         <p className="bg-slate-200 px-3 py-2 text-center text-xs text-slate-600">

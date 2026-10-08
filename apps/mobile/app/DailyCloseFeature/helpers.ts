@@ -1,5 +1,16 @@
 import dayjs from "dayjs";
+import { APP_CONFIG } from "@/constants/config";
 import { DailyClose } from "./Types";
+
+export const isAfterDailyCloseHour = (date = new Date()) => {
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  return currentMinutes >= 17 * 60;
+};
+
+export const canStartDailyClose = (date = new Date()) => {
+  if (APP_CONFIG.env === "development") return true;
+  return isAfterDailyCloseHour(date);
+};
 
 export const getNewestCloseDate = (
   closesByDate: Record<string, DailyClose>,

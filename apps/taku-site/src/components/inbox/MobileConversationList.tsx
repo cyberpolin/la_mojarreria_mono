@@ -59,6 +59,7 @@ import {
   MobileAuthGate,
   MobileContextMenu,
   KebabIcon,
+  PullToRefresh,
   longPressProps,
 } from "./mobile-shell";
 import {
@@ -532,7 +533,8 @@ export function MobileConversationList({
           {listTab === "pedidos" ? (
             <OrdersList query={query} detailsEnabled={!threadSlot} />
           ) : null}
-          <div
+          <PullToRefresh
+            onRefresh={loadList}
             className={cx(
               "min-h-0 flex-1 overflow-y-auto bg-white",
               listTab === "pedidos" && "hidden",
@@ -670,7 +672,7 @@ export function MobileConversationList({
                 </div>
               );
             })}
-          </div>
+          </PullToRefresh>
 
           {listTab === "chats" ? (
             <button
