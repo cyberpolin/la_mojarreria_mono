@@ -1,5 +1,7 @@
 // make a enum with all screens names
 export enum Screens {
+  PortraitLandingScreen = "PortraitLandingScreen",
+  PortraitDailyCloseWizardScreen = "PortraitDailyCloseWizardScreen",
   LandingScreen = "LandingScreen",
   CheckInOutScreen = "CheckInOutScreen",
   OperatorLoginScreen = "OperatorLoginScreen",
@@ -11,6 +13,7 @@ export enum Screens {
   AllReportsScreen = "AllReportsScreen",
   ActivePromosScreen = "ActivePromosScreen",
   WhatsAppInboxScreen = "WhatsAppInboxScreen",
+  ConversationMobileScreen = "ConversationMobileScreen",
   WeeklyReportScreen = "WeeklyReportScreen",
   EmployeeAssistantStep1Screen = "EmployeeAssistantStep1Screen",
   EmployeeAssistantStep2Screen = "EmployeeAssistantStep2Screen",
@@ -22,6 +25,18 @@ export type ProductSale = {
   name: string;
   price: number;
   qty: number;
+};
+
+export type CloseEvidenceKind =
+  | "bathroom_clean"
+  | "bathroom_closed"
+  | "dining"
+  | "trash";
+
+export type CloseEvidencePhoto = {
+  kind: CloseEvidenceKind;
+  localUri: string;
+  takenAt: string;
 };
 
 export type DailyClose = {
@@ -37,6 +52,7 @@ export type DailyClose = {
   closedByName: string;
   closedByPhone: string;
   closedByRaw?: Record<string, unknown>;
+  evidence?: CloseEvidencePhoto[];
 
   expectedTotal: number; // sum(items.qty * items.price)
   createdAt: string; // ISO
@@ -57,6 +73,7 @@ export type TemportalDailyClose = {
   closedByName?: string;
   closedByPhone?: string;
   closedByRaw?: Record<string, unknown>;
+  evidence?: CloseEvidencePhoto[];
 
   expectedTotal?: number; // sum(items.qty * items.price)
   createdAt?: string; // ISO
@@ -98,6 +115,7 @@ export type State = {
   setTemporalDeliveryCashPaid: (amount: number) => void;
   setTemporalOtherCashExpenses: (amount: number) => void;
   setTemporalNotes: (note: string) => void;
+  setTemporalEvidence: (evidence: CloseEvidencePhoto[]) => void;
   setCloseOperator: (
     operator: {
       userId: string;

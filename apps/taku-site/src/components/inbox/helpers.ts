@@ -135,6 +135,35 @@ export function accountMatchesSlug(
   return account.id === slug || accountPhoneSlug(account) === wanted;
 }
 
+export const MOJARRERIA_WHATSAPP_PHONE = "5219931204488";
+
+export function pickMojarreriaAccount(
+  accounts: InboxWhatsAppAccount[],
+): InboxWhatsAppAccount | null {
+  return (
+    accounts.find(
+      (account) =>
+        digitsPhone(account.phoneNumber ?? "") === MOJARRERIA_WHATSAPP_PHONE,
+    ) ??
+    accounts.find((account) =>
+      /mojarreria|ventas/i.test(account.displayName ?? ""),
+    ) ??
+    accounts.find((account) => account.status === "connected") ??
+    accounts[0] ??
+    null
+  );
+}
+
+export function isFromMojarreriaApp() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("from") === "app") {
+    window.sessionStorage.setItem("TAKU_FROM_APP", "1");
+    return true;
+  }
+  return window.sessionStorage.getItem("TAKU_FROM_APP") === "1";
+}
+
 export function mobileListPath(account?: InboxWhatsAppAccount | null) {
   return account
     ? `/conversation-mobile/${accountPhoneSlug(account)}`

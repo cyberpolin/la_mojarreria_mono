@@ -81,6 +81,13 @@ const normalizeCloseForSync = (close: DailyClose): DailyClose | null => {
       close?.closedByRaw && typeof close.closedByRaw === "object"
         ? (close.closedByRaw as Record<string, unknown>)
         : undefined,
+    evidence: Array.isArray(close?.evidence)
+      ? close.evidence.map((item) => ({
+          kind: item.kind,
+          localUri: "",
+          takenAt: String(item.takenAt || ""),
+        }))
+      : undefined,
     expectedTotal,
     createdAt,
   };

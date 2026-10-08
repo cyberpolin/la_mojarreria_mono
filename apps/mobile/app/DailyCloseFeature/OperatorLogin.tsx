@@ -22,6 +22,12 @@ type Props = NativeStackScreenProps<
   Screens.OperatorLoginScreen
 >;
 
+const nextScreenFromParams = (
+  nextScreen?:
+    | Screens.DailySalesScreen
+    | Screens.PortraitDailyCloseWizardScreen,
+) => nextScreen ?? Screens.DailySalesScreen;
+
 type KeypadKey =
   | "0"
   | "1"
@@ -48,7 +54,10 @@ const VALIDATE_DAILY_CLOSE_OPERATOR = gql`
   }
 `;
 
-export default function OperatorLoginScreen({ navigation }: Props) {
+export default function OperatorLoginScreen({ navigation, route }: Props) {
+  const layout = route.params?.layout ?? "landscape";
+  const isPortrait = layout === "portrait";
+  const nextScreen = nextScreenFromParams(route.params?.nextScreen);
   const setCloseOperator = useDailyCloseStore(
     (state) => state.setCloseOperator,
   );
@@ -193,7 +202,11 @@ export default function OperatorLoginScreen({ navigation }: Props) {
         validatedAt: dayjs().toISOString(),
       });
 
-      navigation.navigate(Screens.DailySalesScreen);
+      if (nextScreen === Screens.PortraitDailyCloseWizardScreen) {
+        navigation.navigate(Screens.PortraitDailyCloseWizardScreen);
+      } else {
+        navigation.navigate(Screens.DailySalesScreen);
+      }
     } catch (error) {
       setAuthError(
         error instanceof Error
@@ -205,24 +218,35 @@ export default function OperatorLoginScreen({ navigation }: Props) {
     }
   };
 
+  const backScreen = isPortrait
+    ? Screens.PortraitLandingScreen
+    : Screens.LandingScreen;
+
   return (
     <View
       style={{
         flex: 1,
-        paddingHorizontal: 24,
-        paddingVertical: 24,
+        paddingHorizontal: isPortrait ? 20 : 24,
+        paddingVertical: isPortrait ? 16 : 24,
         justifyContent: "center",
       }}
     >
       <View
         style={{
           width: "100%",
-          flexDirection: "row",
-          alignItems: "stretch",
+          flexDirection: isPortrait ? "column" : "row",
+          alignItems: isPortrait ? "center" : "stretch",
           flex: 1,
         }}
       >
-        <View style={{ flex: 1, paddingRight: 12, justifyContent: "center" }}>
+        <View
+          style={{
+            flex: isPortrait ? 0 : 1,
+            width: "100%",
+            paddingRight: isPortrait ? 0 : 12,
+            justifyContent: "center",
+          }}
+        >
           <Label>Validar operador</Label>
           <Hint>Ingresa teléfono + PIN para iniciar el cierre.</Hint>
 
@@ -266,7 +290,7 @@ export default function OperatorLoginScreen({ navigation }: Props) {
           {authError ? <Hint>{authError}</Hint> : null}
 
           <SecondaryButton
-            onPress={() => navigation.navigate(Screens.LandingScreen)}
+            onPress={() => navigation.navigate(backScreen)}
             style={{ marginTop: 14 }}
           >
             Volver
@@ -275,10 +299,12 @@ export default function OperatorLoginScreen({ navigation }: Props) {
 
         <View
           style={{
-            width: "45%",
-            minWidth: 260,
+            width: isPortrait ? "100%" : "45%",
+            minWidth: isPortrait ? undefined : 260,
             justifyContent: "center",
-            paddingLeft: 12,
+            paddingLeft: isPortrait ? 0 : 12,
+            paddingTop: isPortrait ? 16 : 0,
+            alignItems: "center",
           }}
         >
           <View style={{ alignItems: "center", marginTop: 8 }}>
@@ -288,6 +314,7 @@ export default function OperatorLoginScreen({ navigation }: Props) {
               canSubmit={canSubmitCredentials}
               onSubmit={onSubmit}
               submitLabel={isValidating ? "Validando..." : "Iniciar el cierre"}
+              compact={isPortrait}
             />
           </View>
         </View>

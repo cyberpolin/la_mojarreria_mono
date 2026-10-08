@@ -32,8 +32,8 @@ export default function OwnerDashboardSelectPage() {
               Elige dashboard
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              {workspaceName}. Dashboard 1 es el panel actual. Dashboard 2 es la
-              version nueva, solo con negocios dados de alta.
+              {workspaceName}. Dashboard 1 es el panel actual. Dashboard 2 lista
+              tenants y sus numeros de WhatsApp.
             </p>
           </div>
           {hasAdminBackup ? (
@@ -79,7 +79,7 @@ export default function OwnerDashboardSelectPage() {
               Dashboard 2
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Lista solamente los negocios dados de alta en este workspace.
+              Lista tenants y, dentro de cada uno, sus numeros de WhatsApp.
             </p>
           </button>
         </div>

@@ -1,180 +1,133 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { takuApi } from "@/lib/taku-api";
+import { Button } from "@/components/inbox/ui";
+import { AddNumberModal } from "./AddNumberForm";
+import { OwnerShell } from "./OwnerShell";
 import {
-  getWorkspaceSession,
-  hasOwnerModeAdminBackup,
-  restoreOwnerModeAdminSession,
-} from "@/lib/auth";
-import { takuPaginated } from "@/lib/taku-api";
-import { Badge, Button } from "@/components/inbox/ui";
-
-type OwnerBusiness = {
-  id: string;
-  displayName: string;
-  description?: string | null;
-  phoneNumber: string | null;
-  status: string;
-  enabled?: boolean;
-  automationEnabled?: boolean;
-};
-
-function statusLabel(status: string) {
-  if (status === "connected") return "Conectado";
-  if (status === "disconnected") return "Desconectado";
-  if (status === "qr_required") return "QR requerido";
-  if (status === "connecting") return "Conectando";
-  if (status === "failed") return "Fallido";
-  if (status === "disabled") return "Deshabilitado";
-  return status;
-}
-
-function formatPhone(phone: string | null) {
-  if (!phone) return "Sin numero";
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 10) return phone;
-  return digits.slice(-10);
-}
+  WhatsAppNumbersCard,
+  type OwnerWhatsAppNumber,
+} from "./WhatsAppNumbersCard";
 
 export default function OwnerDashboardV2Page() {
   const router = useRouter();
-  const [workspaceName, setWorkspaceName] = useState("Workspace");
-  const [hasAdminBackup, setHasAdminBackup] = useState(false);
-  const [businesses, setBusinesses] = useState<OwnerBusiness[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const session = getWorkspaceSession();
-    setWorkspaceName(session?.currentWorkspace.name ?? "Workspace");
-    setHasAdminBackup(hasOwnerModeAdminBackup());
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void takuPaginated<OwnerBusiness>("/whatsapp-accounts?pageSize=100")
-      .then((result) => {
-        if (cancelled) return;
-        setBusinesses(
-          result.items.filter((item) => item.status !== "disabled"),
-        );
-        setError(null);
-      })
-      .catch((caught) => {
-        if (cancelled) return;
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "No se pudieron cargar los negocios.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const [isAddingNumber, setIsAddingNumber] = useState(false);
+  const [deleting, setDeleting] = useState<OwnerWhatsAppNumber | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-950">
-      <div className="mx-auto grid max-w-5xl gap-8 px-4 py-10 md:px-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Owner dashboard v2
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950 md:text-3xl">
-              Negocios
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              {workspaceName}. Solo aparecen los negocios dados de alta.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => router.push("/owner/select")}
-            >
-              Cambiar dashboard
-            </Button>
-            {hasAdminBackup ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  restoreOwnerModeAdminSession();
-                  router.push("/admin");
+    <OwnerShell headerLabel="Informacion general">
+      {({ selected, numbers, isLoading, error, refreshNumbers }) => {
+        if (error) {
+          return (
+            <div className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-700">
+              {error}
+            </div>
+          );
+        }
+        if (isLoading) {
+          return (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-700">
+              Cargando tenant...
+            </div>
+          );
+        }
+        if (!selected) {
+          return (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
+              Selecciona un tenant en el menu lateral.
+            </div>
+          );
+        }
+        return (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <WhatsAppNumbersCard
+                numbers={numbers}
+                onEditNumber={(numberId) =>
+                  router.push(`/owner/numbers/${numberId}`)
+                }
+                onDeleteNumber={(number) => {
+                  setDeleteError(null);
+                  setDeleting(number);
                 }}
-              >
-                Volver a superowner
-              </Button>
+                onAddNumber={() => setIsAddingNumber(true)}
+                onOpenInbox={(number) => {
+                  const phone = (number.phoneNumber ?? "").replace(/\D/g, "");
+                  router.push(
+                    phone
+                      ? `/conversation-mobile/${phone}`
+                      : "/conversation-mobile",
+                  );
+                }}
+              />
+            </div>
+            {isAddingNumber ? (
+              <AddNumberModal
+                onClose={() => setIsAddingNumber(false)}
+                onCreated={(accountId) => {
+                  setIsAddingNumber(false);
+                  router.push(`/owner/numbers/${accountId}`);
+                }}
+              />
             ) : null}
-          </div>
-        </div>
-
-        {error ? (
-          <div className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-700">
-            {error}
-          </div>
-        ) : null}
-
-        {isLoading ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-700">
-            Cargando negocios...
-          </div>
-        ) : businesses.length === 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
-            No hay negocios dados de alta.
-          </div>
-        ) : (
-          <section className="grid gap-4">
-            {businesses.map((business) => {
-              const connected = business.status === "connected";
-              return (
-                <article
-                  key={business.id}
-                  className="rounded-xl border border-slate-200 bg-white p-5"
-                >
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-lg font-semibold text-slate-950">
-                          {business.displayName}
-                        </h2>
-                        <Badge tone={connected ? "dark" : "warn"}>
-                          {statusLabel(business.status)}
-                        </Badge>
-                        {business.automationEnabled ? (
-                          <Badge>Automatizacion</Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 text-sm text-slate-600">
-                        {formatPhone(business.phoneNumber)}
-                      </p>
-                    </div>
+            {deleting ? (
+              <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
+                <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Eliminar numero
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    Se deshabilitara{" "}
+                    <span className="font-semibold text-slate-950">
+                      {deleting.displayName}
+                    </span>
+                    . Dejara de aparecer en este tenant.
+                  </p>
+                  {deleteError ? (
+                    <p className="mt-3 text-sm text-slate-700">{deleteError}</p>
+                  ) : null}
+                  <div className="mt-5 flex justify-end gap-3">
                     <Button
+                      variant="secondary"
+                      onClick={() => setDeleting(null)}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      disabled={isDeleting}
                       onClick={() => {
-                        const phone = (business.phoneNumber ?? "").replace(
-                          /\D/g,
-                          "",
-                        );
-                        router.push(
-                          phone
-                            ? `/conversation-mobile/${phone}`
-                            : "/conversation-mobile",
-                        );
+                        setIsDeleting(true);
+                        setDeleteError(null);
+                        void takuApi(`/whatsapp-accounts/${deleting.id}`, {
+                          method: "DELETE",
+                        })
+                          .then(() => {
+                            setDeleting(null);
+                            refreshNumbers();
+                          })
+                          .catch((caught) => {
+                            setDeleteError(
+                              caught instanceof Error
+                                ? caught.message
+                                : "No se pudo eliminar el numero.",
+                            );
+                          })
+                          .finally(() => setIsDeleting(false));
                       }}
                     >
-                      Abrir inbox
+                      {isDeleting ? "Eliminando..." : "Eliminar"}
                     </Button>
                   </div>
-                </article>
-              );
-            })}
-          </section>
-        )}
-      </div>
-    </main>
+                </div>
+              </div>
+            ) : null}
+          </>
+        );
+      }}
+    </OwnerShell>
   );
 }

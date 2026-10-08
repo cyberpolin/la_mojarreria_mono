@@ -1,9 +1,13 @@
 import { createStackNavigator } from "@react-navigation/stack";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
+import * as ScreenOrientation from "expo-screen-orientation";
 // import available screens
 import LandingScreen from "./LandingScreen";
+import PortraitLandingScreen from "./PortraitLandingScreen";
+import PortraitDailyCloseWizard from "./PortraitDailyCloseWizard";
 import OperatorLoginScreen from "./OperatorLogin";
+import { useLockedOrientation } from "./useLockedOrientation";
 import CheckInOutScreen from "./CheckInOutScreen";
 import DailySalesScreen from "./DailySales";
 import DailySalesConfirmScreen from "./DailySalesConfirm";
@@ -13,6 +17,7 @@ import IncomeOutputResumeScreen from "./IncomeOutputResume";
 import AllReportsScreen from "./AllReports";
 import ActivePromosScreen from "./ActivePromosScreen";
 import WhatsAppInboxScreen from "./WhatsAppInboxScreen";
+import ConversationMobileScreen from "./ConversationMobileScreen";
 import WeeklyReportScreen from "./WeeklyReportScreen";
 import EmployeeAssistantStep1 from "./EmployeeAssistantStep1";
 import EmployeeAssistantStep2 from "./EmployeeAssistantStep2";
@@ -23,16 +28,22 @@ import SyncStatusBar from "./SyncStatusBar";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import TopActionDrawer from "./TopActionDrawer";
 
-const { Navigator, Screen } = createStackNavigator();
 const noBackNavigationOptions = {
   headerShown: false,
   gestureEnabled: false,
 };
 
 export type RootStackParamList = {
+  [Screens.PortraitLandingScreen]?: {};
+  [Screens.PortraitDailyCloseWizardScreen]?: {};
   [Screens.LandingScreen]?: {};
   [Screens.CheckInOutScreen]?: {};
-  [Screens.OperatorLoginScreen]?: {};
+  [Screens.OperatorLoginScreen]?: {
+    layout?: "portrait" | "landscape";
+    nextScreen?:
+      | Screens.DailySalesScreen
+      | Screens.PortraitDailyCloseWizardScreen;
+  };
   [Screens.DailySalesScreen]?: {};
   [Screens.DailySalesConfirmScreen]?: {};
   [Screens.IncomeReportScreen]?: {};
@@ -41,11 +52,14 @@ export type RootStackParamList = {
   [Screens.AllReportsScreen]?: {};
   [Screens.ActivePromosScreen]?: {};
   [Screens.WhatsAppInboxScreen]?: {};
+  [Screens.ConversationMobileScreen]?: {};
   [Screens.WeeklyReportScreen]?: {};
   [Screens.EmployeeAssistantStep1Screen]?: {};
   [Screens.EmployeeAssistantStep2Screen]?: {};
   [Screens.EmployeeAssistantStep3Screen]?: {};
 };
+
+const { Navigator, Screen } = createStackNavigator<RootStackParamList>();
 
 const useBlockBackNavigation = () => {
   const navigation = useNavigation();
@@ -79,7 +93,18 @@ const useBlockBackNavigation = () => {
   );
 };
 
-const ScreenFrame = ({ children }: { children: ReactNode }) => {
+const ScreenFrame = ({
+  children,
+  orientation = "landscape",
+}: {
+  children: ReactNode;
+  orientation?: "landscape" | "portrait";
+}) => {
+  useLockedOrientation(
+    orientation === "portrait"
+      ? ScreenOrientation.OrientationLock.PORTRAIT_UP
+      : ScreenOrientation.OrientationLock.LANDSCAPE,
+  );
   useBlockBackNavigation();
   const [isDrawerVisible, setIsDrawerVisible] = useState(false);
 
@@ -95,13 +120,25 @@ const ScreenFrame = ({ children }: { children: ReactNode }) => {
   );
 };
 
-export default ({ initialPosition }: { initialPosition?: number | null }) => (
+export default (_props: { initialPosition?: number | null }) => (
   <Navigator
-    initialRouteName={
-      initialPosition ? wizzardSteps[initialPosition] : Screens.LandingScreen
-    }
+    initialRouteName={Screens.PortraitLandingScreen}
     screenOptions={noBackNavigationOptions}
   >
+    <Screen name={Screens.PortraitLandingScreen}>
+      {(props) => (
+        <ScreenFrame orientation="portrait">
+          <PortraitLandingScreen {...props} />
+        </ScreenFrame>
+      )}
+    </Screen>
+    <Screen name={Screens.PortraitDailyCloseWizardScreen}>
+      {(props) => (
+        <ScreenFrame orientation="portrait">
+          <PortraitDailyCloseWizard {...props} />
+        </ScreenFrame>
+      )}
+    </Screen>
     <Screen name={Screens.LandingScreen}>
       {(props) => (
         <ScreenFrame>
@@ -111,7 +148,11 @@ export default ({ initialPosition }: { initialPosition?: number | null }) => (
     </Screen>
     <Screen name={Screens.OperatorLoginScreen}>
       {(props) => (
-        <ScreenFrame>
+        <ScreenFrame
+          orientation={
+            props.route.params?.layout === "portrait" ? "portrait" : "landscape"
+          }
+        >
           <OperatorLoginScreen {...props} />
         </ScreenFrame>
       )}
@@ -176,6 +217,13 @@ export default ({ initialPosition }: { initialPosition?: number | null }) => (
       {() => (
         <ScreenFrame>
           <WhatsAppInboxScreen />
+        </ScreenFrame>
+      )}
+    </Screen>
+    <Screen name={Screens.ConversationMobileScreen}>
+      {(props) => (
+        <ScreenFrame orientation="portrait">
+          <ConversationMobileScreen {...props} />
         </ScreenFrame>
       )}
     </Screen>

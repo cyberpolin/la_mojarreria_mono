@@ -1,13 +1,15 @@
 "use client";
 
 import {
-  getAppSession,
   getAdminSession,
   getBackendApiBaseUrl,
+  getWorkspaceSession,
   saveAppSession,
   type AdminSession,
   type WorkspaceSession,
 } from "./auth";
+
+export { getWorkspaceSession };
 
 type ApiPayload<T> = {
   ok?: boolean;
@@ -28,11 +30,6 @@ export class TakuApiError extends Error {
     this.status = params.status;
     this.code = params.code ?? null;
   }
-}
-
-export function getWorkspaceSession(): WorkspaceSession | null {
-  const session = getAppSession();
-  return session?.sessionType === "client" ? session : null;
 }
 
 export async function takuApi<T>(

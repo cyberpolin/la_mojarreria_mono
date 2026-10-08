@@ -24,12 +24,14 @@ export default function NumericKeypad({
   canSubmit,
   onSubmit,
   submitLabel = "Enviar Reporte!",
+  compact = false,
 }: {
   activeId: string | null;
   onKeyPress: (key: KeypadKey) => void;
   canSubmit: boolean;
   onSubmit: () => void;
   submitLabel?: string;
+  compact?: boolean;
 }) {
   const disabled = !activeId;
 
@@ -49,15 +51,16 @@ export default function NumericKeypad({
 
   return (
     <>
-      <Keypad style={{ opacity: disabled ? 0.4 : 1 }}>
+      <Keypad compact={compact} style={{ opacity: disabled ? 0.4 : 1 }}>
         {keys.map((val, index) => (
           <Key
             key={`${val}-${index}`}
             index={index}
+            compact={compact}
             disabled={disabled}
             onPress={() => onKeyPress(val)}
           >
-            <KeyText>{val}</KeyText>
+            <KeyText compact={compact}>{val}</KeyText>
           </Key>
         ))}
       </Keypad>
@@ -68,17 +71,24 @@ export default function NumericKeypad({
   );
 }
 
-const Keypad = styled.View`
+const Keypad = styled.View<{ compact?: boolean }>`
   flex-direction: row;
   flex-wrap: wrap;
   justify-content: center;
-  width: 280px;
+  width: ${({ compact }) => (compact ? "232px" : "280px")};
 `;
 
-const Key = styled(Pressable)<{ index: number; disabled?: boolean }>`
-  width: ${({ index }) => (index === 10 ? "120px" : "80px")};
-  height: 80px;
-  margin: 5px;
+const Key = styled(Pressable)<{
+  index: number;
+  disabled?: boolean;
+  compact?: boolean;
+}>`
+  width: ${({ index, compact }) => {
+    if (compact) return index === 10 ? "96px" : "64px";
+    return index === 10 ? "120px" : "80px";
+  }};
+  height: ${({ compact }) => (compact ? "52px" : "80px")};
+  margin: ${({ compact }) => (compact ? "4px" : "5px")};
   background-color: #f3f3f3;
   border-radius: 10px;
   justify-content: center;
@@ -87,8 +97,8 @@ const Key = styled(Pressable)<{ index: number; disabled?: boolean }>`
   border-color: ${Gray};
 `;
 
-const KeyText = styled.Text`
-  font-size: 22px;
+const KeyText = styled.Text<{ compact?: boolean }>`
+  font-size: ${({ compact }) => (compact ? "18px" : "22px")};
   color: ${Black};
   font-weight: bold;
 `;

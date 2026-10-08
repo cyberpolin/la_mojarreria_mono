@@ -67,7 +67,7 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
 
   const openWhatsAppInbox = () => {
     onClose();
-    navigation.navigate(Screens.WhatsAppInboxScreen);
+    navigation.navigate(Screens.ConversationMobileScreen);
   };
 
   const openWeeklyReport = () => {

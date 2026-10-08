@@ -48,12 +48,6 @@ export type WorkspaceSession = {
 export type AppSession = AdminSession | WorkspaceSession;
 
 export function getBackendApiBaseUrl() {
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host === "localhost" || host === "127.0.0.1") {
-      return "http://localhost:4000/api";
-    }
-  }
   return (
     process.env.NEXT_PUBLIC_TAKU_BACKEND_API_BASE_URL ??
     "http://localhost:4000/api"
@@ -85,6 +79,11 @@ export function getAppSession(): AppSession | null {
   } catch {
     return null;
   }
+}
+
+export function getWorkspaceSession(): WorkspaceSession | null {
+  const session = getAppSession();
+  return session?.sessionType === "client" ? session : null;
 }
 
 export function getAdminSession(): AdminSession | null {

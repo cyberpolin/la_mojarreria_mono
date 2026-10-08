@@ -75,22 +75,26 @@ export default function OwnerLayout({
     );
   }
 
+  const showSelectChrome = pathname.startsWith("/owner/select");
+
   return (
     <>
-      <div className="border-b border-slate-200 bg-white px-4 py-3 text-slate-950 md:px-6">
-        <div className="mx-auto flex max-w-5xl items-center justify-end">
-          <button
-            type="button"
-            onClick={() => {
-              clearAdminSession();
-              router.replace("/login");
-            }}
-            className="min-h-11 px-2 text-sm font-semibold text-slate-700 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-          >
-            Logout
-          </button>
+      {showSelectChrome ? (
+        <div className="border-b border-slate-200 bg-white px-4 py-3 text-slate-950 md:px-6">
+          <div className="mx-auto flex max-w-5xl items-center justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                clearAdminSession();
+                router.replace("/login");
+              }}
+              className="min-h-11 px-2 text-sm font-semibold text-slate-700 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+            >
+              Logout
+            </button>
+          </div>
         </div>
-      </div>
+      ) : null}
       {children}
     </>
   );

@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { DailyClose, ProductSale, State, TemportalDailyClose } from "./Types";
+import {
+  CloseEvidencePhoto,
+  DailyClose,
+  ProductSale,
+  State,
+  TemportalDailyClose,
+} from "./Types";
 import dayjs from "dayjs";
 import { needsSync } from "./helpers";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -185,6 +191,18 @@ export const useDailyCloseStore = create<State>()(
               ...{ notes },
               date: dayjs().toISOString(),
               stepPosition: 6,
+            },
+          }),
+        );
+      },
+      setTemporalEvidence: (evidence: CloseEvidencePhoto[]) => {
+        return set(
+          ({ temporalSale }: { temporalSale: TemportalDailyClose }) => ({
+            temporalSale: {
+              ...temporalSale,
+              evidence,
+              date: dayjs().toISOString(),
+              stepPosition: 7,
             },
           }),
         );

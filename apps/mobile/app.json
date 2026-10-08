@@ -3,11 +3,16 @@
     "name": "MOJARRERIA",
     "slug": "mojarreria-mobile",
     "version": "1.0.0",
-    "orientation": "landscape",
+    "orientation": "default",
     "icon": "./assets/images/favicon.png",
     "scheme": "mojarreria",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0
+    },
     "android": {
       "adaptiveIcon": {
         "image": "./assets/images/taku.png",
@@ -35,7 +40,15 @@
       [
         "expo-screen-orientation",
         {
-          "initialOrientation": "LANDSCAPE"
+          "initialOrientation": "PORTRAIT_UP"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MOJARRERIA usa la cámara para evidencias del cierre: baño, comedor y basura.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       [
