@@ -23,6 +23,7 @@ type Props = NativeStackScreenProps<
 export default function ConversationMobileScreen({ navigation }: Props) {
   const webViewRef = useRef<WebView>(null);
   const openMenu = useOpenAppMenu();
+  const hasLoadedOnce = useRef(false);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [now, setNow] = useState(() => new Date());
@@ -126,12 +127,17 @@ export default function ConversationMobileScreen({ navigation }: Props) {
           thirdPartyCookiesEnabled
           javaScriptEnabled
           domStorageEnabled
-          startInLoadingState
+          startInLoadingState={false}
           allowsInlineMediaPlayback
           mixedContentMode="always"
           originWhitelist={["*"]}
-          onLoadStart={() => setIsLoading(true)}
-          onLoadEnd={() => setIsLoading(false)}
+          onLoadStart={() => {
+            if (!hasLoadedOnce.current) setIsLoading(true);
+          }}
+          onLoadEnd={() => {
+            hasLoadedOnce.current = true;
+            setIsLoading(false);
+          }}
           onNavigationStateChange={(navState) => {
             setCanGoBack(navState.canGoBack);
           }}

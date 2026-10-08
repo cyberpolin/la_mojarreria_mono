@@ -36,7 +36,7 @@ type AppConfig = {
 };
 
 export const APP_CONFIG: AppConfig = {
-  env: "development",
+  env: "production",
   deviceId: "Kiosk001",
   clean: false,
   seed: false,
@@ -48,9 +48,9 @@ export const APP_CONFIG: AppConfig = {
   dimScreen: {
     enabled: true,
     timeout: "1",
-    to: 0.2,
+    to: 0.4,
   },
-  apiUrl: "http://192.168.0.251:3000",
+  apiUrl: "https://api.lamojarreria.com",
   apiMaintenanceApiKey: "DAILY_CLOSE_REPROCESS_API_KEY",
   waApiBaseUrl: "https://api.wa.lamojarreria.com",
   waApiKey: "e9f82f13f65f1d07cda3b558e59e99bc696dbc4d57e0f000b4f544809eb15f9a",

@@ -1,6 +1,11 @@
 import { TakuApiError, takuApi, takuPaginated } from "@/lib/taku-api";
 import { persistLocalFaqAutoReplies } from "./autoReplies";
-import { buildConversationQuery } from "./helpers";
+import {
+  buildConversationQuery,
+  normalizeDriversGroupMode,
+  isTestDriversGroupConversation,
+  type DriversGroupMode,
+} from "./helpers";
 import type {
   ConversationFilterId,
   InboxBlockedContact,
@@ -24,25 +29,48 @@ export async function fetchConversations(params: {
   return result.items;
 }
 
+export async function fetchDriversGroupMode(): Promise<DriversGroupMode> {
+  const preferences = await takuApi<{ driversGroupMode?: string } | null>(
+    "/preferences",
+  );
+  return normalizeDriversGroupMode(preferences?.driversGroupMode);
+}
+
+export async function updateDriversGroupMode(mode: DriversGroupMode) {
+  return takuApi<{
+    message: string;
+    preferences: { driversGroupMode?: string };
+  }>("/preferences", {
+    method: "PATCH",
+    body: JSON.stringify({ driversGroupMode: mode }),
+  });
+}
+
 export async function fetchPinnedGroupConversation(accountId?: string) {
+  const mode = await fetchDriversGroupMode();
   const scoped = await fetchConversations({
     filter: "all",
     search: "",
     accountId: accountId ?? "all",
   });
-  const pinned = scoped.find(
+  const pinned = scoped.filter(
     (item) => item.pinned && (item.isGroup || item.contact?.kind === "group"),
   );
-  if (pinned || !accountId || accountId === "all") return pinned ?? null;
+  const pick = (rows: InboxConversation[]) =>
+    mode === "prod"
+      ? (rows.find((item) => !isTestDriversGroupConversation(item)) ?? null)
+      : (rows.find((item) => isTestDriversGroupConversation(item)) ?? null);
+  const selected = pick(pinned);
+  if (selected || !accountId || accountId === "all") return selected;
   const all = await fetchConversations({
     filter: "all",
     search: "",
     accountId: "all",
   });
-  return (
-    all.find(
+  return pick(
+    all.filter(
       (item) => item.pinned && (item.isGroup || item.contact?.kind === "group"),
-    ) ?? null
+    ),
   );
 }
 
@@ -99,6 +127,7 @@ export async function addGroupConversation(params: {
   whatsappAccountId: string;
   groupJid: string;
   name?: string;
+  role?: "prod" | "test";
 }) {
   return takuApi<InboxConversation>("/conversations/groups", {
     method: "POST",

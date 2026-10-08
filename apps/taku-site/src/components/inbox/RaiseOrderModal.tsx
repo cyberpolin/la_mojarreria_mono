@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  fetchDriversGroupMode,
   fetchPinnedGroupConversation,
   fetchWhatsAppAccounts,
   sendConversationMessage,
@@ -23,6 +24,7 @@ import {
   raiseOrderTotals,
 } from "./raiseOrder";
 import { savePendingOrder } from "./pendingOrders";
+import type { DriversGroupMode } from "./helpers";
 import type { InboxMessage, InboxWhatsAppAccount } from "./types";
 
 function modalHost() {
@@ -58,6 +60,7 @@ export function RaiseOrderModal({
     account ? [account] : [],
   );
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+  const [groupMode, setGroupMode] = useState<DriversGroupMode>("prod");
 
   useEffect(() => {
     setHost(modalHost());
@@ -76,6 +79,9 @@ export function RaiseOrderModal({
       .then((rows) => {
         setAccounts(rows);
       })
+      .catch(() => undefined);
+    void fetchDriversGroupMode()
+      .then(setGroupMode)
       .catch(() => undefined);
   }, []);
 
@@ -322,7 +328,9 @@ export function RaiseOrderModal({
             Falta el grupo de repartidores
           </p>
           <p className="text-sm text-slate-500">
-            Agrega el grupo fijado para avisar el pedido.
+            {groupMode === "prod"
+              ? "Agrega el grupo de produccion para avisar el pedido."
+              : "Agrega un grupo de pruebas. El de produccion no se reemplaza."}
           </p>
           {error ? <p className="text-sm text-slate-700">{error}</p> : null}
           <button
@@ -343,9 +351,9 @@ export function RaiseOrderModal({
               ? "Pago transferencia"
               : "Pago efectivo"}
             .{" "}
-            {SEND_DRIVERS_ORDER_MESSAGE
-              ? `Se envio "${DRIVERS_ORDER_MESSAGE}" al grupo de repartidores.`
-              : "No se envio mensaje al grupo (prueba en vivo)."}
+            {`Se envio "${DRIVERS_ORDER_MESSAGE}" al grupo de ${
+              groupMode === "prod" ? "produccion" : "pruebas"
+            }.`}
           </p>
           <button
             type="button"

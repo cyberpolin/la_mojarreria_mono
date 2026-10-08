@@ -715,6 +715,7 @@ function createTestSeed(): Database {
     showBotMessages: true,
     agentsCanCloseConversations: true,
     agentsCanReassignConversations: false,
+    driversGroupMode: "prod",
     createdAt: timestamp,
     updatedAt: timestamp,
   };

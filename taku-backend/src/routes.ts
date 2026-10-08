@@ -96,6 +96,7 @@ import type {
   WhatsAppStatus,
   AttendancePunch,
   DayClose,
+  DriversGroupMode,
   FaqAutoReply,
   WeekClose,
   WorkspacePlan,
@@ -575,6 +576,7 @@ function ensureWorkspaceDefaults(
       showBotMessages: true,
       agentsCanCloseConversations: true,
       agentsCanReassignConversations: false,
+      driversGroupMode: "prod",
       createdAt: now(),
       updatedAt: now(),
     });
@@ -843,18 +845,47 @@ function isGroupConversation(database: Database, conversation: Conversation) {
   );
 }
 
+function isTestDriversGroupName(name: string | null | undefined) {
+  return /prueba|\btest\b/i.test((name ?? "").trim());
+}
+
+function isDriversGroupMode(value: unknown): value is DriversGroupMode {
+  return value === "prod" || value === "test";
+}
+
+function driversGroupModeOf(
+  preferences?: Preferences | null,
+): DriversGroupMode {
+  return preferences?.driversGroupMode === "test" ? "test" : "prod";
+}
+
+function driversGroupKind(
+  database: Database,
+  conversation: Conversation,
+): "test" | "prod" {
+  const contact = database.contacts.find(
+    (item) => item.id === conversation.contactId,
+  );
+  return isTestDriversGroupName(contact?.name) ? "test" : "prod";
+}
+
 function pinExclusiveGroup(
   database: Database,
   workspaceId: string,
   conversation: Conversation,
 ) {
+  const kind = driversGroupKind(database, conversation);
   conversation.pinned = true;
   conversation.updatedAt = now();
   for (const item of database.conversations) {
     if (item.workspaceId !== workspaceId || item.id === conversation.id) {
       continue;
     }
-    if (isGroupConversation(database, item) && item.pinned) {
+    if (
+      isGroupConversation(database, item) &&
+      item.pinned &&
+      driversGroupKind(database, item) === kind
+    ) {
       item.pinned = false;
       item.updatedAt = now();
     }
@@ -4524,7 +4555,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           message: "El grupo de WhatsApp no es valido.",
         });
       }
-      const name = readOptionalString(req.body?.name) ?? "Grupo";
+      const rawName = readOptionalString(req.body?.name) ?? "Grupo";
+      const requestedRole = readOptionalString(req.body?.role);
+      const name =
+        requestedRole === "test" && !isTestDriversGroupName(rawName)
+          ? `${rawName} (prueba)`
+          : rawName;
       const requestedAccountId = requireString(
         req.body?.whatsappAccountId,
         "whatsappAccountId",
@@ -4562,7 +4598,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           database.contacts.push(contact);
         } else {
           contact.kind = "group";
-          if (name && !contact.name) contact.name = name;
+          if (requestedRole === "test") contact.name = name;
+          else if (name && !contact.name) contact.name = name;
           contact.updatedAt = now();
         }
         const existing = database.conversations.find(
@@ -4571,6 +4608,18 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             item.whatsappAccountId === account.id &&
             item.contactId === contact.id,
         );
+        if (
+          existing &&
+          requestedRole === "test" &&
+          existing.pinned &&
+          driversGroupKind(database, existing) === "prod"
+        ) {
+          throw new ApiError({
+            status: 409,
+            code: "VALIDATION_ERROR",
+            message: "Ese grupo es el de produccion. Elige otro para pruebas.",
+          });
+        }
         if (existing) {
           pinExclusiveGroup(database, context.workspace.id, existing);
           return {
@@ -6532,15 +6581,22 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
 
   router.get(
     "/preferences",
-    requireRole(ownerAdmin),
+    requireRole(allRoles),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
       const database = await store.read();
-      ok(
-        res,
+      const preferences =
         database.preferences.find(
           (item) => item.workspaceId === context.workspace.id,
-        ) ?? null,
+        ) ?? null;
+      ok(
+        res,
+        preferences
+          ? {
+              ...preferences,
+              driversGroupMode: driversGroupModeOf(preferences),
+            }
+          : null,
       );
     }),
   );
@@ -6564,6 +6620,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             showBotMessages: true,
             agentsCanCloseConversations: true,
             agentsCanReassignConversations: false,
+            driversGroupMode: "prod",
             createdAt: now(),
             updatedAt: now(),
           };
@@ -6587,8 +6644,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         if (typeof req.body?.agentsCanReassignConversations === "boolean")
           preferences.agentsCanReassignConversations =
             req.body.agentsCanReassignConversations;
+        if (isDriversGroupMode(req.body?.driversGroupMode))
+          preferences.driversGroupMode = req.body.driversGroupMode;
         preferences.updatedAt = now();
-        return preferences as Preferences;
+        return {
+          ...preferences,
+          driversGroupMode: driversGroupModeOf(preferences),
+        } as Preferences;
       });
       ok(res, {
         message: "Preferencias actualizadas correctamente.",

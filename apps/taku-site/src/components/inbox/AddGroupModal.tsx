@@ -2,9 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { addGroupConversation, fetchAccountGroups } from "./api";
+import {
+  addGroupConversation,
+  fetchAccountGroups,
+  fetchDriversGroupMode,
+} from "./api";
 import type { WhatsAppGroupOption } from "./api";
-import { accountStatusLabel, isAccountConnected } from "./helpers";
+import {
+  accountStatusLabel,
+  isAccountConnected,
+  type DriversGroupMode,
+} from "./helpers";
 import type { InboxConversation, InboxWhatsAppAccount } from "./types";
 import { Button } from "./ui";
 
@@ -31,9 +39,13 @@ export function AddGroupModal({
   const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [groupMode, setGroupMode] = useState<DriversGroupMode>("prod");
 
   useEffect(() => {
     setHost(modalHost());
+    void fetchDriversGroupMode()
+      .then(setGroupMode)
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -69,6 +81,7 @@ export function AddGroupModal({
         whatsappAccountId: accountId,
         groupJid: group.id,
         name: group.subject,
+        role: groupMode,
       });
       onAdded(conversation);
     } catch (caught) {
@@ -98,7 +111,9 @@ export function AddGroupModal({
               Agregar grupo
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Solo el grupo fijado aparece en el chat. Elige el de repartidores.
+              {groupMode === "prod"
+                ? "Elige el grupo de produccion. El de pruebas se queda aparte."
+                : "Elige el grupo de pruebas. El de produccion no se toca."}
             </p>
           </div>
           <button

@@ -257,6 +257,8 @@ export type AutomationDecisionLog = {
   createdAt: string;
 };
 
+export type DriversGroupMode = "prod" | "test";
+
 export type Preferences = {
   id: string;
   workspaceId: string;
@@ -266,6 +268,7 @@ export type Preferences = {
   showBotMessages: boolean;
   agentsCanCloseConversations: boolean;
   agentsCanReassignConversations: boolean;
+  driversGroupMode?: DriversGroupMode;
   createdAt: string;
   updatedAt: string;
 };

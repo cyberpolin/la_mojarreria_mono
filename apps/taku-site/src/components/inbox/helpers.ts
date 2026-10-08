@@ -238,6 +238,27 @@ export function isVisibleInboxConversation(conversation: InboxConversation) {
   return !isGroupConversation(conversation) || Boolean(conversation.pinned);
 }
 
+export function isTestDriversGroupName(name: string | null | undefined) {
+  return /prueba|\btest\b/i.test((name ?? "").trim());
+}
+
+export function isTestDriversGroupConversation(
+  conversation: InboxConversation | null | undefined,
+) {
+  return (
+    isGroupConversation(conversation ?? null) &&
+    isTestDriversGroupName(conversation?.contact?.name)
+  );
+}
+
+export type DriversGroupMode = "prod" | "test";
+
+export function normalizeDriversGroupMode(
+  value: string | null | undefined,
+): DriversGroupMode {
+  return value === "test" ? "test" : "prod";
+}
+
 export function isDriversGroupConversation(
   conversation: InboxConversation | null | undefined,
 ) {

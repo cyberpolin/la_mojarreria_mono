@@ -41,6 +41,7 @@
     "dinero.js": "^1.9.1",
     "dayjs": "^1.11.13",
     "expo": "~52.0.47",
+    "expo-asset": "~11.0.5",
     "expo-blur": "~14.0.3",
     "expo-brightness": "~13.0.3",
     "expo-camera": "~16.0.13",
