@@ -23,15 +23,40 @@ const IconTile = ({
   icon,
   label,
   onPress,
+  fullWidth = false,
+  disabled = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
+  fullWidth?: boolean;
+  disabled?: boolean;
 }) => {
   return (
-    <TouchableOpacity style={styles.tile} onPress={onPress}>
-      <Ionicons name={icon} size={34} color="#111827" />
-      <Text style={styles.tileLabel}>{label}</Text>
+    <TouchableOpacity
+      style={[
+        styles.tile,
+        fullWidth ? styles.tileFull : null,
+        disabled ? styles.tileDisabled : null,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={disabled ? 1 : 0.2}
+    >
+      <Ionicons
+        name={icon}
+        size={fullWidth ? 28 : 34}
+        color={disabled ? "#94a3b8" : "#111827"}
+      />
+      <Text
+        style={[
+          styles.tileLabel,
+          fullWidth ? styles.tileLabelFull : null,
+          disabled ? styles.tileLabelDisabled : null,
+        ]}
+      >
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 };
@@ -93,37 +118,53 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
 
         <View style={styles.grid}>
           <IconTile
-            icon="logo-whatsapp"
-            label="WhatsApp"
-            onPress={openWhatsAppInbox}
-          />
-          <IconTile
+            fullWidth
             icon="cash-outline"
             label="Cierre del día"
             onPress={openDailyClose}
           />
           <IconTile
+            fullWidth
+            icon="logo-whatsapp"
+            label="WhatsApp"
+            onPress={openWhatsAppInbox}
+          />
+          <IconTile
+            disabled
             icon="timer-outline"
             label="Check In / Out"
             onPress={openCheckInOut}
           />
           <IconTile
+            disabled
             icon="people-outline"
             label="Employees Assistant"
             onPress={openEmployeesAssistant}
           />
           <IconTile
+            disabled
             icon="pricetag-outline"
             label="Active Promos"
             onPress={openActivePromos}
           />
-          <IconTile icon="cube-outline" label="Inventario" onPress={onClose} />
           <IconTile
+            disabled
+            icon="cube-outline"
+            label="Inventario"
+            onPress={onClose}
+          />
+          <IconTile
+            disabled
             icon="bar-chart-outline"
             label="Weekly Report"
             onPress={openWeeklyReport}
           />
-          <IconTile icon="settings-outline" label="Ajustes" onPress={onClose} />
+          <IconTile
+            disabled
+            icon="settings-outline"
+            label="Ajustes"
+            onPress={onClose}
+          />
         </View>
       </Animated.View>
     </View>
@@ -182,11 +223,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 14,
   },
+  tileFull: {
+    width: "100%",
+    minHeight: 88,
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    paddingHorizontal: 20,
+    gap: 12,
+  },
   tileLabel: {
     marginTop: 8,
     fontSize: 13,
     fontWeight: "600",
     textAlign: "center",
     color: "#111827",
+  },
+  tileLabelFull: {
+    marginTop: 0,
+    fontSize: 16,
+    textAlign: "left",
+  },
+  tileDisabled: {
+    backgroundColor: "#f1f5f9",
+    borderColor: "#e2e8f0",
+    opacity: 0.55,
+  },
+  tileLabelDisabled: {
+    color: "#94a3b8",
   },
 });
