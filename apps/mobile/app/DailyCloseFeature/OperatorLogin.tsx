@@ -304,17 +304,23 @@ export default function OperatorLoginScreen({ navigation, route }: Props) {
             justifyContent: "center",
             paddingLeft: isPortrait ? 0 : 12,
             paddingTop: isPortrait ? 16 : 0,
-            alignItems: "center",
+            alignItems: isPortrait ? "stretch" : "center",
           }}
         >
-          <View style={{ alignItems: "center", marginTop: 8 }}>
+          <View
+            style={{
+              width: isPortrait ? "100%" : undefined,
+              alignItems: isPortrait ? "stretch" : "center",
+              marginTop: 8,
+            }}
+          >
             <NumericKeypad
               activeId={activeField}
               onKeyPress={onKeypadPress}
               canSubmit={canSubmitCredentials}
               onSubmit={onSubmit}
               submitLabel={isValidating ? "Validando..." : "Iniciar el cierre"}
-              compact={isPortrait}
+              portrait={isPortrait}
             />
           </View>
         </View>

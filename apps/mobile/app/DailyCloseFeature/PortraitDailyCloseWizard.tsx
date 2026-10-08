@@ -302,7 +302,7 @@ export default function PortraitDailyCloseWizard({ navigation }: Props) {
           <PortraitStep
             keypad={
               <NumericKeypad
-                compact
+                portrait
                 activeId={activeSalesId}
                 onKeyPress={onSalesKeypadPress}
                 canSubmit={canSubmitSales}
@@ -409,7 +409,7 @@ export default function PortraitDailyCloseWizard({ navigation }: Props) {
           <PortraitStep
             keypad={
               <NumericKeypad
-                compact
+                portrait
                 activeId={activeIncomeId}
                 onKeyPress={onIncomeKeypadPress}
                 canSubmit={canSubmitIncome}
@@ -473,7 +473,7 @@ export default function PortraitDailyCloseWizard({ navigation }: Props) {
               keypad={
                 notesActive ? null : (
                   <NumericKeypad
-                    compact
+                    portrait
                     activeId={activeOutcomeId}
                     onKeyPress={onOutcomeKeypadPress}
                     canSubmit={canSubmitOutcome}
@@ -684,18 +684,27 @@ const PortraitStep = ({
 }) => (
   <View style={{ flex: 1 }}>
     <ScrollView
-      style={{ flex: 1 }}
+      style={keypad ? { flexGrow: 0, flexShrink: 1 } : { flex: 1 }}
       contentContainerStyle={{
         paddingHorizontal: 20,
         paddingTop: 8,
-        paddingBottom: 16,
+        paddingBottom: keypad ? 8 : 16,
       }}
       keyboardShouldPersistTaps="handled"
     >
       {children}
     </ScrollView>
     {keypad ? (
-      <View style={{ alignItems: "center", paddingBottom: 12 }}>{keypad}</View>
+      <View
+        style={{
+          width: "100%",
+          paddingHorizontal: 12,
+          paddingTop: 4,
+          paddingBottom: 8,
+        }}
+      >
+        {keypad}
+      </View>
     ) : null}
   </View>
 );

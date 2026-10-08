@@ -18,6 +18,12 @@ type KeypadKey =
   | "9"
   | "Del";
 
+const PORTRAIT_ROWS: KeypadKey[][] = [
+  ["1", "2", "3"],
+  ["4", "5", "6"],
+  ["7", "8", "9"],
+];
+
 export default function NumericKeypad({
   activeId,
   onKeyPress,
@@ -25,6 +31,7 @@ export default function NumericKeypad({
   onSubmit,
   submitLabel = "Enviar Reporte!",
   compact = false,
+  portrait = false,
 }: {
   activeId: string | null;
   onKeyPress: (key: KeypadKey) => void;
@@ -32,8 +39,46 @@ export default function NumericKeypad({
   onSubmit: () => void;
   submitLabel?: string;
   compact?: boolean;
+  portrait?: boolean;
 }) {
   const disabled = !activeId;
+
+  if (portrait) {
+    return (
+      <>
+        <PortraitKeypad style={{ opacity: disabled ? 0.4 : 1 }}>
+          {PORTRAIT_ROWS.map((row) => (
+            <PortraitRow key={row.join("-")}>
+              {row.map((val) => (
+                <PortraitKey
+                  key={val}
+                  disabled={disabled}
+                  onPress={() => onKeyPress(val)}
+                >
+                  <PortraitKeyText>{val}</PortraitKeyText>
+                </PortraitKey>
+              ))}
+            </PortraitRow>
+          ))}
+          <PortraitRow>
+            <PortraitKey
+              $flex={2}
+              disabled={disabled}
+              onPress={() => onKeyPress("0")}
+            >
+              <PortraitKeyText>0</PortraitKeyText>
+            </PortraitKey>
+            <PortraitKey disabled={disabled} onPress={() => onKeyPress("Del")}>
+              <PortraitKeyText>Del</PortraitKeyText>
+            </PortraitKey>
+          </PortraitRow>
+        </PortraitKeypad>
+        {canSubmit ? (
+          <PrimaryButton onPress={onSubmit}>{submitLabel}</PrimaryButton>
+        ) : null}
+      </>
+    );
+  }
 
   const keys: KeypadKey[] = [
     "1",
@@ -99,6 +144,33 @@ const Key = styled(Pressable)<{
 
 const KeyText = styled.Text<{ compact?: boolean }>`
   font-size: ${({ compact }) => (compact ? "18px" : "22px")};
+  color: ${Black};
+  font-weight: bold;
+`;
+
+const PortraitKeypad = styled.View`
+  width: 100%;
+`;
+
+const PortraitRow = styled.View`
+  flex-direction: row;
+  width: 100%;
+`;
+
+const PortraitKey = styled(Pressable)<{ $flex?: number }>`
+  flex: ${({ $flex }) => $flex ?? 1};
+  height: 64px;
+  margin: 4px;
+  background-color: #f3f3f3;
+  border-radius: 10px;
+  justify-content: center;
+  align-items: center;
+  border-width: 1px;
+  border-color: ${Gray};
+`;
+
+const PortraitKeyText = styled.Text`
+  font-size: 24px;
   color: ${Black};
   font-weight: bold;
 `;

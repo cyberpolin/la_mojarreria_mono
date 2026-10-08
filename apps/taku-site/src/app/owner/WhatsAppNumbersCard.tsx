@@ -13,7 +13,7 @@ export type OwnerWhatsAppNumber = {
   lastDisconnectedAt?: string | null;
 };
 
-function hasText(value: string | null | undefined) {
+function hasText(value: string | null | undefined): value is string {
   return Boolean(value?.trim());
 }
 
