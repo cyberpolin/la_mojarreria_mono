@@ -14,6 +14,7 @@ type CloseItem = {
 type CloseEvidence = {
   kind: string;
   takenAt: string;
+  url?: string;
 };
 
 type DailyClose = {
@@ -118,12 +119,26 @@ export default function CierrePage() {
             </div>
           </dl>
           {close.evidence.length > 0 ? (
-            <p className="mt-4 text-xs text-slate-500">
-              Evidencias:{" "}
-              {close.evidence
-                .map((item) => evidenceLabel[item.kind] ?? item.kind)
-                .join(", ")}
-            </p>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {close.evidence.map((item) => (
+                <figure key={`${close.id}-${item.kind}`} className="grid gap-2">
+                  {item.url ? (
+                    <img
+                      src={item.url}
+                      alt={evidenceLabel[item.kind] ?? item.kind}
+                      className="aspect-square w-full rounded-lg border border-slate-200 object-cover"
+                    />
+                  ) : (
+                    <div className="grid aspect-square place-items-center rounded-lg border border-slate-200 text-xs text-slate-500">
+                      Sin foto
+                    </div>
+                  )}
+                  <figcaption className="text-xs text-slate-500">
+                    {evidenceLabel[item.kind] ?? item.kind}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
           ) : null}
           {close.notes ? (
             <p className="mt-3 text-sm text-slate-600">{close.notes}</p>

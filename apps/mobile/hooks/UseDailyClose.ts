@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import { useDailyCloseStore } from "../app/DailyCloseFeature/useDailyCloseStore";
-import { DailyClose } from "../app/DailyCloseFeature/Types";
+import { CloseEvidencePhoto, DailyClose } from "../app/DailyCloseFeature/Types";
 import { restaurantApi } from "../app/DailyCloseFeature/restaurantApi";
 import { APP_CONFIG } from "@/constants/config";
 import { reportError } from "@/utils/errorLogger";
@@ -74,14 +74,92 @@ const normalizeCloseForSync = (close: DailyClose): DailyClose | null => {
     evidence: Array.isArray(close?.evidence)
       ? close.evidence.map((item) => ({
           kind: item.kind,
-          localUri: "",
+          localUri: item.localUri || "",
           takenAt: String(item.takenAt || ""),
+          remoteUrl: item.remoteUrl,
+          remotePublicId: item.remotePublicId,
         }))
       : undefined,
     expectedTotal,
     createdAt,
   };
 };
+
+type UploadedEvidence = {
+  kind: CloseEvidencePhoto["kind"];
+  takenAt: string;
+  url: string;
+  publicId: string;
+};
+
+async function localImageToDataUrl(uri: string) {
+  if (uri.startsWith("data:")) return uri;
+  const response = await fetch(uri);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  const mime = response.headers.get("content-type") || "image/jpeg";
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
+async function uploadCloseEvidence(
+  close: DailyClose,
+  deviceId: string,
+): Promise<UploadedEvidence[]> {
+  const photos = close.evidence ?? [];
+  const uploaded: UploadedEvidence[] = [];
+
+  for (const photo of photos) {
+    if (photo.remoteUrl) {
+      uploaded.push({
+        kind: photo.kind,
+        takenAt: photo.takenAt,
+        url: photo.remoteUrl,
+        publicId: photo.remotePublicId ?? "",
+      });
+      continue;
+    }
+    if (!photo.localUri) {
+      uploaded.push({
+        kind: photo.kind,
+        takenAt: photo.takenAt,
+        url: "",
+        publicId: "",
+      });
+      continue;
+    }
+    const dataUrl = await localImageToDataUrl(photo.localUri);
+    const remote = await restaurantApi<UploadedEvidence>(
+      "/daily-closes/evidence",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          date: close.date,
+          kind: photo.kind,
+          takenAt: photo.takenAt,
+          deviceId,
+          dataUrl,
+        }),
+      },
+    );
+    uploaded.push(remote);
+  }
+
+  useDailyCloseStore.getState().upsertClose({
+    ...close,
+    evidence: photos.map((photo, index) => ({
+      ...photo,
+      remoteUrl: uploaded[index]?.url || photo.remoteUrl,
+      remotePublicId: uploaded[index]?.publicId || photo.remotePublicId,
+    })),
+  });
+
+  return uploaded;
+}
 
 export const refreshRestaurantProducts = async () => {
   const products = await restaurantApi<RemoteProduct[]>("/products");
@@ -140,6 +218,13 @@ export const syncDailyCloses = async (): Promise<SyncDailyClosesResponse> => {
       }
 
       try {
+        const evidence = await uploadCloseEvidence(
+          {
+            ...normalizedClose,
+            evidence: close.evidence,
+          },
+          deviceId,
+        );
         await restaurantApi("/daily-closes", {
           method: "PUT",
           body: JSON.stringify({
@@ -159,9 +244,11 @@ export const syncDailyCloses = async (): Promise<SyncDailyClosesResponse> => {
             closedByUserId: normalizedClose.closedByUserId,
             closedByName: normalizedClose.closedByName,
             closedByPhone: normalizedClose.closedByPhone,
-            evidence: (normalizedClose.evidence ?? []).map((item) => ({
+            evidence: evidence.map((item) => ({
               kind: item.kind,
               takenAt: item.takenAt,
+              url: item.url,
+              publicId: item.publicId,
             })),
             expectedTotal: normalizedClose.expectedTotal,
             createdAt: normalizedClose.createdAt,

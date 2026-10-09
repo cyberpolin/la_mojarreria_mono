@@ -39,6 +39,8 @@ export type CloseEvidencePhoto = {
   kind: CloseEvidenceKind;
   localUri: string;
   takenAt: string;
+  remoteUrl?: string;
+  remotePublicId?: string;
 };
 
 export type DailyClose = {

@@ -20,6 +20,7 @@ The mobile kiosk authenticates with `POST /api/session/device` using
 - `GET|POST /api/expenses`
 - `GET /api/products`
 - `GET|PUT /api/daily-closes`
+- `POST /api/daily-closes/evidence` (Cloudinary; same `CLOUDINARY_*` vars as `apps/api`)
 
 ## Deploy
 

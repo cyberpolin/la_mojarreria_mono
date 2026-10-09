@@ -70,4 +70,10 @@ export const config = {
     "TAKU_RESTAURANT_DEVICE_KEY",
     "taku-restaurant-device-kiosk001",
   ),
+  cloudinary: {
+    cloudName: stringValue("CLOUDINARY_CLOUD_NAME", ""),
+    apiKey: stringValue("CLOUDINARY_API_KEY", ""),
+    apiSecret: stringValue("CLOUDINARY_API_SECRET", ""),
+    folder: stringValue("CLOUDINARY_API_FOLDER", "mojarreria"),
+  },
 } as const;

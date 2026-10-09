@@ -10,6 +10,7 @@ import {
 } from "./auth.js";
 import { ApiError, asCents, ok, requireString } from "./http.js";
 import { EVIDENCE_KINDS } from "./catalog.js";
+import { uploadCloseEvidenceImage } from "./evidence-storage.js";
 import { asyncHandler, requireAuth } from "./middleware.js";
 import { id, now, type JsonStore } from "./store.js";
 import type {
@@ -92,6 +93,8 @@ function parseEvidence(value: unknown): DailyCloseEvidence[] {
         kind,
         takenAt:
           typeof row.takenAt === "string" && row.takenAt ? row.takenAt : now(),
+        url: typeof row.url === "string" ? row.url.trim() : "",
+        publicId: typeof row.publicId === "string" ? row.publicId.trim() : "",
       };
     })
     .filter((item): item is DailyCloseEvidence => item !== null);
@@ -380,6 +383,44 @@ export function createApiRouter(store: JsonStore) {
     }),
   );
 
+  router.post(
+    "/daily-closes/evidence",
+    requireAuth(store),
+    asyncHandler(async (req, res) => {
+      const date = requireString(req.body?.date, "date");
+      const kind = requireString(req.body?.kind, "kind");
+      const dataUrl = requireString(req.body?.dataUrl, "dataUrl");
+      const deviceId = requireString(
+        req.body?.deviceId ?? "Kiosk001",
+        "deviceId",
+      );
+      if (!EVIDENCE_KINDS.includes(kind as (typeof EVIDENCE_KINDS)[number])) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Tipo de evidencia invalido.",
+        });
+      }
+      const uploaded = await uploadCloseEvidenceImage({
+        dataUrl,
+        restaurantSlug: req.auth!.restaurant.slug,
+        date,
+        kind,
+        deviceId,
+      });
+      const evidence: DailyCloseEvidence = {
+        kind,
+        takenAt:
+          typeof req.body?.takenAt === "string" && req.body.takenAt.trim()
+            ? req.body.takenAt.trim()
+            : now(),
+        url: uploaded.url,
+        publicId: uploaded.publicId,
+      };
+      ok(res, evidence, 201);
+    }),
+  );
+
   router.put(
     "/daily-closes",
     requireAuth(store),
@@ -399,7 +440,7 @@ export function createApiRouter(store: JsonStore) {
       }
       const notes =
         typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
-      const evidence = parseEvidence(req.body?.evidence);
+      const incomingEvidence = parseEvidence(req.body?.evidence);
       const expectedTotal = items.reduce(
         (sum, item) => sum + item.qty * item.priceCents,
         0,
@@ -416,6 +457,16 @@ export function createApiRouter(store: JsonStore) {
             item.date === date &&
             item.deviceId === deviceId,
         );
+        const evidence = incomingEvidence.map((item) => {
+          const previous = existing?.evidence?.find(
+            (row) => row.kind === item.kind,
+          );
+          return {
+            ...item,
+            url: item.url || previous?.url || "",
+            publicId: item.publicId || previous?.publicId || "",
+          };
+        });
         const row: DailyClose = {
           id: existing?.id ?? id("close"),
           restaurantId,

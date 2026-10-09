@@ -20,7 +20,7 @@ export function createApp(store: JsonStore) {
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "12mb" }));
   app.get("/", (_req, res) => {
     res.json({
       ok: true,

@@ -50,6 +50,8 @@ export type DailyCloseItem = {
 export type DailyCloseEvidence = {
   kind: string;
   takenAt: string;
+  url: string;
+  publicId: string;
 };
 
 export type DailyClose = {
