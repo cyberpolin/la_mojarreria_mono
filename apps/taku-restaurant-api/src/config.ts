@@ -66,4 +66,8 @@ export const config = {
   ).toLowerCase(),
   ownerPassword: stringValue("TAKU_RESTAURANT_OWNER_PASSWORD", "changeme"),
   ownerName: stringValue("TAKU_RESTAURANT_OWNER_NAME", "La Mojarreria"),
+  deviceKey: stringValue(
+    "TAKU_RESTAURANT_DEVICE_KEY",
+    "taku-restaurant-device-kiosk001",
+  ),
 } as const;

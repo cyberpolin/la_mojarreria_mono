@@ -84,3 +84,11 @@ export function verifyToken<T extends Record<string, unknown>>(
 export function createOpaqueToken() {
   return base64url(randomBytes(48));
 }
+
+export function secureEqual(left: string, right: string) {
+  const leftHash = createHmac("sha256", "taku-restaurant").update(left).digest();
+  const rightHash = createHmac("sha256", "taku-restaurant")
+    .update(right)
+    .digest();
+  return timingSafeEqual(leftHash, rightHash);
+}

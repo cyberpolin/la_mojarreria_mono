@@ -14,6 +14,8 @@ type AppConfig = {
     to: number;
   };
   apiUrl: string;
+  restaurantApiBaseUrl: string;
+  restaurantDeviceKey: string;
   apiMaintenanceApiKey: string;
   waApiBaseUrl: string;
   waApiKey: string;
@@ -51,6 +53,8 @@ export const APP_CONFIG: AppConfig = {
     to: 0.4,
   },
   apiUrl: "https://api.lamojarreria.com",
+  restaurantApiBaseUrl: "https://api.restaurant.taku.lat/api",
+  restaurantDeviceKey: "taku-restaurant-device-kiosk001",
   apiMaintenanceApiKey: "DAILY_CLOSE_REPROCESS_API_KEY",
   waApiBaseUrl: "https://api.wa.lamojarreria.com",
   waApiKey: "e9f82f13f65f1d07cda3b558e59e99bc696dbc4d57e0f000b4f544809eb15f9a",

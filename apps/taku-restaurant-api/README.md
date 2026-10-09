@@ -14,6 +14,9 @@ Default: `http://localhost:3160/api`
 
 Copy `.env.example` to `.env` before running locally.
 
+The mobile kiosk authenticates with `POST /api/session/device` using
+`TAKU_RESTAURANT_DEVICE_KEY`, then reads/writes `GET|POST /api/expenses`.
+
 ## Deploy
 
 GitHub Action `.github/workflows/deploy-taku-restaurant-api-cloudcluster.yml`

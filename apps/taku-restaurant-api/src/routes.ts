@@ -4,6 +4,7 @@ import {
   createOpaqueToken,
   hashPassword,
   hashToken,
+  secureEqual,
   signToken,
   verifyPassword,
 } from "./auth.js";
@@ -147,6 +148,48 @@ export function createApiRouter(store: JsonStore) {
             status: 401,
             code: "INVALID_CREDENTIALS",
             message: "Credenciales invalidas.",
+          });
+        }
+        const session = sessionFor(user, restaurant, config.refreshSecret);
+        database.refreshTokens.push({
+          id: id("refresh"),
+          userId: user.id,
+          tokenHash: session.refreshTokenHash,
+          expiresAt: new Date(Date.now() + REFRESH_TTL_MS).toISOString(),
+          revokedAt: null,
+          createdAt: now(),
+        });
+        const { refreshTokenHash: _, ...publicSession } = session;
+        return publicSession;
+      });
+      ok(res, result);
+    }),
+  );
+
+  router.post(
+    "/session/device",
+    asyncHandler(async (req, res) => {
+      const deviceKey = requireString(req.body?.deviceKey, "deviceKey");
+      if (!secureEqual(deviceKey, config.deviceKey)) {
+        throw new ApiError({
+          status: 401,
+          code: "INVALID_CREDENTIALS",
+          message: "Credenciales invalidas.",
+        });
+      }
+      const result = await store.update((database) => {
+        const user = database.users.find(
+          (item) =>
+            item.email === config.ownerEmail && item.status === "active",
+        );
+        const restaurant = user
+          ? database.restaurants.find((item) => item.id === user.restaurantId)
+          : null;
+        if (!user || !restaurant) {
+          throw new ApiError({
+            status: 401,
+            code: "UNAUTHORIZED",
+            message: "No hay restaurante para este dispositivo.",
           });
         }
         const session = sessionFor(user, restaurant, config.refreshSecret);

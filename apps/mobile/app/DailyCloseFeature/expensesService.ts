@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { APP_CONFIG } from "@/constants/config";
 
 const STORAGE_KEY = "MOJARRERIA_DAILY_EXPENSES_V1";
+const SESSION_KEY = "MOJARRERIA_RESTAURANT_SESSION_V1";
 
 export type DailyExpense = {
   id: string;
@@ -13,36 +14,23 @@ export type DailyExpense = {
   synced: boolean;
 };
 
-type GraphQLResponse<T> = {
+type ApiPayload<T> = {
+  ok?: boolean;
   data?: T;
-  errors?: { message?: string }[];
+  error?: { code?: string; message?: string };
 };
 
-const EXPENSES_QUERY = `
-  query MobileDailyExpenses($take: Int!) {
-    dailyExpenses(orderBy: [{ date: desc }, { createdAt: desc }], take: $take) {
-      id
-      date
-      concept
-      amountCents
-      notes
-      createdAt
-    }
-  }
-`;
+type RestaurantSession = {
+  accessToken: string;
+};
 
-const CREATE_EXPENSE_MUTATION = `
-  mutation CreateDailyExpense($data: DailyExpenseCreateInput!) {
-    createDailyExpense(data: $data) {
-      id
-      date
-      concept
-      amountCents
-      notes
-      createdAt
-    }
-  }
-`;
+type RemoteExpense = {
+  id: string;
+  date: string;
+  concept: string;
+  amountCents: number;
+  createdAt?: string | null;
+};
 
 const todayISO = () => {
   const now = new Date();
@@ -68,25 +56,92 @@ const sortExpenses = (items: DailyExpense[]) =>
     return right.createdAt.localeCompare(left.createdAt);
   });
 
-async function graphql<T>(query: string, variables?: Record<string, unknown>) {
-  const response = await fetch(`${APP_CONFIG.apiUrl}/api/graphql`, {
-    method: "POST",
+async function readSession(): Promise<RestaurantSession | null> {
+  const raw = await AsyncStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<RestaurantSession>;
+    if (typeof parsed.accessToken !== "string" || !parsed.accessToken) {
+      return null;
+    }
+    return { accessToken: parsed.accessToken };
+  } catch {
+    return null;
+  }
+}
+
+async function writeSession(session: RestaurantSession) {
+  await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
+async function clearSession() {
+  await AsyncStorage.removeItem(SESSION_KEY);
+}
+
+async function deviceLogin() {
+  const response = await fetch(
+    `${APP_CONFIG.restaurantApiBaseUrl}/session/device`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        deviceId: APP_CONFIG.deviceId,
+        deviceKey: APP_CONFIG.restaurantDeviceKey,
+      }),
+    },
+  );
+  const payload = (await response
+    .json()
+    .catch(() => null)) as ApiPayload<RestaurantSession> | null;
+  const accessToken = payload?.data?.accessToken;
+  if (!response.ok || !payload?.ok || !accessToken) {
+    throw new Error(
+      payload?.error?.message ?? "No se pudo autenticar el dispositivo.",
+    );
+  }
+  const session = { accessToken };
+  await writeSession(session);
+  return session;
+}
+
+async function getAccessToken() {
+  const existing = await readSession();
+  if (existing) return existing.accessToken;
+  const session = await deviceLogin();
+  return session.accessToken;
+}
+
+async function restaurantApi<T>(
+  path: string,
+  init: RequestInit = {},
+  retry = true,
+): Promise<T> {
+  const token = await getAccessToken();
+  const response = await fetch(`${APP_CONFIG.restaurantApiBaseUrl}${path}`, {
+    ...init,
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(init.headers ?? {}),
     },
-    body: JSON.stringify({ query, variables }),
   });
+  if (response.status === 401 && retry) {
+    await clearSession();
+    return restaurantApi<T>(path, init, false);
+  }
   const payload = (await response
     .json()
-    .catch(() => null)) as GraphQLResponse<T> | null;
-  if (!response.ok) {
-    throw new Error(`Expenses request failed (${response.status}).`);
+    .catch(() => null)) as ApiPayload<T> | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error?.message ?? `Expenses request failed (${response.status}).`,
+    );
   }
-  if (payload?.errors?.length) {
-    throw new Error(payload.errors[0]?.message ?? "Expenses request failed.");
-  }
-  if (!payload?.data) {
+  if (payload.data === undefined) {
     throw new Error("No se recibieron datos de gastos.");
   }
   return payload.data;
@@ -109,20 +164,13 @@ async function writeLocalExpenses(items: DailyExpense[]) {
   return next;
 }
 
-function asExpense(row: {
-  id: string;
-  date: string;
-  concept: string;
-  amountCents: number;
-  notes?: string | null;
-  createdAt?: string | null;
-}): DailyExpense {
+function asExpense(row: RemoteExpense): DailyExpense {
   return {
     id: row.id,
     date: row.date,
     concept: row.concept,
     amountCents: Number(row.amountCents ?? 0),
-    notes: row.notes ?? "",
+    notes: "",
     createdAt: row.createdAt ?? new Date().toISOString(),
     synced: true,
   };
@@ -135,17 +183,15 @@ async function syncUnsynced(local: DailyExpense[]) {
   let next = [...local];
   for (const item of pending) {
     try {
-      const created = await graphql<{
-        createDailyExpense: Parameters<typeof asExpense>[0];
-      }>(CREATE_EXPENSE_MUTATION, {
-        data: {
+      const created = await restaurantApi<RemoteExpense>("/expenses", {
+        method: "POST",
+        body: JSON.stringify({
           date: item.date,
           concept: item.concept,
           amountCents: item.amountCents,
-          notes: item.notes,
-        },
+        }),
       });
-      const remote = asExpense(created.createDailyExpense);
+      const remote = asExpense(created);
       next = next.map((row) => (row.id === item.id ? remote : row));
     } catch {
       // Keep local item queued for a later retry.
@@ -158,10 +204,9 @@ export async function loadExpenses() {
   const local = await readLocalExpenses();
   const afterSync = await syncUnsynced(local);
   try {
-    const remote = await graphql<{
-      dailyExpenses: Array<Parameters<typeof asExpense>[0]>;
-    }>(EXPENSES_QUERY, { take: 200 });
-    const remoteRows = (remote.dailyExpenses ?? []).map(asExpense);
+    const remoteRows = (await restaurantApi<RemoteExpense[]>("/expenses")).map(
+      asExpense,
+    );
     const unsynced = afterSync.filter((item) => !item.synced);
     return writeLocalExpenses([...unsynced, ...remoteRows]);
   } catch (error) {
@@ -194,17 +239,15 @@ export async function addExpense(input: { concept: string; amount: string }) {
   await writeLocalExpenses([localItem, ...local]);
 
   try {
-    const created = await graphql<{
-      createDailyExpense: Parameters<typeof asExpense>[0];
-    }>(CREATE_EXPENSE_MUTATION, {
-      data: {
+    const created = await restaurantApi<RemoteExpense>("/expenses", {
+      method: "POST",
+      body: JSON.stringify({
         date: localItem.date,
         concept: localItem.concept,
         amountCents: localItem.amountCents,
-        notes: "",
-      },
+      }),
     });
-    const remote = asExpense(created.createDailyExpense);
+    const remote = asExpense(created);
     const latest = await readLocalExpenses();
     return writeLocalExpenses(
       latest.map((item) => (item.id === localItem.id ? remote : item)),
