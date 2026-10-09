@@ -76,7 +76,7 @@ export default function HomePage() {
       <section className="mx-auto grid w-full max-w-7xl gap-10 px-4 pb-16 pt-8 md:grid-cols-[1.1fr_0.9fr] md:px-6 md:pt-12">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Producto TAKU para restaurantes
+            Producto TAKU para restaurantes chidos
           </p>
           <h1 className="mt-5 max-w-3xl text-4xl font-semibold leading-tight md:text-6xl">
             Opera el restaurante: caja, gastos, pedidos y WhatsApp.
