@@ -12,7 +12,7 @@ La solución **no reconstruye** el servicio de WhatsApp ni el servicio de bot. A
 
 ## Frontend
 
-- Next.js
+- Next.jss
 - React
 - Dashboard web
 - Panel administrativo
