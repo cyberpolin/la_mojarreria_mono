@@ -25,6 +25,8 @@
     "dev:taku-wa": "bash ./scripts/dev-taku-wa.sh",
     "dev:taku-bot": "bash ./scripts/dev-taku-bot.sh",
     "dev:taku-api": "pnpm --filter @taku/backend dev",
+    "dev:taku-restaurant": "pnpm --filter @taku/restaurant-site dev",
+    "dev:taku-restaurant-api": "pnpm --filter @taku/restaurant-api dev",
     "list:taku-services": "bash ./scripts/list-taku-services.sh",
     "check:taku-services": "bash ./scripts/check-taku-service-config.sh",
     "logs:taku-flow": "bash ./scripts/taku-flow-logs.sh",

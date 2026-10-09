@@ -14,8 +14,7 @@ type DailyCloseRaw {
   normalizedClose: DailyClose
 }
 
-scalar DateTime
-  @specifiedBy(url: "https://datatracker.ietf.org/doc/html/rfc3339#section-5.6")
+scalar DateTime @specifiedBy(url: "https://datatracker.ietf.org/doc/html/rfc3339#section-5.6")
 
 input DailyCloseRawWhereUniqueInput {
   id: ID
@@ -196,13 +195,7 @@ type DailyClose {
   costingStatus: String
   notes: String
   status: String
-  items(
-    where: DailyCloseItemWhereInput! = {}
-    orderBy: [DailyCloseItemOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: DailyCloseItemWhereUniqueInput
-  ): [DailyCloseItem!]
+  items(where: DailyCloseItemWhereInput! = {}, orderBy: [DailyCloseItemOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DailyCloseItemWhereUniqueInput): [DailyCloseItem!]
   itemsCount(where: DailyCloseItemWhereInput! = {}): Int
   sourceRaw: DailyCloseRaw
   closedBy: User
@@ -517,21 +510,9 @@ type RawMaterial {
   unit: String
   active: Boolean
   createdAt: DateTime
-  purchases(
-    where: RawMaterialPurchaseWhereInput! = {}
-    orderBy: [RawMaterialPurchaseOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: RawMaterialPurchaseWhereUniqueInput
-  ): [RawMaterialPurchase!]
+  purchases(where: RawMaterialPurchaseWhereInput! = {}, orderBy: [RawMaterialPurchaseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RawMaterialPurchaseWhereUniqueInput): [RawMaterialPurchase!]
   purchasesCount(where: RawMaterialPurchaseWhereInput! = {}): Int
-  recipeItems(
-    where: ProductRecipeItemWhereInput! = {}
-    orderBy: [ProductRecipeItemOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ProductRecipeItemWhereUniqueInput
-  ): [ProductRecipeItem!]
+  recipeItems(where: ProductRecipeItemWhereInput! = {}, orderBy: [ProductRecipeItemOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ProductRecipeItemWhereUniqueInput): [ProductRecipeItem!]
   recipeItemsCount(where: ProductRecipeItemWhereInput! = {}): Int
 }
 
@@ -1379,49 +1360,19 @@ type User {
   longitude: Float
   receivedPromo: Boolean
   createdAt: DateTime
-  messages(
-    where: MessageWhereInput! = {}
-    orderBy: [MessageOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: MessageWhereUniqueInput
-  ): [Message!]
+  messages(where: MessageWhereInput! = {}, orderBy: [MessageOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: MessageWhereUniqueInput): [Message!]
   messagesCount(where: MessageWhereInput! = {}): Int
-  orders(
-    where: OrderWhereInput! = {}
-    orderBy: [OrderOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: OrderWhereUniqueInput
-  ): [Order!]
+  orders(where: OrderWhereInput! = {}, orderBy: [OrderOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: OrderWhereUniqueInput): [Order!]
   ordersCount(where: OrderWhereInput! = {}): Int
-  chatSessions(
-    where: ChatSessionWhereInput! = {}
-    orderBy: [ChatSessionOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ChatSessionWhereUniqueInput
-  ): [ChatSession!]
+  chatSessions(where: ChatSessionWhereInput! = {}, orderBy: [ChatSessionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ChatSessionWhereUniqueInput): [ChatSession!]
   chatSessionsCount(where: ChatSessionWhereInput! = {}): Int
   auth: Auth
   role: String
   schedule: EmployeeSchedule
   deviceAssignment: EmployeeDeviceAssignment
-  attendanceLogs(
-    where: AttendanceLogWhereInput! = {}
-    orderBy: [AttendanceLogOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: AttendanceLogWhereUniqueInput
-  ): [AttendanceLog!]
+  attendanceLogs(where: AttendanceLogWhereInput! = {}, orderBy: [AttendanceLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AttendanceLogWhereUniqueInput): [AttendanceLog!]
   attendanceLogsCount(where: AttendanceLogWhereInput! = {}): Int
-  dailyCloses(
-    where: DailyCloseWhereInput! = {}
-    orderBy: [DailyCloseOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: DailyCloseWhereUniqueInput
-  ): [DailyClose!]
+  dailyCloses(where: DailyCloseWhereInput! = {}, orderBy: [DailyCloseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DailyCloseWhereUniqueInput): [DailyClose!]
   dailyClosesCount(where: DailyCloseWhereInput! = {}): Int
   active: Boolean
 }
@@ -1655,13 +1606,7 @@ type Agent {
   id: ID!
   name: String
   active: Boolean
-  assignedChats(
-    where: ChatSessionWhereInput! = {}
-    orderBy: [ChatSessionOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ChatSessionWhereUniqueInput
-  ): [ChatSession!]
+  assignedChats(where: ChatSessionWhereInput! = {}, orderBy: [ChatSessionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ChatSessionWhereUniqueInput): [ChatSession!]
   assignedChatsCount(where: ChatSessionWhereInput! = {}): Int
 }
 
@@ -1707,13 +1652,7 @@ type ChatSession {
   user: User
   agent: Agent
   status: String
-  messages(
-    where: MessageWhereInput! = {}
-    orderBy: [MessageOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: MessageWhereUniqueInput
-  ): [Message!]
+  messages(where: MessageWhereInput! = {}, orderBy: [MessageOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: MessageWhereUniqueInput): [Message!]
   messagesCount(where: MessageWhereInput! = {}): Int
   createdAt: DateTime
   updatedAt: DateTime
@@ -1863,29 +1802,11 @@ type Product {
   active: Boolean
   images: JSON
   image: CloudinaryImage_File
-  orders(
-    where: OrderWhereInput! = {}
-    orderBy: [OrderOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: OrderWhereUniqueInput
-  ): [Order!]
+  orders(where: OrderWhereInput! = {}, orderBy: [OrderOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: OrderWhereUniqueInput): [Order!]
   ordersCount(where: OrderWhereInput! = {}): Int
-  stock(
-    where: StockWhereInput! = {}
-    orderBy: [StockOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: StockWhereUniqueInput
-  ): [Stock!]
+  stock(where: StockWhereInput! = {}, orderBy: [StockOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: StockWhereUniqueInput): [Stock!]
   stockCount(where: StockWhereInput! = {}): Int
-  recipeItems(
-    where: ProductRecipeItemWhereInput! = {}
-    orderBy: [ProductRecipeItemOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ProductRecipeItemWhereUniqueInput
-  ): [ProductRecipeItem!]
+  recipeItems(where: ProductRecipeItemWhereInput! = {}, orderBy: [ProductRecipeItemOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ProductRecipeItemWhereUniqueInput): [ProductRecipeItem!]
   recipeItemsCount(where: ProductRecipeItemWhereInput! = {}): Int
   timeProcess: String
 }
@@ -1905,8 +1826,7 @@ Mirrors the formatting options [Cloudinary provides](https://cloudinary.com/docu
 All options are strings as they ultimately end up in a URL.
 """
 input CloudinaryImageFormat {
-  """
-  Rewrites the filename to be this pretty string. Do not include `/` or `.`
+  """ Rewrites the filename to be this pretty string. Do not include `/` or `.`
   """
   prettyName: String
   width: String
@@ -1992,9 +1912,7 @@ input ProductUpdateInput {
   timeProcess: String
 }
 
-"""
-The `Upload` scalar type represents a file upload.
-"""
+"""The `Upload` scalar type represents a file upload."""
 scalar Upload
 
 input StockRelateToManyForUpdateInput {
@@ -2032,21 +1950,9 @@ input StockRelateToManyForCreateInput {
 type Order {
   id: ID!
   client: User
-  products(
-    where: ProductWhereInput! = {}
-    orderBy: [ProductOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ProductWhereUniqueInput
-  ): [Product!]
+  products(where: ProductWhereInput! = {}, orderBy: [ProductOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ProductWhereUniqueInput): [Product!]
   productsCount(where: ProductWhereInput! = {}): Int
-  relatedOrders(
-    where: OrderWhereInput! = {}
-    orderBy: [OrderOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: OrderWhereUniqueInput
-  ): [Order!]
+  relatedOrders(where: OrderWhereInput! = {}, orderBy: [OrderOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: OrderWhereUniqueInput): [Order!]
   relatedOrdersCount(where: OrderWhereInput! = {}): Int
   productsWithAmount: String
   isDelivery: Boolean
@@ -2424,200 +2330,93 @@ input ClockCardCreateInput {
 """
 The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
 """
-scalar JSON
-  @specifiedBy(
-    url: "http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf"
-  )
+scalar JSON @specifiedBy(url: "http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf")
 
 type Mutation {
   createDailyCloseRaw(data: DailyCloseRawCreateInput!): DailyCloseRaw
   createDailyCloseRaws(data: [DailyCloseRawCreateInput!]!): [DailyCloseRaw]
-  updateDailyCloseRaw(
-    where: DailyCloseRawWhereUniqueInput!
-    data: DailyCloseRawUpdateInput!
-  ): DailyCloseRaw
+  updateDailyCloseRaw(where: DailyCloseRawWhereUniqueInput!, data: DailyCloseRawUpdateInput!): DailyCloseRaw
   updateDailyCloseRaws(data: [DailyCloseRawUpdateArgs!]!): [DailyCloseRaw]
   deleteDailyCloseRaw(where: DailyCloseRawWhereUniqueInput!): DailyCloseRaw
-  deleteDailyCloseRaws(
-    where: [DailyCloseRawWhereUniqueInput!]!
-  ): [DailyCloseRaw]
+  deleteDailyCloseRaws(where: [DailyCloseRawWhereUniqueInput!]!): [DailyCloseRaw]
   createDailyClose(data: DailyCloseCreateInput!): DailyClose
   createDailyCloses(data: [DailyCloseCreateInput!]!): [DailyClose]
-  updateDailyClose(
-    where: DailyCloseWhereUniqueInput!
-    data: DailyCloseUpdateInput!
-  ): DailyClose
+  updateDailyClose(where: DailyCloseWhereUniqueInput!, data: DailyCloseUpdateInput!): DailyClose
   updateDailyCloses(data: [DailyCloseUpdateArgs!]!): [DailyClose]
   deleteDailyClose(where: DailyCloseWhereUniqueInput!): DailyClose
   deleteDailyCloses(where: [DailyCloseWhereUniqueInput!]!): [DailyClose]
   createDailyCloseItem(data: DailyCloseItemCreateInput!): DailyCloseItem
   createDailyCloseItems(data: [DailyCloseItemCreateInput!]!): [DailyCloseItem]
-  updateDailyCloseItem(
-    where: DailyCloseItemWhereUniqueInput!
-    data: DailyCloseItemUpdateInput!
-  ): DailyCloseItem
+  updateDailyCloseItem(where: DailyCloseItemWhereUniqueInput!, data: DailyCloseItemUpdateInput!): DailyCloseItem
   updateDailyCloseItems(data: [DailyCloseItemUpdateArgs!]!): [DailyCloseItem]
   deleteDailyCloseItem(where: DailyCloseItemWhereUniqueInput!): DailyCloseItem
-  deleteDailyCloseItems(
-    where: [DailyCloseItemWhereUniqueInput!]!
-  ): [DailyCloseItem]
+  deleteDailyCloseItems(where: [DailyCloseItemWhereUniqueInput!]!): [DailyCloseItem]
   createSyncLog(data: SyncLogCreateInput!): SyncLog
   createSyncLogs(data: [SyncLogCreateInput!]!): [SyncLog]
-  updateSyncLog(
-    where: SyncLogWhereUniqueInput!
-    data: SyncLogUpdateInput!
-  ): SyncLog
+  updateSyncLog(where: SyncLogWhereUniqueInput!, data: SyncLogUpdateInput!): SyncLog
   updateSyncLogs(data: [SyncLogUpdateArgs!]!): [SyncLog]
   deleteSyncLog(where: SyncLogWhereUniqueInput!): SyncLog
   deleteSyncLogs(where: [SyncLogWhereUniqueInput!]!): [SyncLog]
   createRawMaterial(data: RawMaterialCreateInput!): RawMaterial
   createRawMaterials(data: [RawMaterialCreateInput!]!): [RawMaterial]
-  updateRawMaterial(
-    where: RawMaterialWhereUniqueInput!
-    data: RawMaterialUpdateInput!
-  ): RawMaterial
+  updateRawMaterial(where: RawMaterialWhereUniqueInput!, data: RawMaterialUpdateInput!): RawMaterial
   updateRawMaterials(data: [RawMaterialUpdateArgs!]!): [RawMaterial]
   deleteRawMaterial(where: RawMaterialWhereUniqueInput!): RawMaterial
   deleteRawMaterials(where: [RawMaterialWhereUniqueInput!]!): [RawMaterial]
-  createRawMaterialPurchase(
-    data: RawMaterialPurchaseCreateInput!
-  ): RawMaterialPurchase
-  createRawMaterialPurchases(
-    data: [RawMaterialPurchaseCreateInput!]!
-  ): [RawMaterialPurchase]
-  updateRawMaterialPurchase(
-    where: RawMaterialPurchaseWhereUniqueInput!
-    data: RawMaterialPurchaseUpdateInput!
-  ): RawMaterialPurchase
-  updateRawMaterialPurchases(
-    data: [RawMaterialPurchaseUpdateArgs!]!
-  ): [RawMaterialPurchase]
-  deleteRawMaterialPurchase(
-    where: RawMaterialPurchaseWhereUniqueInput!
-  ): RawMaterialPurchase
-  deleteRawMaterialPurchases(
-    where: [RawMaterialPurchaseWhereUniqueInput!]!
-  ): [RawMaterialPurchase]
-  createProductRecipeItem(
-    data: ProductRecipeItemCreateInput!
-  ): ProductRecipeItem
-  createProductRecipeItems(
-    data: [ProductRecipeItemCreateInput!]!
-  ): [ProductRecipeItem]
-  updateProductRecipeItem(
-    where: ProductRecipeItemWhereUniqueInput!
-    data: ProductRecipeItemUpdateInput!
-  ): ProductRecipeItem
-  updateProductRecipeItems(
-    data: [ProductRecipeItemUpdateArgs!]!
-  ): [ProductRecipeItem]
-  deleteProductRecipeItem(
-    where: ProductRecipeItemWhereUniqueInput!
-  ): ProductRecipeItem
-  deleteProductRecipeItems(
-    where: [ProductRecipeItemWhereUniqueInput!]!
-  ): [ProductRecipeItem]
-  createFixedOperatingExpense(
-    data: FixedOperatingExpenseCreateInput!
-  ): FixedOperatingExpense
-  createFixedOperatingExpenses(
-    data: [FixedOperatingExpenseCreateInput!]!
-  ): [FixedOperatingExpense]
-  updateFixedOperatingExpense(
-    where: FixedOperatingExpenseWhereUniqueInput!
-    data: FixedOperatingExpenseUpdateInput!
-  ): FixedOperatingExpense
-  updateFixedOperatingExpenses(
-    data: [FixedOperatingExpenseUpdateArgs!]!
-  ): [FixedOperatingExpense]
-  deleteFixedOperatingExpense(
-    where: FixedOperatingExpenseWhereUniqueInput!
-  ): FixedOperatingExpense
-  deleteFixedOperatingExpenses(
-    where: [FixedOperatingExpenseWhereUniqueInput!]!
-  ): [FixedOperatingExpense]
+  createRawMaterialPurchase(data: RawMaterialPurchaseCreateInput!): RawMaterialPurchase
+  createRawMaterialPurchases(data: [RawMaterialPurchaseCreateInput!]!): [RawMaterialPurchase]
+  updateRawMaterialPurchase(where: RawMaterialPurchaseWhereUniqueInput!, data: RawMaterialPurchaseUpdateInput!): RawMaterialPurchase
+  updateRawMaterialPurchases(data: [RawMaterialPurchaseUpdateArgs!]!): [RawMaterialPurchase]
+  deleteRawMaterialPurchase(where: RawMaterialPurchaseWhereUniqueInput!): RawMaterialPurchase
+  deleteRawMaterialPurchases(where: [RawMaterialPurchaseWhereUniqueInput!]!): [RawMaterialPurchase]
+  createProductRecipeItem(data: ProductRecipeItemCreateInput!): ProductRecipeItem
+  createProductRecipeItems(data: [ProductRecipeItemCreateInput!]!): [ProductRecipeItem]
+  updateProductRecipeItem(where: ProductRecipeItemWhereUniqueInput!, data: ProductRecipeItemUpdateInput!): ProductRecipeItem
+  updateProductRecipeItems(data: [ProductRecipeItemUpdateArgs!]!): [ProductRecipeItem]
+  deleteProductRecipeItem(where: ProductRecipeItemWhereUniqueInput!): ProductRecipeItem
+  deleteProductRecipeItems(where: [ProductRecipeItemWhereUniqueInput!]!): [ProductRecipeItem]
+  createFixedOperatingExpense(data: FixedOperatingExpenseCreateInput!): FixedOperatingExpense
+  createFixedOperatingExpenses(data: [FixedOperatingExpenseCreateInput!]!): [FixedOperatingExpense]
+  updateFixedOperatingExpense(where: FixedOperatingExpenseWhereUniqueInput!, data: FixedOperatingExpenseUpdateInput!): FixedOperatingExpense
+  updateFixedOperatingExpenses(data: [FixedOperatingExpenseUpdateArgs!]!): [FixedOperatingExpense]
+  deleteFixedOperatingExpense(where: FixedOperatingExpenseWhereUniqueInput!): FixedOperatingExpense
+  deleteFixedOperatingExpenses(where: [FixedOperatingExpenseWhereUniqueInput!]!): [FixedOperatingExpense]
   createDailyExpense(data: DailyExpenseCreateInput!): DailyExpense
   createDailyExpenses(data: [DailyExpenseCreateInput!]!): [DailyExpense]
-  updateDailyExpense(
-    where: DailyExpenseWhereUniqueInput!
-    data: DailyExpenseUpdateInput!
-  ): DailyExpense
+  updateDailyExpense(where: DailyExpenseWhereUniqueInput!, data: DailyExpenseUpdateInput!): DailyExpense
   updateDailyExpenses(data: [DailyExpenseUpdateArgs!]!): [DailyExpense]
   deleteDailyExpense(where: DailyExpenseWhereUniqueInput!): DailyExpense
   deleteDailyExpenses(where: [DailyExpenseWhereUniqueInput!]!): [DailyExpense]
   createEmployeeSchedule(data: EmployeeScheduleCreateInput!): EmployeeSchedule
-  createEmployeeSchedules(
-    data: [EmployeeScheduleCreateInput!]!
-  ): [EmployeeSchedule]
-  updateEmployeeSchedule(
-    where: EmployeeScheduleWhereUniqueInput!
-    data: EmployeeScheduleUpdateInput!
-  ): EmployeeSchedule
-  updateEmployeeSchedules(
-    data: [EmployeeScheduleUpdateArgs!]!
-  ): [EmployeeSchedule]
-  deleteEmployeeSchedule(
-    where: EmployeeScheduleWhereUniqueInput!
-  ): EmployeeSchedule
-  deleteEmployeeSchedules(
-    where: [EmployeeScheduleWhereUniqueInput!]!
-  ): [EmployeeSchedule]
-  createEmployeeDeviceAssignment(
-    data: EmployeeDeviceAssignmentCreateInput!
-  ): EmployeeDeviceAssignment
-  createEmployeeDeviceAssignments(
-    data: [EmployeeDeviceAssignmentCreateInput!]!
-  ): [EmployeeDeviceAssignment]
-  updateEmployeeDeviceAssignment(
-    where: EmployeeDeviceAssignmentWhereUniqueInput!
-    data: EmployeeDeviceAssignmentUpdateInput!
-  ): EmployeeDeviceAssignment
-  updateEmployeeDeviceAssignments(
-    data: [EmployeeDeviceAssignmentUpdateArgs!]!
-  ): [EmployeeDeviceAssignment]
-  deleteEmployeeDeviceAssignment(
-    where: EmployeeDeviceAssignmentWhereUniqueInput!
-  ): EmployeeDeviceAssignment
-  deleteEmployeeDeviceAssignments(
-    where: [EmployeeDeviceAssignmentWhereUniqueInput!]!
-  ): [EmployeeDeviceAssignment]
+  createEmployeeSchedules(data: [EmployeeScheduleCreateInput!]!): [EmployeeSchedule]
+  updateEmployeeSchedule(where: EmployeeScheduleWhereUniqueInput!, data: EmployeeScheduleUpdateInput!): EmployeeSchedule
+  updateEmployeeSchedules(data: [EmployeeScheduleUpdateArgs!]!): [EmployeeSchedule]
+  deleteEmployeeSchedule(where: EmployeeScheduleWhereUniqueInput!): EmployeeSchedule
+  deleteEmployeeSchedules(where: [EmployeeScheduleWhereUniqueInput!]!): [EmployeeSchedule]
+  createEmployeeDeviceAssignment(data: EmployeeDeviceAssignmentCreateInput!): EmployeeDeviceAssignment
+  createEmployeeDeviceAssignments(data: [EmployeeDeviceAssignmentCreateInput!]!): [EmployeeDeviceAssignment]
+  updateEmployeeDeviceAssignment(where: EmployeeDeviceAssignmentWhereUniqueInput!, data: EmployeeDeviceAssignmentUpdateInput!): EmployeeDeviceAssignment
+  updateEmployeeDeviceAssignments(data: [EmployeeDeviceAssignmentUpdateArgs!]!): [EmployeeDeviceAssignment]
+  deleteEmployeeDeviceAssignment(where: EmployeeDeviceAssignmentWhereUniqueInput!): EmployeeDeviceAssignment
+  deleteEmployeeDeviceAssignments(where: [EmployeeDeviceAssignmentWhereUniqueInput!]!): [EmployeeDeviceAssignment]
   createAttendanceLog(data: AttendanceLogCreateInput!): AttendanceLog
   createAttendanceLogs(data: [AttendanceLogCreateInput!]!): [AttendanceLog]
-  updateAttendanceLog(
-    where: AttendanceLogWhereUniqueInput!
-    data: AttendanceLogUpdateInput!
-  ): AttendanceLog
+  updateAttendanceLog(where: AttendanceLogWhereUniqueInput!, data: AttendanceLogUpdateInput!): AttendanceLog
   updateAttendanceLogs(data: [AttendanceLogUpdateArgs!]!): [AttendanceLog]
   deleteAttendanceLog(where: AttendanceLogWhereUniqueInput!): AttendanceLog
-  deleteAttendanceLogs(
-    where: [AttendanceLogWhereUniqueInput!]!
-  ): [AttendanceLog]
+  deleteAttendanceLogs(where: [AttendanceLogWhereUniqueInput!]!): [AttendanceLog]
   createRestaurant(data: RestaurantCreateInput!): Restaurant
   createRestaurants(data: [RestaurantCreateInput!]!): [Restaurant]
-  updateRestaurant(
-    where: RestaurantWhereUniqueInput!
-    data: RestaurantUpdateInput!
-  ): Restaurant
+  updateRestaurant(where: RestaurantWhereUniqueInput!, data: RestaurantUpdateInput!): Restaurant
   updateRestaurants(data: [RestaurantUpdateArgs!]!): [Restaurant]
   deleteRestaurant(where: RestaurantWhereUniqueInput!): Restaurant
   deleteRestaurants(where: [RestaurantWhereUniqueInput!]!): [Restaurant]
   createWaServiceStatus(data: WaServiceStatusCreateInput!): WaServiceStatus
-  createWaServiceStatuses(
-    data: [WaServiceStatusCreateInput!]!
-  ): [WaServiceStatus]
-  updateWaServiceStatus(
-    where: WaServiceStatusWhereUniqueInput!
-    data: WaServiceStatusUpdateInput!
-  ): WaServiceStatus
-  updateWaServiceStatuses(
-    data: [WaServiceStatusUpdateArgs!]!
-  ): [WaServiceStatus]
-  deleteWaServiceStatus(
-    where: WaServiceStatusWhereUniqueInput!
-  ): WaServiceStatus
-  deleteWaServiceStatuses(
-    where: [WaServiceStatusWhereUniqueInput!]!
-  ): [WaServiceStatus]
+  createWaServiceStatuses(data: [WaServiceStatusCreateInput!]!): [WaServiceStatus]
+  updateWaServiceStatus(where: WaServiceStatusWhereUniqueInput!, data: WaServiceStatusUpdateInput!): WaServiceStatus
+  updateWaServiceStatuses(data: [WaServiceStatusUpdateArgs!]!): [WaServiceStatus]
+  deleteWaServiceStatus(where: WaServiceStatusWhereUniqueInput!): WaServiceStatus
+  deleteWaServiceStatuses(where: [WaServiceStatusWhereUniqueInput!]!): [WaServiceStatus]
   createAuth(data: AuthCreateInput!): Auth
   createAuths(data: [AuthCreateInput!]!): [Auth]
   updateAuth(where: AuthWhereUniqueInput!, data: AuthUpdateInput!): Auth
@@ -2638,28 +2437,19 @@ type Mutation {
   deleteAgents(where: [AgentWhereUniqueInput!]!): [Agent]
   createChatSession(data: ChatSessionCreateInput!): ChatSession
   createChatSessions(data: [ChatSessionCreateInput!]!): [ChatSession]
-  updateChatSession(
-    where: ChatSessionWhereUniqueInput!
-    data: ChatSessionUpdateInput!
-  ): ChatSession
+  updateChatSession(where: ChatSessionWhereUniqueInput!, data: ChatSessionUpdateInput!): ChatSession
   updateChatSessions(data: [ChatSessionUpdateArgs!]!): [ChatSession]
   deleteChatSession(where: ChatSessionWhereUniqueInput!): ChatSession
   deleteChatSessions(where: [ChatSessionWhereUniqueInput!]!): [ChatSession]
   createMessage(data: MessageCreateInput!): Message
   createMessages(data: [MessageCreateInput!]!): [Message]
-  updateMessage(
-    where: MessageWhereUniqueInput!
-    data: MessageUpdateInput!
-  ): Message
+  updateMessage(where: MessageWhereUniqueInput!, data: MessageUpdateInput!): Message
   updateMessages(data: [MessageUpdateArgs!]!): [Message]
   deleteMessage(where: MessageWhereUniqueInput!): Message
   deleteMessages(where: [MessageWhereUniqueInput!]!): [Message]
   createProduct(data: ProductCreateInput!): Product
   createProducts(data: [ProductCreateInput!]!): [Product]
-  updateProduct(
-    where: ProductWhereUniqueInput!
-    data: ProductUpdateInput!
-  ): Product
+  updateProduct(where: ProductWhereUniqueInput!, data: ProductUpdateInput!): Product
   updateProducts(data: [ProductUpdateArgs!]!): [Product]
   deleteProduct(where: ProductWhereUniqueInput!): Product
   deleteProducts(where: [ProductWhereUniqueInput!]!): [Product]
@@ -2677,19 +2467,13 @@ type Mutation {
   deleteStocks(where: [StockWhereUniqueInput!]!): [Stock]
   createCashRegister(data: CashRegisterCreateInput!): CashRegister
   createCashRegisters(data: [CashRegisterCreateInput!]!): [CashRegister]
-  updateCashRegister(
-    where: CashRegisterWhereUniqueInput!
-    data: CashRegisterUpdateInput!
-  ): CashRegister
+  updateCashRegister(where: CashRegisterWhereUniqueInput!, data: CashRegisterUpdateInput!): CashRegister
   updateCashRegisters(data: [CashRegisterUpdateArgs!]!): [CashRegister]
   deleteCashRegister(where: CashRegisterWhereUniqueInput!): CashRegister
   deleteCashRegisters(where: [CashRegisterWhereUniqueInput!]!): [CashRegister]
   createListener(data: ListenerCreateInput!): Listener
   createListeners(data: [ListenerCreateInput!]!): [Listener]
-  updateListener(
-    where: ListenerWhereUniqueInput!
-    data: ListenerUpdateInput!
-  ): Listener
+  updateListener(where: ListenerWhereUniqueInput!, data: ListenerUpdateInput!): Listener
   updateListeners(data: [ListenerUpdateArgs!]!): [Listener]
   deleteListener(where: ListenerWhereUniqueInput!): Listener
   deleteListeners(where: [ListenerWhereUniqueInput!]!): [Listener]
@@ -2701,54 +2485,25 @@ type Mutation {
   deleteSings(where: [SingWhereUniqueInput!]!): [Sing]
   createQRStaff(data: QRStaffCreateInput!): QRStaff
   createQRStaffs(data: [QRStaffCreateInput!]!): [QRStaff]
-  updateQRStaff(
-    where: QRStaffWhereUniqueInput!
-    data: QRStaffUpdateInput!
-  ): QRStaff
+  updateQRStaff(where: QRStaffWhereUniqueInput!, data: QRStaffUpdateInput!): QRStaff
   updateQRStaffs(data: [QRStaffUpdateArgs!]!): [QRStaff]
   deleteQRStaff(where: QRStaffWhereUniqueInput!): QRStaff
   deleteQRStaffs(where: [QRStaffWhereUniqueInput!]!): [QRStaff]
   createClockCard(data: ClockCardCreateInput!): ClockCard
   createClockCards(data: [ClockCardCreateInput!]!): [ClockCard]
-  updateClockCard(
-    where: ClockCardWhereUniqueInput!
-    data: ClockCardUpdateInput!
-  ): ClockCard
+  updateClockCard(where: ClockCardWhereUniqueInput!, data: ClockCardUpdateInput!): ClockCard
   updateClockCards(data: [ClockCardUpdateArgs!]!): [ClockCard]
   deleteClockCard(where: ClockCardWhereUniqueInput!): ClockCard
   deleteClockCards(where: [ClockCardWhereUniqueInput!]!): [ClockCard]
   endSession: Boolean!
-  authenticateAuthWithPassword(
-    email: String!
-    password: String!
-  ): AuthAuthenticationWithPasswordResult
-  upsertDailyCloseRaw(
-    deviceId: String!
-    date: String!
-    payload: JSON!
-  ): UpsertDailyCloseRawResponse
-  validateAttendanceEmployee(
-    deviceId: String!
-    phone: String!
-    pin: String!
-  ): AttendanceValidationResult!
-  recordAttendanceEvent(
-    deviceId: String!
-    userId: String!
-    action: String!
-    occurredAt: String!
-    date: String!
-    mutationId: String!
-  ): AttendanceMutationResult!
-  validateDailyCloseOperator(
-    phone: String!
-    pin: String!
-  ): DailyCloseOperatorValidationResult!
+  authenticateAuthWithPassword(email: String!, password: String!): AuthAuthenticationWithPasswordResult
+  upsertDailyCloseRaw(deviceId: String!, date: String!, payload: JSON!): UpsertDailyCloseRawResponse
+  validateAttendanceEmployee(deviceId: String!, phone: String!, pin: String!): AttendanceValidationResult!
+  recordAttendanceEvent(deviceId: String!, userId: String!, action: String!, occurredAt: String!, date: String!, mutationId: String!): AttendanceMutationResult!
+  validateDailyCloseOperator(phone: String!, pin: String!): DailyCloseOperatorValidationResult!
 }
 
-union AuthAuthenticationWithPasswordResult =
-  | AuthAuthenticationWithPasswordSuccess
-  | AuthAuthenticationWithPasswordFailure
+union AuthAuthenticationWithPasswordResult = AuthAuthenticationWithPasswordSuccess | AuthAuthenticationWithPasswordFailure
 
 type AuthAuthenticationWithPasswordSuccess {
   sessionToken: String!
@@ -2761,277 +2516,96 @@ type AuthAuthenticationWithPasswordFailure {
 
 type Query {
   dailyCloseRaw(where: DailyCloseRawWhereUniqueInput!): DailyCloseRaw
-  dailyCloseRaws(
-    where: DailyCloseRawWhereInput! = {}
-    orderBy: [DailyCloseRawOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: DailyCloseRawWhereUniqueInput
-  ): [DailyCloseRaw!]
+  dailyCloseRaws(where: DailyCloseRawWhereInput! = {}, orderBy: [DailyCloseRawOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DailyCloseRawWhereUniqueInput): [DailyCloseRaw!]
   dailyCloseRawsCount(where: DailyCloseRawWhereInput! = {}): Int
   dailyClose(where: DailyCloseWhereUniqueInput!): DailyClose
-  dailyCloses(
-    where: DailyCloseWhereInput! = {}
-    orderBy: [DailyCloseOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: DailyCloseWhereUniqueInput
-  ): [DailyClose!]
+  dailyCloses(where: DailyCloseWhereInput! = {}, orderBy: [DailyCloseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DailyCloseWhereUniqueInput): [DailyClose!]
   dailyClosesCount(where: DailyCloseWhereInput! = {}): Int
   dailyCloseItem(where: DailyCloseItemWhereUniqueInput!): DailyCloseItem
-  dailyCloseItems(
-    where: DailyCloseItemWhereInput! = {}
-    orderBy: [DailyCloseItemOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: DailyCloseItemWhereUniqueInput
-  ): [DailyCloseItem!]
+  dailyCloseItems(where: DailyCloseItemWhereInput! = {}, orderBy: [DailyCloseItemOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DailyCloseItemWhereUniqueInput): [DailyCloseItem!]
   dailyCloseItemsCount(where: DailyCloseItemWhereInput! = {}): Int
   syncLog(where: SyncLogWhereUniqueInput!): SyncLog
-  syncLogs(
-    where: SyncLogWhereInput! = {}
-    orderBy: [SyncLogOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: SyncLogWhereUniqueInput
-  ): [SyncLog!]
+  syncLogs(where: SyncLogWhereInput! = {}, orderBy: [SyncLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: SyncLogWhereUniqueInput): [SyncLog!]
   syncLogsCount(where: SyncLogWhereInput! = {}): Int
   rawMaterial(where: RawMaterialWhereUniqueInput!): RawMaterial
-  rawMaterials(
-    where: RawMaterialWhereInput! = {}
-    orderBy: [RawMaterialOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: RawMaterialWhereUniqueInput
-  ): [RawMaterial!]
+  rawMaterials(where: RawMaterialWhereInput! = {}, orderBy: [RawMaterialOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RawMaterialWhereUniqueInput): [RawMaterial!]
   rawMaterialsCount(where: RawMaterialWhereInput! = {}): Int
-  rawMaterialPurchase(
-    where: RawMaterialPurchaseWhereUniqueInput!
-  ): RawMaterialPurchase
-  rawMaterialPurchases(
-    where: RawMaterialPurchaseWhereInput! = {}
-    orderBy: [RawMaterialPurchaseOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: RawMaterialPurchaseWhereUniqueInput
-  ): [RawMaterialPurchase!]
+  rawMaterialPurchase(where: RawMaterialPurchaseWhereUniqueInput!): RawMaterialPurchase
+  rawMaterialPurchases(where: RawMaterialPurchaseWhereInput! = {}, orderBy: [RawMaterialPurchaseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RawMaterialPurchaseWhereUniqueInput): [RawMaterialPurchase!]
   rawMaterialPurchasesCount(where: RawMaterialPurchaseWhereInput! = {}): Int
-  productRecipeItem(
-    where: ProductRecipeItemWhereUniqueInput!
-  ): ProductRecipeItem
-  productRecipeItems(
-    where: ProductRecipeItemWhereInput! = {}
-    orderBy: [ProductRecipeItemOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ProductRecipeItemWhereUniqueInput
-  ): [ProductRecipeItem!]
+  productRecipeItem(where: ProductRecipeItemWhereUniqueInput!): ProductRecipeItem
+  productRecipeItems(where: ProductRecipeItemWhereInput! = {}, orderBy: [ProductRecipeItemOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ProductRecipeItemWhereUniqueInput): [ProductRecipeItem!]
   productRecipeItemsCount(where: ProductRecipeItemWhereInput! = {}): Int
-  fixedOperatingExpense(
-    where: FixedOperatingExpenseWhereUniqueInput!
-  ): FixedOperatingExpense
-  fixedOperatingExpenses(
-    where: FixedOperatingExpenseWhereInput! = {}
-    orderBy: [FixedOperatingExpenseOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: FixedOperatingExpenseWhereUniqueInput
-  ): [FixedOperatingExpense!]
+  fixedOperatingExpense(where: FixedOperatingExpenseWhereUniqueInput!): FixedOperatingExpense
+  fixedOperatingExpenses(where: FixedOperatingExpenseWhereInput! = {}, orderBy: [FixedOperatingExpenseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: FixedOperatingExpenseWhereUniqueInput): [FixedOperatingExpense!]
   fixedOperatingExpensesCount(where: FixedOperatingExpenseWhereInput! = {}): Int
   dailyExpense(where: DailyExpenseWhereUniqueInput!): DailyExpense
-  dailyExpenses(
-    where: DailyExpenseWhereInput! = {}
-    orderBy: [DailyExpenseOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: DailyExpenseWhereUniqueInput
-  ): [DailyExpense!]
+  dailyExpenses(where: DailyExpenseWhereInput! = {}, orderBy: [DailyExpenseOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: DailyExpenseWhereUniqueInput): [DailyExpense!]
   dailyExpensesCount(where: DailyExpenseWhereInput! = {}): Int
   employeeSchedule(where: EmployeeScheduleWhereUniqueInput!): EmployeeSchedule
-  employeeSchedules(
-    where: EmployeeScheduleWhereInput! = {}
-    orderBy: [EmployeeScheduleOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: EmployeeScheduleWhereUniqueInput
-  ): [EmployeeSchedule!]
+  employeeSchedules(where: EmployeeScheduleWhereInput! = {}, orderBy: [EmployeeScheduleOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: EmployeeScheduleWhereUniqueInput): [EmployeeSchedule!]
   employeeSchedulesCount(where: EmployeeScheduleWhereInput! = {}): Int
-  employeeDeviceAssignment(
-    where: EmployeeDeviceAssignmentWhereUniqueInput!
-  ): EmployeeDeviceAssignment
-  employeeDeviceAssignments(
-    where: EmployeeDeviceAssignmentWhereInput! = {}
-    orderBy: [EmployeeDeviceAssignmentOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: EmployeeDeviceAssignmentWhereUniqueInput
-  ): [EmployeeDeviceAssignment!]
-  employeeDeviceAssignmentsCount(
-    where: EmployeeDeviceAssignmentWhereInput! = {}
-  ): Int
+  employeeDeviceAssignment(where: EmployeeDeviceAssignmentWhereUniqueInput!): EmployeeDeviceAssignment
+  employeeDeviceAssignments(where: EmployeeDeviceAssignmentWhereInput! = {}, orderBy: [EmployeeDeviceAssignmentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: EmployeeDeviceAssignmentWhereUniqueInput): [EmployeeDeviceAssignment!]
+  employeeDeviceAssignmentsCount(where: EmployeeDeviceAssignmentWhereInput! = {}): Int
   attendanceLog(where: AttendanceLogWhereUniqueInput!): AttendanceLog
-  attendanceLogs(
-    where: AttendanceLogWhereInput! = {}
-    orderBy: [AttendanceLogOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: AttendanceLogWhereUniqueInput
-  ): [AttendanceLog!]
+  attendanceLogs(where: AttendanceLogWhereInput! = {}, orderBy: [AttendanceLogOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AttendanceLogWhereUniqueInput): [AttendanceLog!]
   attendanceLogsCount(where: AttendanceLogWhereInput! = {}): Int
   restaurant(where: RestaurantWhereUniqueInput!): Restaurant
-  restaurants(
-    where: RestaurantWhereInput! = {}
-    orderBy: [RestaurantOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: RestaurantWhereUniqueInput
-  ): [Restaurant!]
+  restaurants(where: RestaurantWhereInput! = {}, orderBy: [RestaurantOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: RestaurantWhereUniqueInput): [Restaurant!]
   restaurantsCount(where: RestaurantWhereInput! = {}): Int
   waServiceStatus(where: WaServiceStatusWhereUniqueInput!): WaServiceStatus
-  waServiceStatuses(
-    where: WaServiceStatusWhereInput! = {}
-    orderBy: [WaServiceStatusOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: WaServiceStatusWhereUniqueInput
-  ): [WaServiceStatus!]
+  waServiceStatuses(where: WaServiceStatusWhereInput! = {}, orderBy: [WaServiceStatusOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: WaServiceStatusWhereUniqueInput): [WaServiceStatus!]
   waServiceStatusesCount(where: WaServiceStatusWhereInput! = {}): Int
   auth(where: AuthWhereUniqueInput!): Auth
-  auths(
-    where: AuthWhereInput! = {}
-    orderBy: [AuthOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: AuthWhereUniqueInput
-  ): [Auth!]
+  auths(where: AuthWhereInput! = {}, orderBy: [AuthOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AuthWhereUniqueInput): [Auth!]
   authsCount(where: AuthWhereInput! = {}): Int
   user(where: UserWhereUniqueInput!): User
-  users(
-    where: UserWhereInput! = {}
-    orderBy: [UserOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: UserWhereUniqueInput
-  ): [User!]
+  users(where: UserWhereInput! = {}, orderBy: [UserOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: UserWhereUniqueInput): [User!]
   usersCount(where: UserWhereInput! = {}): Int
   agent(where: AgentWhereUniqueInput!): Agent
-  agents(
-    where: AgentWhereInput! = {}
-    orderBy: [AgentOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: AgentWhereUniqueInput
-  ): [Agent!]
+  agents(where: AgentWhereInput! = {}, orderBy: [AgentOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: AgentWhereUniqueInput): [Agent!]
   agentsCount(where: AgentWhereInput! = {}): Int
   chatSession(where: ChatSessionWhereUniqueInput!): ChatSession
-  chatSessions(
-    where: ChatSessionWhereInput! = {}
-    orderBy: [ChatSessionOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ChatSessionWhereUniqueInput
-  ): [ChatSession!]
+  chatSessions(where: ChatSessionWhereInput! = {}, orderBy: [ChatSessionOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ChatSessionWhereUniqueInput): [ChatSession!]
   chatSessionsCount(where: ChatSessionWhereInput! = {}): Int
   message(where: MessageWhereUniqueInput!): Message
-  messages(
-    where: MessageWhereInput! = {}
-    orderBy: [MessageOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: MessageWhereUniqueInput
-  ): [Message!]
+  messages(where: MessageWhereInput! = {}, orderBy: [MessageOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: MessageWhereUniqueInput): [Message!]
   messagesCount(where: MessageWhereInput! = {}): Int
   product(where: ProductWhereUniqueInput!): Product
-  products(
-    where: ProductWhereInput! = {}
-    orderBy: [ProductOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ProductWhereUniqueInput
-  ): [Product!]
+  products(where: ProductWhereInput! = {}, orderBy: [ProductOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ProductWhereUniqueInput): [Product!]
   productsCount(where: ProductWhereInput! = {}): Int
   order(where: OrderWhereUniqueInput!): Order
-  orders(
-    where: OrderWhereInput! = {}
-    orderBy: [OrderOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: OrderWhereUniqueInput
-  ): [Order!]
+  orders(where: OrderWhereInput! = {}, orderBy: [OrderOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: OrderWhereUniqueInput): [Order!]
   ordersCount(where: OrderWhereInput! = {}): Int
   stock(where: StockWhereUniqueInput!): Stock
-  stocks(
-    where: StockWhereInput! = {}
-    orderBy: [StockOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: StockWhereUniqueInput
-  ): [Stock!]
+  stocks(where: StockWhereInput! = {}, orderBy: [StockOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: StockWhereUniqueInput): [Stock!]
   stocksCount(where: StockWhereInput! = {}): Int
   cashRegister(where: CashRegisterWhereUniqueInput!): CashRegister
-  cashRegisters(
-    where: CashRegisterWhereInput! = {}
-    orderBy: [CashRegisterOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: CashRegisterWhereUniqueInput
-  ): [CashRegister!]
+  cashRegisters(where: CashRegisterWhereInput! = {}, orderBy: [CashRegisterOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: CashRegisterWhereUniqueInput): [CashRegister!]
   cashRegistersCount(where: CashRegisterWhereInput! = {}): Int
   listener(where: ListenerWhereUniqueInput!): Listener
-  listeners(
-    where: ListenerWhereInput! = {}
-    orderBy: [ListenerOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ListenerWhereUniqueInput
-  ): [Listener!]
+  listeners(where: ListenerWhereInput! = {}, orderBy: [ListenerOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ListenerWhereUniqueInput): [Listener!]
   listenersCount(where: ListenerWhereInput! = {}): Int
   sing(where: SingWhereUniqueInput!): Sing
-  sings(
-    where: SingWhereInput! = {}
-    orderBy: [SingOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: SingWhereUniqueInput
-  ): [Sing!]
+  sings(where: SingWhereInput! = {}, orderBy: [SingOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: SingWhereUniqueInput): [Sing!]
   singsCount(where: SingWhereInput! = {}): Int
   qRStaff(where: QRStaffWhereUniqueInput!): QRStaff
-  qRStaffs(
-    where: QRStaffWhereInput! = {}
-    orderBy: [QRStaffOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: QRStaffWhereUniqueInput
-  ): [QRStaff!]
+  qRStaffs(where: QRStaffWhereInput! = {}, orderBy: [QRStaffOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: QRStaffWhereUniqueInput): [QRStaff!]
   qRStaffsCount(where: QRStaffWhereInput! = {}): Int
   clockCard(where: ClockCardWhereUniqueInput!): ClockCard
-  clockCards(
-    where: ClockCardWhereInput! = {}
-    orderBy: [ClockCardOrderByInput!]! = []
-    take: Int
-    skip: Int! = 0
-    cursor: ClockCardWhereUniqueInput
-  ): [ClockCard!]
+  clockCards(where: ClockCardWhereInput! = {}, orderBy: [ClockCardOrderByInput!]! = [], take: Int, skip: Int! = 0, cursor: ClockCardWhereUniqueInput): [ClockCard!]
   clockCardsCount(where: ClockCardWhereInput! = {}): Int
   keystone: KeystoneMeta!
   authenticatedItem: AuthenticatedItem
   getDailyClose(date: String!, deviceId: String): DailyCloseDashboard
-  getRecentDailyCloses(
-    days: Int = 7
-    deviceId: String
-  ): [RecentDailyCloseSummary!]!
-  getWeeklyProductBaseline(
-    days: Int = 7
-    deviceId: String
-  ): [WeeklyProductBaseline!]!
+  getRecentDailyCloses(days: Int = 7, deviceId: String): [RecentDailyCloseSummary!]!
+  getWeeklyProductBaseline(days: Int = 7, deviceId: String): [WeeklyProductBaseline!]!
   getSyncStatus(date: String!, deviceId: String): SyncStatusInfo!
   getProductOperationalReport(days: Int = 7): [ProductOperationalReportRow!]!
   dailyCloseOperators: [DailyCloseOperator!]!
   attendanceEmployees(deviceId: String!): [AttendanceEmployee!]!
-  pendingAttendanceCheckIns(
-    deviceId: String!
-    date: String!
-  ): [PendingAttendanceCheckIn!]!
+  pendingAttendanceCheckIns(deviceId: String!, date: String!): [PendingAttendanceCheckIn!]!
   updatePassword(recoveryId: String!, password: String!): Boolean
   getRecoveryEmail(email: String!): Boolean
   getGroupOrders: [[ExtendedOrder]]

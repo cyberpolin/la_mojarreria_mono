@@ -7,6 +7,7 @@ TAKU_SERVICE_NAMES=(
   "TAKU_WA_SERVICE"
   "TAKU_BOT_SERVICE"
   "TAKU_BOT_WEB"
+  "TAKU_RESTAURANT_API"
 )
 
 taku_selected_services() {

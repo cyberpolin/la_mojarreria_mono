@@ -32,6 +32,8 @@ If structure differs, follow the existing repo layout, but keep these boundaries
 
 - `apps/api` production base URL: `https://api.lamojarreria.com`
 - `apps/wa-service` production base URL: `https://api.wa.lamojarreria.com/`
+- TAKU Restaurant site (Vercel): `https://restaurant.taku.lat`
+- TAKU Restaurant API: `https://api.restaurant.taku.lat`
 
 ---
 

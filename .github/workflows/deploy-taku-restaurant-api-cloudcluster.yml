@@ -1,0 +1,438 @@
+name: Deploy TAKU Restaurant API to CloudCluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to deploy"
+        required: true
+        default: "taku-deployment"
+  push:
+    branches:
+      - taku-deployment
+    paths:
+      - "apps/taku-restaurant-api/**"
+      - "apps/service-ports.conf"
+      - "apps/TAKU_RESTAURANT_API_SITE.conf"
+      - "scripts/taku-service-helpers.sh"
+      - "scripts/list-taku-services.sh"
+      - "scripts/check-taku-service-config.sh"
+      - "scripts/ensure-taku-service-certs.sh"
+      - "scripts/enable-taku-nginx-sites.sh"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/deploy-taku-restaurant-api-cloudcluster.yml"
+
+concurrency:
+  group: taku-restaurant-api-cloudcluster
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: cloudcluster
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+
+      - name: Resolve CloudCluster deploy env
+        id: cloudcluster
+        env:
+          BOT_PUSH_ENV_FILE: ${{ secrets.BOT_PUSH_ENV_FILE }}
+          CLOUDCLUSTER_HOST: ${{ secrets.CLOUDCLUSTER_HOST }}
+          CLOUDCLUSTER_USER: ${{ secrets.CLOUDCLUSTER_USER }}
+          CLOUDCLUSTER_SSH_KEY: ${{ secrets.CLOUDCLUSTER_SSH_KEY }}
+          CLOUDCLUSTER_SSH_PORT: ${{ secrets.CLOUDCLUSTER_SSH_PORT }}
+          CLOUDCLUSTER_TAKU_RESTAURANT_API_DEPLOY_PATH: ${{ secrets.CLOUDCLUSTER_TAKU_RESTAURANT_API_DEPLOY_PATH }}
+        run: |
+          set -eu
+
+          PUSH_ENV_FILE="$RUNNER_TEMP/taku-restaurant-api-push-env"
+          printf '%s\n' "${BOT_PUSH_ENV_FILE:-}" > "$PUSH_ENV_FILE"
+
+          read_push_value() {
+            awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$PUSH_ENV_FILE"
+          }
+
+          read_push_ssh_key() {
+            awk '
+              /^CLOUDCLUSTER_SSH_KEY=-----BEGIN OPENSSH PRIVATE KEY-----/ {
+                sub(/^CLOUDCLUSTER_SSH_KEY=/, "")
+                capture = 1
+              }
+              capture { print }
+              /^-----END OPENSSH PRIVATE KEY-----/ { exit }
+            ' "$PUSH_ENV_FILE"
+          }
+
+          HOST="${CLOUDCLUSTER_HOST:-$(read_push_value CLOUDCLUSTER_HOST)}"
+          USER="${CLOUDCLUSTER_USER:-$(read_push_value CLOUDCLUSTER_USER)}"
+          PORT="${CLOUDCLUSTER_SSH_PORT:-$(read_push_value CLOUDCLUSTER_SSH_PORT)}"
+          SSH_KEY="${CLOUDCLUSTER_SSH_KEY:-$(read_push_ssh_key)}"
+          DEPLOY_PATH="${CLOUDCLUSTER_TAKU_RESTAURANT_API_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_TAKU_RESTAURANT_API_DEPLOY_PATH)}"
+          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/taku-restaurant-api}"
+          PORT="${PORT:-22}"
+          PORT="$(printf '%s' "$PORT" | tr -d '\r' | xargs)"
+
+          missing=0
+          for name in HOST USER SSH_KEY DEPLOY_PATH; do
+            value="$(eval "printf '%s' \"\${$name:-}\"")"
+            if [ -z "$value" ]; then
+              echo "::error::$name is missing"
+              missing=1
+            else
+              echo "$name is configured (length: ${#value})"
+            fi
+          done
+
+          case "$PORT" in
+            ''|*[!0-9]*)
+              echo "::error::CLOUDCLUSTER_SSH_PORT must be numeric. Check the direct secret first, then BOT_PUSH_ENV_FILE fallback."
+              echo "Resolved port length: ${#PORT}"
+              exit 1
+              ;;
+          esac
+
+          echo "PORT is configured: $PORT"
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
+          echo "::add-mask::$SSH_KEY"
+          echo "::add-mask::$DEPLOY_PATH"
+          printf '%s\n' "$SSH_KEY" | while IFS= read -r line; do
+            [ -z "$line" ] || echo "::add-mask::$line"
+          done
+
+          {
+            echo "host=$HOST"
+            echo "user=$USER"
+            echo "port=$PORT"
+            echo "deploy_path=$DEPLOY_PATH"
+            echo "ssh_key<<EOF"
+            printf '%s\n' "$SSH_KEY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter @taku/restaurant-api typecheck
+
+      - name: Build
+        run: pnpm --filter @taku/restaurant-api build
+
+      - name: Write service env file
+        env:
+          TAKU_RESTAURANT_API_ENV_FILE: ${{ secrets.TAKU_RESTAURANT_API_ENV_FILE }}
+        run: |
+          set -eu
+          if [ -z "${TAKU_RESTAURANT_API_ENV_FILE:-}" ]; then
+            echo "::error::TAKU_RESTAURANT_API_ENV_FILE is missing"
+            exit 1
+          fi
+
+          printf '%s\n' "$TAKU_RESTAURANT_API_ENV_FILE" > apps/taku-restaurant-api/.env
+          chmod 600 apps/taku-restaurant-api/.env
+          echo "Generated apps/taku-restaurant-api/.env"
+          wc -c apps/taku-restaurant-api/.env
+
+          echo "TAKU_RESTAURANT_API_ENV_FILE keys:"
+          awk '
+            /^[[:space:]]*($|#)/ { next }
+            /^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
+              key=$0
+              sub(/=.*/, "", key)
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+              print "- " key
+            }
+          ' apps/taku-restaurant-api/.env
+
+          has_env_key() {
+            awk -F= -v expected="$1" '
+              /^[[:space:]]*($|#)/ { next }
+              {
+                key=$1
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                if (key == expected) found=1
+              }
+              END { exit found ? 0 : 1 }
+            ' apps/taku-restaurant-api/.env
+          }
+
+          env_value_length() {
+            awk -F= -v expected="$1" '
+              /^[[:space:]]*($|#)/ { next }
+              {
+                key=$1
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+                if (key == expected) {
+                  sub(/^[^=]*=/, "")
+                  gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+                  print length($0)
+                  exit
+                }
+              }
+            ' apps/taku-restaurant-api/.env
+          }
+
+          for name in TAKU_RESTAURANT_JWT_SECRET TAKU_RESTAURANT_REFRESH_SECRET; do
+            if has_env_key "$name"; then
+              value_length="$(env_value_length "$name")"
+              echo "$name present (length: $value_length)"
+            else
+              echo "::error::$name is missing from TAKU_RESTAURANT_API_ENV_FILE"
+              exit 1
+            fi
+          done
+
+          has_superadmin_email=false
+          has_superadmin_password=false
+          for name in TAKU_RESTAURANT_OWNER_EMAIL; do
+            if has_env_key "$name"; then
+              value_length="$(env_value_length "$name")"
+              echo "$name present (length: $value_length)"
+              has_superadmin_email=true
+            fi
+          done
+          for name in TAKU_RESTAURANT_OWNER_PASSWORD; do
+            if has_env_key "$name"; then
+              value_length="$(env_value_length "$name")"
+              echo "$name present (length: $value_length)"
+              has_superadmin_password=true
+            fi
+          done
+          if [ "$has_superadmin_email" != "true" ] || [ "$has_superadmin_password" != "true" ]; then
+            echo "::error::TAKU_RESTAURANT_API_ENV_FILE must include owner email/password variables"
+            exit 1
+          fi
+
+      - name: Prepare release bundle
+        run: |
+          set -eux
+          mkdir -p /tmp/taku-restaurant-api-release
+          rsync -a \
+            --exclude ".env.example" \
+            --exclude "data" \
+            --exclude "dist" \
+            --exclude "node_modules" \
+            apps/taku-restaurant-api/ /tmp/taku-restaurant-api-release/
+          tar -czf taku-restaurant-api-release.tar.gz -C /tmp taku-restaurant-api-release
+          ls -lh taku-restaurant-api-release.tar.gz
+
+      - name: Prepare nginx bundle
+        run: |
+          set -eux
+          mkdir -p /tmp/taku-restaurant-api-infra/apps /tmp/taku-restaurant-api-infra/scripts
+          cp apps/service-ports.conf /tmp/taku-restaurant-api-infra/apps/service-ports.conf
+          cp apps/TAKU_RESTAURANT_API_SITE.conf /tmp/taku-restaurant-api-infra/apps/TAKU_RESTAURANT_API_SITE.conf
+          cp scripts/taku-service-helpers.sh /tmp/taku-restaurant-api-infra/scripts/taku-service-helpers.sh
+          cp scripts/list-taku-services.sh /tmp/taku-restaurant-api-infra/scripts/list-taku-services.sh
+          cp scripts/check-taku-service-config.sh /tmp/taku-restaurant-api-infra/scripts/check-taku-service-config.sh
+          cp scripts/ensure-taku-service-certs.sh /tmp/taku-restaurant-api-infra/scripts/ensure-taku-service-certs.sh
+          cp scripts/enable-taku-nginx-sites.sh /tmp/taku-restaurant-api-infra/scripts/enable-taku-nginx-sites.sh
+          cp scripts/taku-flow-logs.sh /tmp/taku-restaurant-api-infra/scripts/taku-flow-logs.sh
+          chmod +x /tmp/taku-restaurant-api-infra/scripts/*.sh
+          tar -czf taku-restaurant-api-infra.tar.gz -C /tmp taku-restaurant-api-infra
+          ls -lh taku-restaurant-api-infra.tar.gz
+
+      - name: Upload release bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          source: taku-restaurant-api-release.tar.gz
+          target: /tmp
+          debug: true
+
+      - name: Upload nginx bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          source: taku-restaurant-api-infra.tar.gz
+          target: /tmp
+          debug: true
+
+      - name: Deploy on CloudCluster
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
+          SUDO_PASSWORD: ${{ secrets.CLOUDCLUSTER_SUDO_PASSWORD }}
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          envs: DEPLOY_PATH,CERTBOT_EMAIL,SUDO_PASSWORD
+          timeout: 60s
+          command_timeout: 30m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            LOG_FILE="/tmp/taku-restaurant-api-deploy.log"
+            : > "$LOG_FILE"
+
+            run_deploy() {
+              : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
+
+              run_sudo() {
+                if [ "$(id -u)" -eq 0 ]; then
+                  "$@"
+                elif [ -n "${SUDO_PASSWORD:-}" ]; then
+                  printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+                else
+                  sudo "$@"
+                fi
+              }
+
+              echo "Remote user: $(whoami)"
+              echo "Remote host: $(hostname)"
+              df -h .
+              free -h || true
+              ls -lh /tmp/taku-restaurant-api-release.tar.gz /tmp/taku-restaurant-api-infra.tar.gz
+
+              if command -v apt-get >/dev/null 2>&1; then
+                wait_for_apt_locks() {
+                  MAX_WAIT_SECONDS=120
+                  waited=0
+
+                  while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+                    if [ "$waited" -ge "$MAX_WAIT_SECONDS" ]; then
+                      echo "Timed out waiting for apt/dpkg locks"
+                      return 1
+                    fi
+
+                    echo "Waiting for apt/dpkg lock (${waited}s/${MAX_WAIT_SECONDS}s)"
+                    sleep 5
+                    waited=$((waited + 5))
+                  done
+                }
+
+                wait_for_apt_locks
+                run_sudo apt-get update
+                wait_for_apt_locks
+                run_sudo apt-get install -y nginx certbot python3-certbot-nginx
+              fi
+
+              rm -rf /tmp/taku-restaurant-api-infra
+              tar -xzf /tmp/taku-restaurant-api-infra.tar.gz -C /tmp
+              (
+                cd /tmp/taku-restaurant-api-infra
+                run_sudo install -m 0755 scripts/taku-flow-logs.sh /usr/local/bin/taku-flow-logs
+                TAKU_SERVICES="TAKU_RESTAURANT_API" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
+                TAKU_SERVICES="TAKU_RESTAURANT_API" scripts/list-taku-services.sh
+                run_sudo timeout 300s env TAKU_SERVICES="TAKU_RESTAURANT_API" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+                run_sudo env TAKU_SERVICES="TAKU_RESTAURANT_API" DEBUG=true scripts/enable-taku-nginx-sites.sh
+              )
+
+              if [ ! -d "$DEPLOY_PATH" ]; then
+                echo "Deploy directory does not exist; creating it"
+                if mkdir -p "$DEPLOY_PATH" 2>/dev/null; then
+                  echo "Deploy directory created"
+                elif command -v sudo >/dev/null 2>&1; then
+                  run_sudo mkdir -p "$DEPLOY_PATH"
+                  run_sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+                  echo "Deploy directory created with sudo and ownership assigned"
+                else
+                  echo "Cannot create $DEPLOY_PATH and sudo is unavailable"
+                  return 1
+                fi
+              fi
+
+              if [ ! -w "$DEPLOY_PATH" ]; then
+                echo "Deploy directory is not writable; fixing ownership"
+                if command -v sudo >/dev/null 2>&1; then
+                  run_sudo chown "$(id -u):$(id -g)" "$DEPLOY_PATH"
+                else
+                  echo "Cannot write to $DEPLOY_PATH and sudo is unavailable"
+                  return 1
+                fi
+              fi
+
+              tar -xzf /tmp/taku-restaurant-api-release.tar.gz -C "$DEPLOY_PATH" --strip-components=1
+              cd "$DEPLOY_PATH"
+              mkdir -p data
+
+              node --version || true
+              PNPM_CMD="pnpm"
+              if command -v pnpm >/dev/null 2>&1; then
+                echo "Using existing pnpm"
+              elif command -v corepack >/dev/null 2>&1; then
+                echo "Preparing pnpm with corepack without global enable"
+                if corepack prepare pnpm@9.15.5 --activate && corepack pnpm --version >/dev/null 2>&1; then
+                  PNPM_CMD="corepack pnpm"
+                else
+                  PNPM_CMD="npx pnpm@9.15.5"
+                fi
+              else
+                echo "corepack not found; using npx pnpm"
+                PNPM_CMD="npx pnpm@9.15.5"
+              fi
+              $PNPM_CMD --version
+              $PNPM_CMD install --prod=false --no-frozen-lockfile
+              $PNPM_CMD build
+              $PNPM_CMD run seed
+              PM2_CMD="$PNPM_CMD dlx pm2@5.4.3"
+              $PM2_CMD delete taku-restaurant-api || true
+              PORT=3160 $PM2_CMD start dist/index.js --name taku-restaurant-api --update-env
+              $PM2_CMD save
+              $PM2_CMD describe taku-restaurant-api
+              $PM2_CMD status
+            }
+
+            set +e
+            ( set -eu; run_deploy ) > "$LOG_FILE" 2>&1
+            DEPLOY_STATUS="$?"
+            set -e
+
+            echo "Remote deploy log:"
+            cat "$LOG_FILE"
+            exit "$DEPLOY_STATUS"
+
+      - name: Fetch remote deploy log
+        if: always()
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          timeout: 60s
+          command_timeout: 2m
+          request_pty: true
+          debug: true
+          script: |
+            set -eu
+            echo "Remote deploy log:"
+            if [ -f /tmp/taku-restaurant-api-deploy.log ]; then
+              cat /tmp/taku-restaurant-api-deploy.log
+            else
+              echo "No remote deploy log file found"
+            fi
