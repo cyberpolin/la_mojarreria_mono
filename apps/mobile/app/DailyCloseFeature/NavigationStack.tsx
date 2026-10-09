@@ -20,6 +20,8 @@ import ActivePromosScreen from "./ActivePromosScreen";
 import WhatsAppInboxScreen from "./WhatsAppInboxScreen";
 import ConversationMobileScreen from "./ConversationMobileScreen";
 import WeeklyReportScreen from "./WeeklyReportScreen";
+import ExpensesListScreen from "./ExpensesListScreen";
+import AddExpenseScreen from "./AddExpenseScreen";
 import EmployeeAssistantStep1 from "./EmployeeAssistantStep1";
 import EmployeeAssistantStep2 from "./EmployeeAssistantStep2";
 import EmployeeAssistantStep3 from "./EmployeeAssistantStep3";
@@ -55,6 +57,8 @@ export type RootStackParamList = {
   [Screens.WhatsAppInboxScreen]?: {};
   [Screens.ConversationMobileScreen]?: {};
   [Screens.WeeklyReportScreen]?: {};
+  [Screens.ExpensesListScreen]?: {};
+  [Screens.AddExpenseScreen]?: {};
   [Screens.EmployeeAssistantStep1Screen]?: {};
   [Screens.EmployeeAssistantStep2Screen]?: {};
   [Screens.EmployeeAssistantStep3Screen]?: {};
@@ -235,6 +239,20 @@ export default (_props: { initialPosition?: number | null }) => (
       {() => (
         <ScreenFrame>
           <WeeklyReportScreen />
+        </ScreenFrame>
+      )}
+    </Screen>
+    <Screen name={Screens.ExpensesListScreen}>
+      {() => (
+        <ScreenFrame orientation="portrait">
+          <ExpensesListScreen />
+        </ScreenFrame>
+      )}
+    </Screen>
+    <Screen name={Screens.AddExpenseScreen}>
+      {() => (
+        <ScreenFrame orientation="portrait">
+          <AddExpenseScreen />
         </ScreenFrame>
       )}
     </Screen>

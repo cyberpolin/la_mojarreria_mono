@@ -105,6 +105,11 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
     navigation.navigate(Screens.WeeklyReportScreen);
   };
 
+  const openExpenses = () => {
+    onClose();
+    navigation.navigate(Screens.ExpensesListScreen);
+  };
+
   return (
     <View style={styles.overlay}>
       <Pressable style={styles.backdrop} onPress={onClose} />
@@ -128,6 +133,12 @@ export default function TopActionDrawer({ visible, onClose }: Props) {
             icon="logo-whatsapp"
             label="WhatsApp"
             onPress={openWhatsAppInbox}
+          />
+          <IconTile
+            fullWidth
+            icon="receipt-outline"
+            label="Gastos"
+            onPress={openExpenses}
           />
           <IconTile
             disabled

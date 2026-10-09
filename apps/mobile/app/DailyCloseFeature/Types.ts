@@ -15,6 +15,8 @@ export enum Screens {
   WhatsAppInboxScreen = "WhatsAppInboxScreen",
   ConversationMobileScreen = "ConversationMobileScreen",
   WeeklyReportScreen = "WeeklyReportScreen",
+  ExpensesListScreen = "ExpensesListScreen",
+  AddExpenseScreen = "AddExpenseScreen",
   EmployeeAssistantStep1Screen = "EmployeeAssistantStep1Screen",
   EmployeeAssistantStep2Screen = "EmployeeAssistantStep2Screen",
   EmployeeAssistantStep3Screen = "EmployeeAssistantStep3Screen",
