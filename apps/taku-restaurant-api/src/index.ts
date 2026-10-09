@@ -9,7 +9,7 @@ const app = createApp(store);
 void seedOwner(store).then(() => {
   app.listen(config.port, config.host, () => {
     console.log(
-      `taku-restaurant-api listening on http://${config.host}:${config.port}/api`,
+      `taku-restaurant-api on http://${config.host}:${config.port}/api`,
     );
   });
 });
