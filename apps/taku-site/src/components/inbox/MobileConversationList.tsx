@@ -52,7 +52,6 @@ import {
   hasOrderReturn,
   inboxListReturnPath,
 } from "./inboxReturn";
-import { inboxViewMenuItems } from "./inboxView";
 import { openChecador } from "./attendance";
 import { ensureWeeklyReport } from "./weeklyReport";
 import {
@@ -786,7 +785,6 @@ export function MobileConversationList({
                       if (account) openChecador(account);
                     },
                   },
-                  ...inboxViewMenuItems(),
                   {
                     label: "Bloquear",
                     danger: true,
@@ -815,7 +813,6 @@ export function MobileConversationList({
                       if (account) openChecador(account);
                     },
                   },
-                  ...inboxViewMenuItems(),
                   {
                     label: "ver bloqueados",
                     onSelect: () => {
@@ -833,7 +830,6 @@ export function MobileConversationList({
         <MobileContextMenu
           title={conversationTitle(rowMenu)}
           items={[
-            ...inboxViewMenuItems(),
             ...(isGroupConversation(rowMenu)
               ? [
                   {

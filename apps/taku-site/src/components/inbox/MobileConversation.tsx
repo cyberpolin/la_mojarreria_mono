@@ -27,7 +27,6 @@ import {
   readMessageFromEvent,
   upsertMessage,
 } from "./helpers";
-import { inboxViewMenuItems } from "./inboxView";
 import { openChecador } from "./attendance";
 import { inboxListReturnPath } from "./inboxReturn";
 import type {
@@ -720,7 +719,6 @@ export function MobileConversation({
                   },
                 ]
               : []),
-            ...inboxViewMenuItems(),
             ...(conversation && !isGroupConversation(conversation)
               ? [
                   {
