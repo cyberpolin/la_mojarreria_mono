@@ -6,7 +6,7 @@ La plataforma será un producto SaaS para administrar conversaciones de WhatsApp
 
 La solución **no reconstruye** el servicio de WhatsApp ni el servicio de bot. Ambos ya existen y serán consumidos como APIs por la nueva plataforma.
 
----
+----
 
 # Stack definido
 
