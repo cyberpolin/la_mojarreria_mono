@@ -29,6 +29,50 @@ export type Expense = {
   createdAt: string;
 };
 
+export type Product = {
+  id: string;
+  restaurantId: string;
+  clientId: string;
+  name: string;
+  priceCents: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DailyCloseItem = {
+  productId: string;
+  name: string;
+  priceCents: number;
+  qty: number;
+};
+
+export type DailyCloseEvidence = {
+  kind: string;
+  takenAt: string;
+};
+
+export type DailyClose = {
+  id: string;
+  restaurantId: string;
+  deviceId: string;
+  date: string;
+  items: DailyCloseItem[];
+  cashReceived: number;
+  bankTransfersReceived: number;
+  deliveryCashPaid: number;
+  otherCashExpenses: number;
+  notes: string;
+  closedByUserId: string;
+  closedByName: string;
+  closedByPhone: string;
+  evidence: DailyCloseEvidence[];
+  expectedTotal: number;
+  clientCreatedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type RefreshToken = {
   id: string;
   userId: string;
@@ -41,7 +85,9 @@ export type RefreshToken = {
 export type Database = {
   restaurants: Restaurant[];
   users: User[];
+  products: Product[];
   expenses: Expense[];
+  dailyCloses: DailyClose[];
   refreshTokens: RefreshToken[];
 };
 

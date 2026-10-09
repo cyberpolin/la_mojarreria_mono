@@ -14,7 +14,9 @@ export function id(prefix: string) {
 const emptyDatabase = (): Database => ({
   restaurants: [],
   users: [],
+  products: [],
   expenses: [],
+  dailyCloses: [],
   refreshTokens: [],
 });
 
@@ -28,7 +30,9 @@ export class JsonStore {
       return {
         restaurants: parsed.restaurants ?? [],
         users: parsed.users ?? [],
+        products: parsed.products ?? [],
         expenses: parsed.expenses ?? [],
+        dailyCloses: parsed.dailyCloses ?? [],
         refreshTokens: parsed.refreshTokens ?? [],
       };
     } catch {

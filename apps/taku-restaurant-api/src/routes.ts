@@ -8,10 +8,18 @@ import {
   signToken,
   verifyPassword,
 } from "./auth.js";
-import { ApiError, ok, requireString } from "./http.js";
+import { ApiError, asCents, ok, requireString } from "./http.js";
+import { EVIDENCE_KINDS } from "./catalog.js";
 import { asyncHandler, requireAuth } from "./middleware.js";
 import { id, now, type JsonStore } from "./store.js";
-import type { Expense, Restaurant, User } from "./types.js";
+import type {
+  DailyClose,
+  DailyCloseEvidence,
+  DailyCloseItem,
+  Expense,
+  Restaurant,
+  User,
+} from "./types.js";
 
 const ACCESS_TTL_SECONDS = 60 * 60 * 12;
 const REFRESH_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -34,6 +42,59 @@ function publicRestaurant(restaurant: Restaurant) {
     plan: restaurant.plan,
     timezone: restaurant.timezone,
   };
+}
+
+function publicDailyClose(close: DailyClose) {
+  const expectedTotal =
+    close.expectedTotal ||
+    close.items.reduce((sum, item) => sum + item.qty * item.priceCents, 0);
+  return {
+    ...close,
+    expectedTotal,
+    totalFromItems: expectedTotal,
+    grossProfitCents: expectedTotal,
+    operatingProfitCents:
+      expectedTotal - close.deliveryCashPaid - close.otherCashExpenses,
+    status: "closed",
+  };
+}
+
+function parseCloseItems(value: unknown): DailyCloseItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const productId = String(row.productId ?? "").trim();
+      const name = String(row.name ?? "").trim();
+      if (!productId || !name) return null;
+      return {
+        productId,
+        name,
+        priceCents: asCents(row.priceCents ?? row.price, 0),
+        qty: asCents(row.qty, 0),
+      };
+    })
+    .filter((item): item is DailyCloseItem => item !== null);
+}
+
+function parseEvidence(value: unknown): DailyCloseEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const kind = String(row.kind ?? "").trim();
+      if (!EVIDENCE_KINDS.includes(kind as (typeof EVIDENCE_KINDS)[number])) {
+        return null;
+      }
+      return {
+        kind,
+        takenAt:
+          typeof row.takenAt === "string" && row.takenAt ? row.takenAt : now(),
+      };
+    })
+    .filter((item): item is DailyCloseEvidence => item !== null);
 }
 
 function slugify(value: string) {
@@ -143,7 +204,11 @@ export function createApiRouter(store: JsonStore) {
         const restaurant = user
           ? database.restaurants.find((item) => item.id === user.restaurantId)
           : null;
-        if (!user || !restaurant || !verifyPassword(password, user.passwordHash)) {
+        if (
+          !user ||
+          !restaurant ||
+          !verifyPassword(password, user.passwordHash)
+        ) {
           throw new ApiError({
             status: 401,
             code: "INVALID_CREDENTIALS",
@@ -281,6 +346,104 @@ export function createApiRouter(store: JsonStore) {
         return row;
       });
       ok(res, expense, 201);
+    }),
+  );
+
+  router.get(
+    "/products",
+    requireAuth(store),
+    asyncHandler(async (req, res) => {
+      const restaurantId = req.auth!.restaurant.id;
+      const database = await store.read();
+      const items = database.products
+        .filter((item) => item.restaurantId === restaurantId && item.active)
+        .sort((left, right) => left.clientId.localeCompare(right.clientId));
+      ok(res, items);
+    }),
+  );
+
+  router.get(
+    "/daily-closes",
+    requireAuth(store),
+    asyncHandler(async (req, res) => {
+      const restaurantId = req.auth!.restaurant.id;
+      const from =
+        typeof req.query.from === "string" ? req.query.from.trim() : "";
+      const to = typeof req.query.to === "string" ? req.query.to.trim() : "";
+      const database = await store.read();
+      const items = database.dailyCloses
+        .filter((item) => item.restaurantId === restaurantId)
+        .filter((item) => !from || item.date >= from)
+        .filter((item) => !to || item.date <= to)
+        .sort((left, right) => right.date.localeCompare(left.date));
+      ok(res, items.map(publicDailyClose));
+    }),
+  );
+
+  router.put(
+    "/daily-closes",
+    requireAuth(store),
+    asyncHandler(async (req, res) => {
+      const date = requireString(req.body?.date, "date");
+      const deviceId = requireString(
+        req.body?.deviceId ?? "Kiosk001",
+        "deviceId",
+      );
+      const items = parseCloseItems(req.body?.items);
+      if (items.length === 0) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "El cierre debe incluir productos.",
+        });
+      }
+      const notes =
+        typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
+      const evidence = parseEvidence(req.body?.evidence);
+      const expectedTotal = items.reduce(
+        (sum, item) => sum + item.qty * item.priceCents,
+        0,
+      );
+      const clientCreatedAt =
+        typeof req.body?.createdAt === "string" && req.body.createdAt.trim()
+          ? req.body.createdAt.trim()
+          : now();
+      const close = await store.update((database) => {
+        const restaurantId = req.auth!.restaurant.id;
+        const existing = database.dailyCloses.find(
+          (item) =>
+            item.restaurantId === restaurantId &&
+            item.date === date &&
+            item.deviceId === deviceId,
+        );
+        const row: DailyClose = {
+          id: existing?.id ?? id("close"),
+          restaurantId,
+          deviceId,
+          date,
+          items,
+          cashReceived: asCents(req.body?.cashReceived, 0),
+          bankTransfersReceived: asCents(req.body?.bankTransfersReceived, 0),
+          deliveryCashPaid: asCents(req.body?.deliveryCashPaid, 0),
+          otherCashExpenses: asCents(req.body?.otherCashExpenses, 0),
+          notes,
+          closedByUserId: String(req.body?.closedByUserId ?? ""),
+          closedByName: String(req.body?.closedByName ?? ""),
+          closedByPhone: String(req.body?.closedByPhone ?? ""),
+          evidence,
+          expectedTotal: asCents(req.body?.expectedTotal, expectedTotal),
+          clientCreatedAt,
+          createdAt: existing?.createdAt ?? now(),
+          updatedAt: now(),
+        };
+        if (existing) {
+          Object.assign(existing, row);
+          return existing;
+        }
+        database.dailyCloses.push(row);
+        return row;
+      });
+      ok(res, publicDailyClose(close));
     }),
   );
 

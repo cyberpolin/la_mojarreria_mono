@@ -111,6 +111,7 @@ export type State = {
   // Sicronization
   shouldSync: () => boolean;
   addSale: (sale: TemportalDailyClose) => void;
+  setAvailableProducts: (products: Omit<ProductSale, "qty">[]) => void;
   setTemporalSaleItems: (sale: ProductSale[]) => void;
   setTemporalCashReceived: (amount: number) => void;
   setTemporalBankReceived: (amount: number) => void;

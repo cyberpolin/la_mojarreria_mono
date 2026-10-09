@@ -57,6 +57,12 @@ export default function BackofficeHomePage() {
         <p className="mt-2 text-sm leading-6 text-slate-600">
           El cierre de caja sigue en la app. Aqui va el historial.
         </p>
+        <a
+          href="/app/cierre"
+          className="mt-4 inline-flex min-h-11 items-center font-semibold"
+        >
+          Ver cierres
+        </a>
       </Card>
     </div>
   );

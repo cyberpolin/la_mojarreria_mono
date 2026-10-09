@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { APP_CONFIG } from "@/constants/config";
+import { restaurantApi } from "./restaurantApi";
 
 export type WeeklyCloseReport = {
   id: string;
@@ -53,43 +53,6 @@ export type WeeklyReportPayload = {
     cashBalance: number;
   };
 };
-
-type GraphQLResponse<T> = {
-  data?: T;
-  errors?: { message?: string }[];
-};
-
-const WEEKLY_REPORT_QUERY = `
-  query MobileWeeklyReport($from: String!, $to: String!) {
-    dailyCloses(
-      where: { date: { gte: $from, lte: $to } }
-      orderBy: [{ date: asc }]
-      take: 50
-    ) {
-      id
-      date
-      deviceId
-      cashReceived
-      bankTransfersReceived
-      deliveryCashPaid
-      otherCashExpenses
-      totalFromItems
-      grossProfitCents
-      operatingProfitCents
-    }
-    dailyExpenses(
-      where: { date: { gte: $from, lte: $to } }
-      orderBy: [{ date: asc }, { createdAt: desc }]
-      take: 200
-    ) {
-      id
-      date
-      concept
-      amountCents
-      notes
-    }
-  }
-`;
 
 const cacheKey = (weekStart: string) =>
   `MOJARRERIA_MOBILE_WEEKLY_REPORT_V1_${weekStart}`;
@@ -223,35 +186,19 @@ export const readCachedWeeklyReport = async (weekStart: string) => {
 
 export const fetchWeeklyReport = async (weekStart: string) => {
   const weekEnd = toDateInput(addDays(fromDateInput(weekStart), 6));
-  const response = await fetch(`${APP_CONFIG.apiUrl}/api/graphql`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      query: WEEKLY_REPORT_QUERY,
-      variables: { from: weekStart, to: weekEnd },
-    }),
-  });
-
-  const payload = (await response.json().catch(() => null)) as GraphQLResponse<{
-    dailyCloses: WeeklyCloseReport[];
-    dailyExpenses: WeeklyExpense[];
-  }> | null;
-
-  if (!response.ok) {
-    throw new Error(`Weekly report request failed (${response.status}).`);
-  }
-
-  if (payload?.errors?.length) {
-    throw new Error(payload.errors[0]?.message ?? "Weekly report failed.");
-  }
+  const [closes, expenses] = await Promise.all([
+    restaurantApi<WeeklyCloseReport[]>(
+      `/daily-closes?from=${encodeURIComponent(weekStart)}&to=${encodeURIComponent(weekEnd)}`,
+    ),
+    restaurantApi<WeeklyExpense[]>("/expenses"),
+  ]);
 
   const report = buildPayload({
     weekStart,
-    closes: payload?.data?.dailyCloses ?? [],
-    expenses: payload?.data?.dailyExpenses ?? [],
+    closes,
+    expenses: expenses.filter(
+      (item) => item.date >= weekStart && item.date <= weekEnd,
+    ),
   });
 
   await AsyncStorage.setItem(cacheKey(weekStart), JSON.stringify(report));

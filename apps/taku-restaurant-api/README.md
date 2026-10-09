@@ -15,7 +15,11 @@ Default: `http://localhost:3160/api`
 Copy `.env.example` to `.env` before running locally.
 
 The mobile kiosk authenticates with `POST /api/session/device` using
-`TAKU_RESTAURANT_DEVICE_KEY`, then reads/writes `GET|POST /api/expenses`.
+`TAKU_RESTAURANT_DEVICE_KEY`. Local-first writes then sync to:
+
+- `GET|POST /api/expenses`
+- `GET /api/products`
+- `GET|PUT /api/daily-closes`
 
 ## Deploy
 

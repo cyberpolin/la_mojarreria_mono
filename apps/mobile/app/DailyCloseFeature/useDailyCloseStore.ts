@@ -90,6 +90,10 @@ export const useDailyCloseStore = create<State>()(
   persist(
     (set, get) => ({
       availableProducts,
+      setAvailableProducts: (products) =>
+        set({
+          availableProducts: products.length > 0 ? products : availableProducts,
+        }),
 
       closesByDate: {},
       lastSyncedDate: "1900-01-01", // a very old date

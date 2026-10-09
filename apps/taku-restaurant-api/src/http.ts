@@ -38,3 +38,9 @@ export function requireString(value: unknown, name: string) {
   }
   return value.trim();
 }
+
+export function asCents(value: unknown, fallback = 0) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return fallback;
+  return Math.round(amount);
+}
