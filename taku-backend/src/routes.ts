@@ -1176,6 +1176,63 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
   const workspace = requireWorkspace(store);
   const adminAuth = requireAdminAuth(store);
 
+  const faqSendInFlight = new Set<string>();
+  const FAQ_SWEEP_DEBOUNCE_MS = 15_000;
+  const faqSweepAt = new Map<string, number>();
+
+  async function claimFaqAutoReply(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+    reason: string;
+    text: string;
+    timeZone: string;
+  }) {
+    const key = `${params.workspaceId}:${params.conversationId}`;
+    if (faqSendInFlight.has(key)) return false;
+    faqSendInFlight.add(key);
+    try {
+      const claimed = await store.update((database) => {
+        if (
+          wasFaqAutoReplySentToday(
+            database.automationDecisionLogs,
+            params.conversationId,
+            params.timeZone,
+          )
+        ) {
+          return false;
+        }
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "static_reply",
+          reason: params.reason,
+          responseText: params.text,
+          createdAt: now(),
+        });
+        return true;
+      });
+      if (!claimed) {
+        faqSendInFlight.delete(key);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      faqSendInFlight.delete(key);
+      throw error;
+    }
+  }
+
+  function releaseFaqAutoReply(workspaceId: string, conversationId: string) {
+    faqSendInFlight.delete(`${workspaceId}:${conversationId}`);
+  }
+
   async function sendAutomationReply(params: {
     workspaceId: string;
     accountId: string;
@@ -1187,6 +1244,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     botId: string | null;
     assignmentId: string | null;
     reason: string;
+    skipDecisionLog?: boolean;
   }) {
     const snapshot = await store.read();
     const account = findAccount(snapshot, params.workspaceId, params.accountId);
@@ -1229,19 +1287,21 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         updatedAt: now(),
       };
       database.messages.push(message);
-      database.automationDecisionLogs.push({
-        id: id("automation_decision"),
-        workspaceId: params.workspaceId,
-        whatsappAccountId: params.accountId,
-        conversationId: params.conversationId,
-        messageId: params.inboundMessageId,
-        botId: params.botId,
-        assignmentId: params.assignmentId,
-        decision: params.botId ? "bot_reply" : "static_reply",
-        reason: params.reason,
-        responseText: params.text,
-        createdAt: now(),
-      });
+      if (!params.skipDecisionLog) {
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: params.botId,
+          assignmentId: params.assignmentId,
+          decision: params.botId ? "bot_reply" : "static_reply",
+          reason: params.reason,
+          responseText: params.text,
+          createdAt: now(),
+        });
+      }
       conversation.lastMessageBody = params.text;
       conversation.lastMessageAt = message.createdAt;
       if (status !== "failed") conversation.unreadCount = 0;
@@ -1268,6 +1328,9 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
   async function sweepUnansweredFaqAutoReplies(workspaceId: string) {
     const pending = faqSweepInFlight.get(workspaceId);
     if (pending) return pending;
+    const lastSweep = faqSweepAt.get(workspaceId) ?? 0;
+    if (Date.now() - lastSweep < FAQ_SWEEP_DEBOUNCE_MS) return 0;
+    faqSweepAt.set(workspaceId, Date.now());
     const task = (async () => {
       const database = await store.read();
       const workspace = database.workspaces.find(
@@ -1323,36 +1386,50 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         );
         const lastInbound = window[window.length - 1];
         if (!lastInbound) continue;
+        const timeZone = workspace.timezone || "America/Mexico_City";
         if (
           wasFaqAutoReplySentToday(
             database.automationDecisionLogs,
             conversation.id,
-            workspace.timezone || "America/Mexico_City",
+            timeZone,
           )
         ) {
           continue;
         }
 
-        const text = window
-          .map((item) => item.body?.trim() ?? "")
-          .filter(Boolean)
-          .join(" ");
+        const text = lastInbound.body?.trim() ?? "";
         const faqReply = findMatchingFaqAutoReply(replies, workspaceId, text);
         if (!faqReply) continue;
 
-        await sendAutomationReply({
+        const reason = `faq_auto_reply:${faqReply.intent}`;
+        const claimed = await claimFaqAutoReply({
           workspaceId,
           accountId: account.id,
           conversationId: conversation.id,
-          contactId: contact.id,
           inboundMessageId: lastInbound.id,
-          to: contact.phoneNumber,
+          reason,
           text: faqReply.responseText,
-          botId: null,
-          assignmentId: null,
-          reason: `faq_auto_reply:${faqReply.intent}`,
+          timeZone,
         });
-        sent += 1;
+        if (!claimed) continue;
+        try {
+          await sendAutomationReply({
+            workspaceId,
+            accountId: account.id,
+            conversationId: conversation.id,
+            contactId: contact.id,
+            inboundMessageId: lastInbound.id,
+            to: contact.phoneNumber,
+            text: faqReply.responseText,
+            botId: null,
+            assignmentId: null,
+            reason,
+            skipDecisionLog: true,
+          });
+          sent += 1;
+        } finally {
+          releaseFaqAutoReply(workspaceId, conversation.id);
+        }
       }
       return sent;
     })().finally(() => {
@@ -1551,14 +1628,32 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       workspaceRecord?.timezone ?? "America/Mexico_City",
     );
     if (faqReply && !faqAlreadySentToday) {
-      await sendAutomationReply({
-        ...params,
-        to: params.from,
+      const reason = `faq_auto_reply:${faqReply.intent}`;
+      const timeZone = workspaceRecord?.timezone ?? "America/Mexico_City";
+      const claimed = await claimFaqAutoReply({
+        workspaceId: params.workspaceId,
+        accountId: params.accountId,
+        conversationId: params.conversationId,
+        inboundMessageId: params.inboundMessageId,
+        reason,
         text: faqReply.responseText,
-        botId: null,
-        assignmentId: null,
-        reason: `faq_auto_reply:${faqReply.intent}`,
+        timeZone,
       });
+      if (claimed) {
+        try {
+          await sendAutomationReply({
+            ...params,
+            to: params.from,
+            text: faqReply.responseText,
+            botId: null,
+            assignmentId: null,
+            reason,
+            skipDecisionLog: true,
+          });
+        } finally {
+          releaseFaqAutoReply(params.workspaceId, params.conversationId);
+        }
+      }
       return;
     }
 
@@ -1670,6 +1765,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       const history = database.messages
         .filter((item) => item.conversationId === params.conversationId)
         .filter((item) => item.body)
+        .filter((item) => item.id !== params.inboundMessageId)
         .slice(-10)
         .map((item) => ({
           role:
