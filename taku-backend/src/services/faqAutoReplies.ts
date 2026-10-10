@@ -205,13 +205,15 @@ export function wasFaqAutoReplySentToday(
     createdAt: string;
   }>,
   conversationId: string,
+  intent: string,
   timeZone = "America/Mexico_City",
 ) {
   const today = todayDateKey(new Date(), timeZone);
+  const reason = `faq_auto_reply:${intent}`;
   return logs.some(
     (log) =>
       log.conversationId === conversationId &&
-      log.reason.startsWith("faq_auto_reply:") &&
+      log.reason === reason &&
       todayDateKey(new Date(log.createdAt), timeZone) === today,
   );
 }

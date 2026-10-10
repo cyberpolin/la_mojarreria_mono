@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "echo 'No tests configured yet for @taku/backend'"
+    "test": "tsx --test src/services/faqAutoReplies.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

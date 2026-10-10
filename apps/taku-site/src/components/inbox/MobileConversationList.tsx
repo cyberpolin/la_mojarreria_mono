@@ -492,9 +492,6 @@ export function MobileConversationList({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-300">
-              {socketStatus === "connected" ? "en linea" : "reconectando"}
-            </span>
             <button
               type="button"
               onClick={() => setHeaderMenuOpen(true)}

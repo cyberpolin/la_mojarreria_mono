@@ -1188,8 +1188,9 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     reason: string;
     text: string;
     timeZone: string;
+    intent: string;
   }) {
-    const key = `${params.workspaceId}:${params.conversationId}`;
+    const key = `${params.workspaceId}:${params.conversationId}:${params.intent}`;
     if (faqSendInFlight.has(key)) return false;
     faqSendInFlight.add(key);
     try {
@@ -1198,6 +1199,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           wasFaqAutoReplySentToday(
             database.automationDecisionLogs,
             params.conversationId,
+            params.intent,
             params.timeZone,
           )
         ) {
@@ -1229,8 +1231,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }
   }
 
-  function releaseFaqAutoReply(workspaceId: string, conversationId: string) {
-    faqSendInFlight.delete(`${workspaceId}:${conversationId}`);
+  function releaseFaqAutoReply(
+    workspaceId: string,
+    conversationId: string,
+    intent: string,
+  ) {
+    faqSendInFlight.delete(`${workspaceId}:${conversationId}:${intent}`);
   }
 
   async function sendAutomationReply(params: {
@@ -1387,16 +1393,6 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         const lastInbound = window[window.length - 1];
         if (!lastInbound) continue;
         const timeZone = workspace.timezone || "America/Mexico_City";
-        if (
-          wasFaqAutoReplySentToday(
-            database.automationDecisionLogs,
-            conversation.id,
-            timeZone,
-          )
-        ) {
-          continue;
-        }
-
         const text = lastInbound.body?.trim() ?? "";
         const faqReply = findMatchingFaqAutoReply(replies, workspaceId, text);
         if (!faqReply) continue;
@@ -1410,6 +1406,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           reason,
           text: faqReply.responseText,
           timeZone,
+          intent: faqReply.intent,
         });
         if (!claimed) continue;
         try {
@@ -1428,7 +1425,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           });
           sent += 1;
         } finally {
-          releaseFaqAutoReply(workspaceId, conversation.id);
+          releaseFaqAutoReply(workspaceId, conversation.id, faqReply.intent);
         }
       }
       return sent;
@@ -1622,14 +1619,17 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       params.workspaceId,
       params.text,
     );
-    const faqAlreadySentToday = wasFaqAutoReplySentToday(
-      database.automationDecisionLogs,
-      params.conversationId,
-      workspaceRecord?.timezone ?? "America/Mexico_City",
-    );
+    const timeZone = workspaceRecord?.timezone ?? "America/Mexico_City";
+    const faqAlreadySentToday = faqReply
+      ? wasFaqAutoReplySentToday(
+          database.automationDecisionLogs,
+          params.conversationId,
+          faqReply.intent,
+          timeZone,
+        )
+      : false;
     if (faqReply && !faqAlreadySentToday) {
       const reason = `faq_auto_reply:${faqReply.intent}`;
-      const timeZone = workspaceRecord?.timezone ?? "America/Mexico_City";
       const claimed = await claimFaqAutoReply({
         workspaceId: params.workspaceId,
         accountId: params.accountId,
@@ -1638,6 +1638,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         reason,
         text: faqReply.responseText,
         timeZone,
+        intent: faqReply.intent,
       });
       if (claimed) {
         try {
@@ -1651,7 +1652,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             skipDecisionLog: true,
           });
         } finally {
-          releaseFaqAutoReply(params.workspaceId, params.conversationId);
+          releaseFaqAutoReply(
+            params.workspaceId,
+            params.conversationId,
+            faqReply.intent,
+          );
         }
       }
       return;
