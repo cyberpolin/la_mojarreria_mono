@@ -56,6 +56,13 @@ import {
   wasFaqAutoReplySentToday,
 } from "./services/faqAutoReplies.js";
 import {
+  conversationWroteWhileClosed,
+  hoursForAccount,
+  isBusinessOpenAt,
+  WE_ARE_OPEN_MESSAGE,
+  WE_ARE_OPEN_REASON,
+} from "./services/weAreOpen.js";
+import {
   canCloseCashDay,
   computeDayCloseDiferencia,
   computeWeekCloseTotals,
@@ -663,20 +670,19 @@ function botAssignmentModeValid(value: unknown): value is BotAssignmentMode {
   );
 }
 
-function timeToMinutes(value: string | null) {
-  if (!value) return null;
-  const [hours, minutes] = value.split(":").map(Number);
-  if (
-    !Number.isInteger(hours) ||
-    !Number.isInteger(minutes) ||
-    hours < 0 ||
-    hours > 23 ||
-    minutes < 0 ||
-    minutes > 59
-  ) {
-    return null;
-  }
-  return hours * 60 + minutes;
+function workspaceTimeZone(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId?: string,
+) {
+  const account = whatsappAccountId
+    ? database.whatsappAccounts.find(
+        (item) =>
+          item.id === whatsappAccountId && item.workspaceId === workspaceId,
+      )
+    : undefined;
+  const workspace = database.workspaces.find((item) => item.id === workspaceId);
+  return account?.timezone || workspace?.timezone || "America/Mexico_City";
 }
 
 function isBusinessOpen(
@@ -685,25 +691,11 @@ function isBusinessOpen(
   whatsappAccountId: string,
   date = new Date(),
 ) {
-  const accountHours = database.businessHours.filter(
-    (item) =>
-      item.workspaceId === workspaceId &&
-      item.whatsappAccountId === whatsappAccountId,
+  return isBusinessOpenAt(
+    hoursForAccount(database.businessHours, workspaceId, whatsappAccountId),
+    date,
+    workspaceTimeZone(database, workspaceId, whatsappAccountId),
   );
-  const hours = accountHours.length
-    ? accountHours
-    : database.businessHours.filter(
-        (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
-      );
-  if (!hours.length) return true;
-  const today = hours.find((item) => item.dayOfWeek === date.getDay());
-  if (!today) return true;
-  if (today.isClosed) return false;
-  const opensAt = timeToMinutes(today.opensAt);
-  const closesAt = timeToMinutes(today.closesAt);
-  if (opensAt === null || closesAt === null) return true;
-  const current = date.getHours() * 60 + date.getMinutes();
-  return current >= opensAt && current < closesAt;
 }
 
 function ruleMatches(rule: AutomationRule, incomingText: string) {
@@ -1327,6 +1319,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       "conversation.updated",
       result.conversation,
     );
+    return status;
   }
 
   const faqSweepInFlight = new Map<string, Promise<number>>();
@@ -4755,6 +4748,137 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         result.conversation,
       );
       ok(res, result.conversation, result.created ? 201 : 200);
+    }),
+  );
+
+  const weAreOpenInFlight = new Set<string>();
+
+  router.post(
+    "/conversations/we-are-open",
+    requireRole(ownerAdmin),
+    rateLimit({
+      key: (req) =>
+        `we-are-open:${req.workspaceContext?.workspace.id ?? req.ip}`,
+      limit: 6,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId =
+        readOptionalString(req.body?.whatsappAccountId) ??
+        readOptionalString(req.query.whatsappAccountId) ??
+        null;
+      const lockKey = `${context.workspace.id}:${accountId ?? "all"}`;
+      if (weAreOpenInFlight.has(lockKey)) {
+        throw new ApiError({
+          status: 409,
+          code: "WE_ARE_OPEN_IN_FLIGHT",
+          message: "Ya se esta enviando el aviso de apertura.",
+        });
+      }
+      weAreOpenInFlight.add(lockKey);
+      try {
+        const database = await store.read();
+        const targets = database.conversations.filter((conversation) => {
+          if (conversation.workspaceId !== context.workspace.id) return false;
+          if (accountId && conversation.whatsappAccountId !== accountId) {
+            return false;
+          }
+          if (isGroupConversation(database, conversation)) return false;
+          const contact = database.contacts.find(
+            (item) => item.id === conversation.contactId,
+          );
+          if (!contact?.phoneNumber) return false;
+          if (
+            findBlockedAutomationContact(
+              database,
+              context.workspace.id,
+              contact.phoneNumber,
+            )
+          ) {
+            return false;
+          }
+          const account = database.whatsappAccounts.find(
+            (item) => item.id === conversation.whatsappAccountId,
+          );
+          if (!account || account.status !== "connected" || !account.enabled) {
+            return false;
+          }
+          return conversationWroteWhileClosed({
+            conversation,
+            messages: database.messages,
+            logs: database.automationDecisionLogs,
+            hours: hoursForAccount(
+              database.businessHours,
+              context.workspace.id,
+              conversation.whatsappAccountId,
+            ),
+            timeZone: workspaceTimeZone(
+              database,
+              context.workspace.id,
+              conversation.whatsappAccountId,
+            ),
+          });
+        });
+
+        let sent = 0;
+        let failed = 0;
+        for (const conversation of targets) {
+          const contact = database.contacts.find(
+            (item) => item.id === conversation.contactId,
+          );
+          if (!contact) {
+            failed += 1;
+            continue;
+          }
+          try {
+            const status = await sendAutomationReply({
+              workspaceId: context.workspace.id,
+              accountId: conversation.whatsappAccountId,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              inboundMessageId: conversation.id,
+              to: contact.phoneNumber,
+              text: WE_ARE_OPEN_MESSAGE,
+              botId: null,
+              assignmentId: null,
+              reason: WE_ARE_OPEN_REASON,
+              skipDecisionLog: true,
+            });
+            if (status === "failed") {
+              failed += 1;
+              continue;
+            }
+            await store.update((current) => {
+              current.automationDecisionLogs.push({
+                id: id("automation_decision"),
+                workspaceId: context.workspace.id,
+                whatsappAccountId: conversation.whatsappAccountId,
+                conversationId: conversation.id,
+                messageId: conversation.id,
+                botId: null,
+                assignmentId: null,
+                decision: "static_reply",
+                reason: WE_ARE_OPEN_REASON,
+                responseText: WE_ARE_OPEN_MESSAGE,
+                createdAt: now(),
+              });
+            });
+            sent += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+
+        ok(res, {
+          message: WE_ARE_OPEN_MESSAGE,
+          targeted: targets.length,
+          sent,
+          failed,
+        });
+      } finally {
+        weAreOpenInFlight.delete(lockKey);
+      }
     }),
   );
 

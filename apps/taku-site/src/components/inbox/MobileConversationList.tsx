@@ -27,8 +27,10 @@ import {
   fetchBlockedContacts,
   fetchConversations,
   pinConversation,
+  sendWeAreOpenNotice,
   updateAutomationBlock,
 } from "./api";
+import { weAreOpenMenuItems } from "./inboxView";
 import {
   accountStatusLabel,
   conversationTitle,
@@ -132,6 +134,7 @@ export function MobileConversationList({
   const [newPhone, setNewPhone] = useState("");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [editContact, setEditContact] = useState<InboxConversation | null>(
     null,
@@ -354,6 +357,35 @@ export function MobileConversationList({
       );
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleWeAreOpen() {
+    if (sendingOpenNotice) return;
+    const confirmed = window.confirm(
+      "Enviar 'ya estamos en servicio' a quienes escribieron cuando estaba cerrado?",
+    );
+    if (!confirmed) return;
+    setSendingOpenNotice(true);
+    setError(null);
+    try {
+      const result = await sendWeAreOpenNotice(account?.id);
+      setError(
+        result.sent === 0 && result.failed === 0
+          ? "Nadie escribio fuera de horario desde el ultimo aviso."
+          : `Aviso enviado a ${result.sent} chat${result.sent === 1 ? "" : "s"}${
+              result.failed ? `. ${result.failed} fallaron.` : "."
+            }`,
+      );
+      void loadList();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo enviar el aviso de apertura.",
+      );
+    } finally {
+      setSendingOpenNotice(false);
     }
   }
 
@@ -748,6 +780,9 @@ export function MobileConversationList({
           items={
             threadPhone
               ? [
+                  ...weAreOpenMenuItems(() => {
+                    void handleWeAreOpen();
+                  }),
                   {
                     label: "Editar contacto",
                     onSelect: () => {
@@ -796,6 +831,9 @@ export function MobileConversationList({
                   },
                 ]
               : [
+                  ...weAreOpenMenuItems(() => {
+                    void handleWeAreOpen();
+                  }),
                   {
                     label: "Agregar grupo",
                     onSelect: () => setGroupModalOpen(true),

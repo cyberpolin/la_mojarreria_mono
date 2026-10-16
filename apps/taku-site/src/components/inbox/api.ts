@@ -417,6 +417,20 @@ export async function punchAttendance(params: {
   });
 }
 
+export type WeAreOpenResult = {
+  message: string;
+  targeted: number;
+  sent: number;
+  failed: number;
+};
+
+export async function sendWeAreOpenNotice(whatsappAccountId?: string) {
+  return takuApi<WeAreOpenResult>("/conversations/we-are-open", {
+    method: "POST",
+    body: JSON.stringify(whatsappAccountId ? { whatsappAccountId } : {}),
+  });
+}
+
 export async function setWhatsAppTimeClock(
   accountId: string,
   timeClockEnabled: boolean,

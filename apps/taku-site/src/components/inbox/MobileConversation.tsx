@@ -10,7 +10,9 @@ import {
   fetchNewestMessages,
   markConversationRead,
   sendConversationMessage,
+  sendWeAreOpenNotice,
 } from "./api";
+import { weAreOpenMenuItems } from "./inboxView";
 import {
   accountStatusLabel,
   cx,
@@ -201,6 +203,7 @@ export function MobileConversation({
   const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
   const [editContactOpen, setEditContactOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
+  const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const conversationRef = useRef<InboxConversation | null>(null);
@@ -410,6 +413,36 @@ export function MobileConversation({
       setError(caught instanceof Error ? caught.message : "No se pudo enviar.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleWeAreOpen() {
+    if (sendingOpenNotice) return;
+    const confirmed = window.confirm(
+      "Enviar 'ya estamos en servicio' a quienes escribieron cuando estaba cerrado?",
+    );
+    if (!confirmed) return;
+    setSendingOpenNotice(true);
+    setError(null);
+    try {
+      const result = await sendWeAreOpenNotice(
+        account?.id ?? conversation?.whatsappAccount?.id,
+      );
+      setError(
+        result.sent === 0 && result.failed === 0
+          ? "Nadie escribio fuera de horario desde el ultimo aviso."
+          : `Aviso enviado a ${result.sent} chat${result.sent === 1 ? "" : "s"}${
+              result.failed ? `. ${result.failed} fallaron.` : "."
+            }`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo enviar el aviso de apertura.",
+      );
+    } finally {
+      setSendingOpenNotice(false);
     }
   }
 
@@ -687,6 +720,9 @@ export function MobileConversation({
         <MobileContextMenu
           title={title}
           items={[
+            ...weAreOpenMenuItems(() => {
+              void handleWeAreOpen();
+            }),
             ...(!isGroupConversation(conversation) && lockedPhone
               ? [
                   {

@@ -15,7 +15,8 @@ import { clearReturnOrder, hasOrderReturn } from "./inboxReturn";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
-import { inboxViewMenuItems } from "./inboxView";
+import { inboxViewMenuItems, weAreOpenMenuItems } from "./inboxView";
+import { sendWeAreOpenNotice } from "./api";
 import { ensureWeeklyReport } from "./weeklyReport";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
@@ -80,6 +81,7 @@ export function ConversationList({
       ? "No hay conversaciones."
       : "No hay conversaciones para este filtro.";
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
+  const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
   const faqLights = useUnreadFaqLights(conversations);
   const [listTab, setListTab] = useState<InboxListTab>("chats");
   const searchParams = useSearchParams();
@@ -90,6 +92,35 @@ export function ConversationList({
   useEffect(() => {
     if (ensureWeeklyReport().justGenerated) setListTab("pedidos");
   }, []);
+
+  async function handleWeAreOpen() {
+    if (sendingOpenNotice) return;
+    const confirmed = window.confirm(
+      "Enviar 'ya estamos en servicio' a quienes escribieron cuando estaba cerrado?",
+    );
+    if (!confirmed) return;
+    setSendingOpenNotice(true);
+    try {
+      const result = await sendWeAreOpenNotice(
+        accountId !== "all" ? accountId : undefined,
+      );
+      window.alert(
+        result.sent === 0 && result.failed === 0
+          ? "Nadie escribio fuera de horario desde el ultimo aviso."
+          : `Aviso enviado a ${result.sent} chat${result.sent === 1 ? "" : "s"}${
+              result.failed ? `. ${result.failed} fallaron.` : "."
+            }`,
+      );
+    } catch (caught) {
+      window.alert(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo enviar el aviso de apertura.",
+      );
+    } finally {
+      setSendingOpenNotice(false);
+    }
+  }
 
   return (
     <aside className="relative flex min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -272,6 +303,9 @@ export function ConversationList({
         <MobileContextMenu
           title={conversationTitle(rowMenu)}
           items={[
+            ...weAreOpenMenuItems(() => {
+              void handleWeAreOpen();
+            }),
             ...inboxViewMenuItems(),
             ...(isGroupConversation(rowMenu)
               ? [

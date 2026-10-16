@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { getWorkspaceSession } from "@/lib/taku-api";
 
 export const INBOX_VIEW_KEY = "MOJARRERIA_TAKU_INBOX_VIEW";
 export const INBOX_VIEW_CHANGED_EVENT = "mojarreria-inbox-view-changed";
@@ -57,6 +58,12 @@ export function useInboxView() {
   return stored;
 }
 
+export function canSendWeAreOpen() {
+  const session = getWorkspaceSession();
+  const role = session?.currentWorkspace.role ?? session?.role;
+  return role === "owner" || role === "admin";
+}
+
 export function inboxViewMenuItems() {
   if (isMobileInboxPath(currentPathname())) return [];
   const view = readStoredInboxView();
@@ -68,6 +75,19 @@ export function inboxViewMenuItems() {
     {
       label: view === "agent" ? "ver como agente · activa" : "ver como agente",
       onSelect: () => setInboxView("agent"),
+    },
+  ];
+}
+
+export function weAreOpenMenuItems(onSelect: () => void) {
+  if (!canSendWeAreOpen()) return [];
+  if (!isMobileInboxPath(currentPathname()) && readInboxView() !== "owner") {
+    return [];
+  }
+  return [
+    {
+      label: "Avisar que estamos abiertos",
+      onSelect,
     },
   ];
 }
