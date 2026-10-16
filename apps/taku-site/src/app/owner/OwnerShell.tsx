@@ -47,6 +47,7 @@ export function OwnerShell({
     selected: OwnerTenant | null;
     numbers: OwnerWhatsAppNumber[];
     isLoading: boolean;
+    isLoadingNumbers: boolean;
     error: string | null;
     refreshNumbers: () => void;
   }) => ReactNode;
@@ -57,6 +58,7 @@ export function OwnerShell({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [numbers, setNumbers] = useState<OwnerWhatsAppNumber[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingNumbers, setIsLoadingNumbers] = useState(true);
   const [isSwitching, setIsSwitching] = useState(false);
   const [numbersKey, setNumbersKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -136,9 +138,11 @@ export function OwnerShell({
   useEffect(() => {
     if (!selectedId) {
       setNumbers([]);
+      setIsLoadingNumbers(false);
       return;
     }
     let cancelled = false;
+    setIsLoadingNumbers(true);
     void takuPaginated<OwnerWhatsAppNumber>("/whatsapp-accounts?pageSize=100")
       .then((result) => {
         if (cancelled) return;
@@ -147,11 +151,15 @@ export function OwnerShell({
       })
       .catch((caught) => {
         if (cancelled) return;
+        setNumbers([]);
         setError(
           caught instanceof Error
             ? caught.message
             : "No se pudieron cargar los numeros.",
         );
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingNumbers(false);
       });
     return () => {
       cancelled = true;
@@ -294,6 +302,7 @@ export function OwnerShell({
               selected,
               numbers,
               isLoading: isLoading || isSwitching,
+              isLoadingNumbers,
               error,
               refreshNumbers: () => setNumbersKey((current) => current + 1),
             })}

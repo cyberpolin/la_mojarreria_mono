@@ -905,6 +905,86 @@ function findBlockedAutomationContact(
   );
 }
 
+function readWhatsAppAccountId(req: Request) {
+  return (
+    readOptionalString(req.query.whatsappAccountId) ??
+    readOptionalString(req.body?.whatsappAccountId)
+  );
+}
+
+function requireWhatsAppAccountId(req: Request) {
+  const value = readWhatsAppAccountId(req);
+  if (!value) {
+    throw new ApiError({
+      status: 400,
+      code: "WHATSAPP_ACCOUNT_REQUIRED",
+      message: "Numero de WhatsApp requerido.",
+    });
+  }
+  return value;
+}
+
+function listFaqAutoRepliesForAccount(
+  database: Database,
+  workspaceId: string,
+  accountId: string,
+) {
+  const createdAt = now();
+  const workspaceItems = database.faqAutoReplies.filter(
+    (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+  );
+  const accountItems = database.faqAutoReplies.filter(
+    (item) =>
+      item.workspaceId === workspaceId && item.whatsappAccountId === accountId,
+  );
+
+  for (const intent of FAQ_AUTO_REPLY_INTENTS) {
+    if (accountItems.some((item) => item.intent === intent)) continue;
+    const source = workspaceItems.find((item) => item.intent === intent);
+    const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
+    const item: FaqAutoReply = {
+      id: id("faq_auto_reply"),
+      workspaceId,
+      whatsappAccountId: accountId,
+      intent,
+      title: source?.title ?? defaults.title,
+      phrases: [...(source?.phrases ?? defaults.phrases)],
+      responseText: source?.responseText ?? defaults.responseText,
+      enabled: source?.enabled ?? true,
+      threshold: parseThreshold(source?.threshold),
+      createdAt,
+      updatedAt: createdAt,
+    };
+    database.faqAutoReplies.push(item);
+    accountItems.push(item);
+  }
+
+  if (accountItems.every((item) => isFaqAutoReplyIntent(item.intent))) {
+    for (const source of workspaceItems.filter(
+      (item) => !isFaqAutoReplyIntent(item.intent),
+    )) {
+      const item: FaqAutoReply = {
+        ...source,
+        id: id("faq_auto_reply"),
+        whatsappAccountId: accountId,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      database.faqAutoReplies.push(item);
+      accountItems.push(item);
+    }
+  }
+
+  const system = FAQ_AUTO_REPLY_INTENTS.flatMap((intent) => {
+    const item = accountItems.find((row) => row.intent === intent);
+    return item ? [item] : [];
+  });
+  const custom = accountItems
+    .filter((item) => !isFaqAutoReplyIntent(item.intent))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  return [...system, ...custom];
+}
+
 function afterHoursResponderValid(
   value: unknown,
 ): value is "static_message" | "assigned_bot" | "none" {
@@ -1387,7 +1467,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         if (!lastInbound) continue;
         const timeZone = workspace.timezone || "America/Mexico_City";
         const text = lastInbound.body?.trim() ?? "";
-        const faqReply = findMatchingFaqAutoReply(replies, workspaceId, text);
+        const faqReply = findMatchingFaqAutoReply(
+          replies,
+          workspaceId,
+          text,
+          account.id,
+        );
         if (!faqReply) continue;
 
         const reason = `faq_auto_reply:${faqReply.intent}`;
@@ -1611,6 +1696,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       database.faqAutoReplies ?? [],
       params.workspaceId,
       params.text,
+      params.accountId,
     );
     const timeZone = workspaceRecord?.timezone ?? "America/Mexico_City";
     const faqAlreadySentToday = faqReply
@@ -5657,44 +5743,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
       const items = await store.update((database) => {
-        const createdAt = now();
-        for (const intent of FAQ_AUTO_REPLY_INTENTS) {
-          const existing = database.faqAutoReplies.find(
-            (item) =>
-              item.workspaceId === context.workspace.id &&
-              item.intent === intent,
-          );
-          if (existing) {
-            existing.threshold = parseThreshold(existing.threshold);
-            continue;
-          }
-          const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
-          const item: FaqAutoReply = {
-            id: id("faq_auto_reply"),
-            workspaceId: context.workspace.id,
-            intent,
-            title: defaults.title,
-            phrases: [...defaults.phrases],
-            responseText: defaults.responseText,
-            enabled: true,
-            threshold: 80,
-            createdAt,
-            updatedAt: createdAt,
-          };
-          database.faqAutoReplies.push(item);
-        }
-        const workspaceItems = database.faqAutoReplies.filter(
-          (item) => item.workspaceId === context.workspace.id,
+        findAccount(database, context.workspace.id, accountId);
+        return listFaqAutoRepliesForAccount(
+          database,
+          context.workspace.id,
+          accountId,
         );
-        const system = FAQ_AUTO_REPLY_INTENTS.flatMap((intent) => {
-          const item = workspaceItems.find((row) => row.intent === intent);
-          return item ? [item] : [];
-        });
-        const custom = workspaceItems
-          .filter((item) => !isFaqAutoReplyIntent(item.intent))
-          .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-        return [...system, ...custom];
       });
       ok(res, items);
     }),
@@ -5705,6 +5761,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
       const title =
         typeof req.body?.title === "string" && req.body.title.trim()
           ? req.body.title.trim()
@@ -5723,9 +5780,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
       const threshold = parseThreshold(req.body?.threshold);
       const item = await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
         const created: FaqAutoReply = {
           id: id("faq_auto_reply"),
           workspaceId: context.workspace.id,
+          whatsappAccountId: accountId,
           intent: id("faq_intent"),
           title,
           phrases,
@@ -5748,6 +5807,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
       const key = String(req.params.key ?? "");
       const phrases = parsePhrases(req.body?.phrases);
       const responseText =
@@ -5765,9 +5825,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
       const threshold = parseThreshold(req.body?.threshold);
       const item = await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
         const existing = database.faqAutoReplies.find(
           (row) =>
             row.workspaceId === context.workspace.id &&
+            row.whatsappAccountId === accountId &&
             (row.id === key || row.intent === key),
         );
         if (existing) {
@@ -5790,6 +5852,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         const created: FaqAutoReply = {
           id: id("faq_auto_reply"),
           workspaceId: context.workspace.id,
+          whatsappAccountId: accountId,
           intent: key,
           title: title || defaults.title,
           phrases,
@@ -5812,11 +5875,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
       const key = String(req.params.key ?? "");
       await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
         const index = database.faqAutoReplies.findIndex(
           (row) =>
             row.workspaceId === context.workspace.id &&
+            row.whatsappAccountId === accountId &&
             (row.id === key || row.intent === key),
         );
         if (index < 0) {

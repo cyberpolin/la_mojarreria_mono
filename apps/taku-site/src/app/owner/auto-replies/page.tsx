@@ -1,18 +1,12 @@
 "use client";
 
-import { AutoRepliesPanel } from "@/components/inbox/AutoRepliesPanel";
-import { NumberBreadcrumb } from "../NumberBreadcrumb";
-import { OwnerShell } from "../OwnerShell";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-export default function OwnerAutoRepliesPage() {
-  return (
-    <OwnerShell headerLabel="Informacion general">
-      {() => (
-        <div className="grid gap-6">
-          <NumberBreadcrumb current="Respuestas automaticas" />
-          <AutoRepliesPanel />
-        </div>
-      )}
-    </OwnerShell>
-  );
+export default function OwnerAutoRepliesRedirectPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/owner");
+  }, [router]);
+  return null;
 }

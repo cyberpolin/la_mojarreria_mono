@@ -222,7 +222,7 @@ function AutoReplyCard({
   );
 }
 
-export function AutoRepliesPanel() {
+export function AutoRepliesPanel({ accountId }: { accountId: string }) {
   const [items, setItems] = useState<FaqAutoReply[]>(() =>
     readCachedFaqAutoReplies(),
   );
@@ -233,8 +233,9 @@ export function AutoRepliesPanel() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!accountId) return;
     let cancelled = false;
-    void fetchFaqAutoReplies()
+    void fetchFaqAutoReplies(accountId)
       .then((next) => {
         if (!cancelled) setItems(next);
       })
@@ -249,14 +250,14 @@ export function AutoRepliesPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accountId]);
 
   const updateItem = (next: FaqAutoReply) => {
     setItems(upsertCachedFaqAutoReply(next));
   };
 
   const addReply = () => {
-    const created = createLocalFaqAutoReply();
+    const created = createLocalFaqAutoReply(accountId);
     setItems(upsertCachedFaqAutoReply(created));
     setMessage("Nueva respuesta agregada. Completa frases, umbral y texto.");
   };

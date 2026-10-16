@@ -5,6 +5,7 @@ export type FaqAutoReplyIntent = "horarios" | "ubicacion" | "envio";
 export type FaqAutoReply = {
   id: string;
   workspaceId: string;
+  whatsappAccountId: string | null;
   intent: string;
   title: string;
   phrases: string[];
@@ -69,7 +70,7 @@ export const FAQ_AUTO_REPLY_DEFAULTS: Record<
 };
 
 const STORAGE_KEY = "MOJARRERIA_TAKU_FAQ_AUTO_REPLIES";
-const STORAGE_VERSION = 2;
+const STORAGE_VERSION = 3;
 
 type StoredFaqAutoReplies = {
   version: number;
@@ -141,13 +142,17 @@ export function scoreReplyAcceptance(text: string, phrases: string[]) {
   return clampScore(Math.max(...hits, (1 - miss) * 100));
 }
 
-export function defaultFaqAutoReplies(workspaceId = ""): FaqAutoReply[] {
+export function defaultFaqAutoReplies(
+  workspaceId = "",
+  whatsappAccountId: string | null = null,
+): FaqAutoReply[] {
   const stamp = nowIso();
   return FAQ_AUTO_REPLY_INTENTS.map((intent) => {
     const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
     return {
       id: `local-${intent}`,
       workspaceId,
+      whatsappAccountId,
       intent,
       title: defaults.title,
       phrases: [...defaults.phrases],
@@ -169,6 +174,10 @@ function normalizeReply(value: unknown): FaqAutoReply | null {
   return {
     id: item.id,
     workspaceId: typeof item.workspaceId === "string" ? item.workspaceId : "",
+    whatsappAccountId:
+      typeof item.whatsappAccountId === "string"
+        ? item.whatsappAccountId
+        : null,
     intent: item.intent,
     title:
       typeof item.title === "string" && item.title.trim()
@@ -259,12 +268,15 @@ export function removeCachedFaqAutoReply(id: string) {
   return next;
 }
 
-export function createLocalFaqAutoReply(): FaqAutoReply {
+export function createLocalFaqAutoReply(
+  whatsappAccountId: string | null = null,
+): FaqAutoReply {
   const stamp = nowIso();
   const token = `${Date.now().toString(36)}`;
   return {
     id: `local-${token}`,
     workspaceId: "",
+    whatsappAccountId,
     intent: `custom-${token}`,
     title: "Nueva respuesta",
     phrases: [],
@@ -276,27 +288,14 @@ export function createLocalFaqAutoReply(): FaqAutoReply {
   };
 }
 
-let faqPersistPromise: Promise<void> | null = null;
-
-export async function persistLocalFaqAutoReplies() {
-  if (faqPersistPromise) return faqPersistPromise;
-  faqPersistPromise = (async () => {
-    const items = readCachedFaqAutoReplies().filter(
-      (item) => item.enabled && item.responseText.trim().length > 0,
-    );
-    for (const item of items) {
-      try {
-        await saveFaqAutoReply(item);
-      } catch {
-        // Keep listing even if one reply cannot sync.
-      }
-    }
-  })();
-  return faqPersistPromise;
+function faqAccountQuery(accountId: string) {
+  return `whatsappAccountId=${encodeURIComponent(accountId)}`;
 }
 
-export async function fetchFaqAutoReplies() {
-  const items = await takuApi<FaqAutoReply[]>("/faq-auto-replies");
+export async function fetchFaqAutoReplies(whatsappAccountId: string) {
+  const items = await takuApi<FaqAutoReply[]>(
+    `/faq-auto-replies?${faqAccountQuery(whatsappAccountId)}`,
+  );
   writeCachedFaqAutoReplies(
     items.map((item) => normalizeReply(item)!).filter(Boolean),
   );
@@ -309,16 +308,23 @@ type FaqAutoReplyPayload = {
   responseText: string;
   enabled: boolean;
   threshold: number;
+  whatsappAccountId: string;
 };
 
 export async function saveFaqAutoReply(item: FaqAutoReply) {
+  const accountId = item.whatsappAccountId;
+  if (!accountId) {
+    throw new Error("Numero de WhatsApp requerido.");
+  }
   const payload: FaqAutoReplyPayload = {
     title: item.title,
     phrases: item.phrases,
     responseText: item.responseText,
     enabled: item.enabled,
     threshold: parseThreshold(item.threshold),
+    whatsappAccountId: accountId,
   };
+  const query = faqAccountQuery(accountId);
   const saved =
     item.id.startsWith("local-") && !isSystemFaqAutoReply(item.intent)
       ? await takuApi<FaqAutoReply>("/faq-auto-replies", {
@@ -326,7 +332,7 @@ export async function saveFaqAutoReply(item: FaqAutoReply) {
           body: JSON.stringify(payload),
         })
       : await takuApi<FaqAutoReply>(
-          `/faq-auto-replies/${isSystemFaqAutoReply(item.intent) ? item.intent : item.id}`,
+          `/faq-auto-replies/${isSystemFaqAutoReply(item.intent) ? item.intent : item.id}?${query}`,
           {
             method: "PUT",
             body: JSON.stringify(payload),
@@ -345,9 +351,16 @@ export async function saveFaqAutoReply(item: FaqAutoReply) {
 
 export async function deleteFaqAutoReply(item: FaqAutoReply) {
   if (!item.id.startsWith("local-")) {
-    await takuApi<{ deleted: boolean }>(`/faq-auto-replies/${item.id}`, {
-      method: "DELETE",
-    });
+    const accountId = item.whatsappAccountId;
+    if (!accountId) {
+      throw new Error("Numero de WhatsApp requerido.");
+    }
+    await takuApi<{ deleted: boolean }>(
+      `/faq-auto-replies/${item.id}?${faqAccountQuery(accountId)}`,
+      {
+        method: "DELETE",
+      },
+    );
   }
   return removeCachedFaqAutoReply(item.id);
 }

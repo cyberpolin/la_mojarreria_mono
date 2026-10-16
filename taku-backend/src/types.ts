@@ -209,6 +209,7 @@ export type BotAssignment = {
 export type FaqAutoReply = {
   id: string;
   workspaceId: string;
+  whatsappAccountId: string | null;
   intent: string;
   title: string;
   phrases: string[];

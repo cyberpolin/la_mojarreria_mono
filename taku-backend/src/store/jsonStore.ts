@@ -92,6 +92,7 @@ function ensureDatabaseCollections(database: Database) {
   target.faqAutoReplies ??= [];
   for (const reply of target.faqAutoReplies) {
     reply.threshold ??= 80;
+    reply.whatsappAccountId ??= null;
   }
   target.automationBlockedContacts ??= [];
   target.automationDecisionLogs ??= [];

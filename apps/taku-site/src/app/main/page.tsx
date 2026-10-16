@@ -3099,7 +3099,15 @@ function AutomationSectionConnected({
           );
         })}
       </div>
-      {automationTab === "respuestas" ? <AutoRepliesPanel /> : null}
+      {automationTab === "respuestas" ? (
+        assignmentPhone ? (
+          <AutoRepliesPanel key={assignmentPhone} accountId={assignmentPhone} />
+        ) : (
+          <p className="text-sm text-slate-500">
+            Selecciona un numero para editar sus respuestas automaticas.
+          </p>
+        )
+      ) : null}
       {automationTab === "general" && message ? (
         <div className="rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-700">
           {message}

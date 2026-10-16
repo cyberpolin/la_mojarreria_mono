@@ -21,7 +21,14 @@ export default function OwnerDashboardV2Page() {
 
   return (
     <OwnerShell headerLabel="Informacion general">
-      {({ selected, numbers, isLoading, error, refreshNumbers }) => {
+      {({
+        selected,
+        numbers,
+        isLoading,
+        isLoadingNumbers,
+        error,
+        refreshNumbers,
+      }) => {
         if (error) {
           return (
             <div className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-700">
@@ -49,6 +56,7 @@ export default function OwnerDashboardV2Page() {
               <DriversGroupModeCard key={selected.id} />
               <WhatsAppNumbersCard
                 numbers={numbers}
+                isLoading={isLoadingNumbers}
                 onEditNumber={(numberId) =>
                   router.push(`/owner/numbers/${numberId}`)
                 }
@@ -57,7 +65,9 @@ export default function OwnerDashboardV2Page() {
                   setDeleting(number);
                 }}
                 onAddNumber={() => setIsAddingNumber(true)}
-                onEditAutoReplies={() => router.push("/owner/auto-replies")}
+                onEditAutoReplies={(numberId) =>
+                  router.push(`/owner/numbers/${numberId}/auto-replies`)
+                }
                 onOpenInbox={(number) => {
                   const phone = (number.phoneNumber ?? "").replace(/\D/g, "");
                   router.push(

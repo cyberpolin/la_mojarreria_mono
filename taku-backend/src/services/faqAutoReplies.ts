@@ -218,21 +218,46 @@ export function wasFaqAutoReplySentToday(
   );
 }
 
+export function repliesForWhatsAppAccount<
+  T extends {
+    workspaceId: string;
+    whatsappAccountId?: string | null;
+  },
+>(replies: T[], workspaceId: string, whatsappAccountId: string) {
+  const scoped = replies.filter(
+    (item) =>
+      item.workspaceId === workspaceId &&
+      item.whatsappAccountId === whatsappAccountId,
+  );
+  if (scoped.length > 0) return scoped;
+  return replies.filter(
+    (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+  );
+}
+
 export function findMatchingFaqAutoReply<
   T extends {
     workspaceId: string;
+    whatsappAccountId?: string | null;
     intent?: string;
     phrases: string[];
     responseText: string;
     enabled: boolean;
     threshold?: number;
   },
->(replies: T[], workspaceId: string, incomingText: string) {
+>(
+  replies: T[],
+  workspaceId: string,
+  incomingText: string,
+  whatsappAccountId?: string,
+) {
   const text = normalizeFaqPhrase(incomingText);
   if (!text) return null;
+  const pool = whatsappAccountId
+    ? repliesForWhatsAppAccount(replies, workspaceId, whatsappAccountId)
+    : replies.filter((item) => item.workspaceId === workspaceId);
   let best: { reply: T; score: number } | null = null;
-  for (const reply of replies) {
-    if (reply.workspaceId !== workspaceId) continue;
+  for (const reply of pool) {
     if (!reply.enabled || !reply.responseText.trim()) continue;
     const score = Math.max(
       scoreReplyAcceptance(incomingText, reply.phrases),

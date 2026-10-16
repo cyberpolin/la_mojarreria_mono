@@ -92,6 +92,7 @@ function DotsIcon() {
 
 export function WhatsAppNumbersCard({
   numbers,
+  isLoading = false,
   onEditNumber,
   onDeleteNumber,
   onOpenInbox,
@@ -99,11 +100,12 @@ export function WhatsAppNumbersCard({
   onEditAutoReplies,
 }: {
   numbers: OwnerWhatsAppNumber[];
+  isLoading?: boolean;
   onEditNumber: (numberId: string) => void;
   onDeleteNumber: (number: OwnerWhatsAppNumber) => void;
   onOpenInbox: (number: OwnerWhatsAppNumber) => void;
   onAddNumber: () => void;
-  onEditAutoReplies: () => void;
+  onEditAutoReplies: (numberId: string) => void;
 }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -131,26 +133,25 @@ export function WhatsAppNumbersCard({
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
           Numeros conectados
         </p>
-        <div className="flex flex-wrap items-center gap-1">
-          <button
-            type="button"
-            onClick={onEditAutoReplies}
-            className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-          >
-            Respuestas automaticas
-          </button>
-          <button
-            type="button"
-            onClick={onAddNumber}
-            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-          >
-            <span aria-hidden="true">+</span>
-            Agregar numero
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onAddNumber}
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+        >
+          <span aria-hidden="true">+</span>
+          Agregar numero
+        </button>
       </div>
 
-      {numbers.length === 0 ? (
+      {isLoading ? (
+        <div className="mt-5 flex min-h-24 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+          <span
+            role="status"
+            aria-label="Cargando numeros"
+            className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-950"
+          />
+        </div>
+      ) : numbers.length === 0 ? (
         <div className="mt-5 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
           Este tenant no tiene numeros de WhatsApp.
         </div>
@@ -272,17 +273,23 @@ export function WhatsAppNumbersCard({
                     ) : null}
                   </dl>
                 ) : null}
-                {phone ? (
-                  <div
-                    className="mt-4"
-                    onClick={(event) => event.stopPropagation()}
-                    onKeyDown={(event) => event.stopPropagation()}
-                  >
+                <div
+                  className="mt-4 flex flex-wrap gap-2"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                >
+                  {phone ? (
                     <Button onClick={() => onOpenInbox(number)}>
                       Abrir chat
                     </Button>
-                  </div>
-                ) : null}
+                  ) : null}
+                  <Button
+                    variant="secondary"
+                    onClick={() => onEditAutoReplies(number.id)}
+                  >
+                    Respuestas automaticas
+                  </Button>
+                </div>
               </div>
             );
           })}
