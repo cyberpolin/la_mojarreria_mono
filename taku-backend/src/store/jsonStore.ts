@@ -22,6 +22,7 @@ import type {
   Database,
   Membership,
   Message,
+  Role,
   PaymentIntent,
   Preferences,
   User,
@@ -885,10 +886,92 @@ function ensureTestData(database: Database) {
   return changed;
 }
 
+function ensureWorkspaceLoginUsers(database: Database) {
+  const workspace =
+    database.workspaces.find((item) => item.slug === "la-mojarreria") ??
+    database.workspaces[0];
+  if (!workspace) return false;
+  const timestamp = now();
+  let changed = false;
+
+  function upsertMembership(userId: string, role: Role) {
+    const membership = database.memberships.find(
+      (item) => item.workspaceId === workspace.id && item.userId === userId,
+    );
+    if (!membership) {
+      database.memberships.push({
+        id: id("membership"),
+        workspaceId: workspace.id,
+        userId,
+        role,
+        status: "active",
+        invitationSentAt: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      return true;
+    }
+    if (membership.role === role && membership.status === "active") {
+      return false;
+    }
+    membership.role = role;
+    membership.status = "active";
+    membership.updatedAt = timestamp;
+    return true;
+  }
+
+  const tabletEmail = config.tabletAgentEmail;
+  let tablet = database.users.find(
+    (item) => item.email.toLowerCase() === tabletEmail,
+  );
+  if (!tablet) {
+    tablet = {
+      id: id("user"),
+      name: config.tabletAgentName,
+      email: tabletEmail,
+      passwordHash: hashPassword(config.tabletAgentPassword),
+      status: "active",
+      lastLoginAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    database.users.push(tablet);
+    changed = true;
+  } else {
+    if (tablet.status !== "active") {
+      tablet.status = "active";
+      tablet.updatedAt = timestamp;
+      changed = true;
+    }
+    if (!verifyPassword(config.tabletAgentPassword, tablet.passwordHash)) {
+      tablet.passwordHash = hashPassword(config.tabletAgentPassword);
+      tablet.updatedAt = timestamp;
+      changed = true;
+    }
+  }
+  changed = upsertMembership(tablet.id, "agent") || changed;
+
+  const ownerEmail = config.ownerClientEmail;
+  const owner = database.users.find(
+    (item) => item.email.toLowerCase() === ownerEmail,
+  );
+  if (owner) {
+    if (owner.status !== "active") {
+      owner.status = "active";
+      owner.updatedAt = timestamp;
+      changed = true;
+    }
+    changed = upsertMembership(owner.id, "owner") || changed;
+  }
+
+  return changed;
+}
+
 function hydrateSeed(database: Database) {
   ensureDatabaseCollections(database);
   let changed = ensureSuperUser(database);
   changed = ensureTestData(database) || changed;
+  changed = ensureWorkspaceLoginUsers(database) || changed;
   return changed;
 }
 

@@ -53,14 +53,14 @@ async function backendJson<T>(path: string, init: RequestInit): Promise<T> {
 export async function POST() {
   try {
     const email = (
-      process.env.NEXT_PUBLIC_TAKU_KIOSK_EMAIL ??
       process.env.TAKU_KIOSK_EMAIL ??
-      "owner@owner.com"
+      process.env.NEXT_PUBLIC_TAKU_KIOSK_EMAIL ??
+      "tablet@table.com"
     ).toLowerCase();
     const password =
-      process.env.NEXT_PUBLIC_TAKU_KIOSK_PASSWORD ??
       process.env.TAKU_KIOSK_PASSWORD ??
-      "owner";
+      process.env.NEXT_PUBLIC_TAKU_KIOSK_PASSWORD ??
+      "19801980";
     const login = await backendJson<LoginPayload>("/session/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),

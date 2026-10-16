@@ -21,6 +21,12 @@ function currentPathname() {
   return typeof window === "undefined" ? "" : window.location.pathname;
 }
 
+export function sessionInboxRole(): InboxViewRole {
+  const session = getWorkspaceSession();
+  const role = session?.currentWorkspace.role ?? session?.role;
+  return role === "agent" ? "agent" : "owner";
+}
+
 export function readStoredInboxView(): InboxViewRole {
   if (!canUseStorage()) return "owner";
   const value = window.localStorage.getItem(INBOX_VIEW_KEY);
@@ -28,7 +34,9 @@ export function readStoredInboxView(): InboxViewRole {
 }
 
 export function readInboxView(pathname?: string | null): InboxViewRole {
-  if (isMobileInboxPath(pathname ?? currentPathname())) return "agent";
+  if (isMobileInboxPath(pathname ?? currentPathname())) {
+    return sessionInboxRole();
+  }
   return readStoredInboxView();
 }
 
@@ -54,7 +62,7 @@ export function useInboxView() {
     };
   }, []);
 
-  if (isMobileInboxPath(pathname)) return "agent";
+  if (isMobileInboxPath(pathname)) return sessionInboxRole();
   return stored;
 }
 

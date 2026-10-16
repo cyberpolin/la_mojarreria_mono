@@ -88,6 +88,16 @@ export const config = {
     "TAKU_BACKEND_SUPERADMIN_PASSWORD",
     process.env.SUPERADMIN_PASSWORD?.trim() || "changeme",
   ),
+  tabletAgentEmail: stringValue(
+    "TAKU_TABLET_AGENT_EMAIL",
+    "tablet@table.com",
+  ).toLowerCase(),
+  tabletAgentPassword: stringValue("TAKU_TABLET_AGENT_PASSWORD", "19801980"),
+  tabletAgentName: stringValue("TAKU_TABLET_AGENT_NAME", "Tableta"),
+  ownerClientEmail: stringValue(
+    "TAKU_OWNER_CLIENT_EMAIL",
+    "cyberpolin@gmail.com",
+  ).toLowerCase(),
   allowedOrigins: Array.from(
     new Set([
       ...stringList("TAKU_BACKEND_ALLOWED_ORIGINS", [
