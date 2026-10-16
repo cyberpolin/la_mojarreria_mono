@@ -4823,6 +4823,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
 
         let sent = 0;
         let failed = 0;
+        const recipients: Array<{
+          conversationId: string;
+          name: string | null;
+          phoneNumber: string;
+        }> = [];
         for (const conversation of targets) {
           const contact = database.contacts.find(
             (item) => item.id === conversation.contactId,
@@ -4864,6 +4869,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
                 createdAt: now(),
               });
             });
+            recipients.push({
+              conversationId: conversation.id,
+              name: contact.name,
+              phoneNumber: contact.phoneNumber,
+            });
             sent += 1;
           } catch {
             failed += 1;
@@ -4875,6 +4885,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           targeted: targets.length,
           sent,
           failed,
+          recipients,
         });
       } finally {
         weAreOpenInFlight.delete(lockKey);

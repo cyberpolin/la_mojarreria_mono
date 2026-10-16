@@ -32,6 +32,10 @@ import {
 } from "./api";
 import { weAreOpenMenuItems } from "./inboxView";
 import {
+  WeAreOpenResultSheet,
+  type WeAreOpenResult,
+} from "./WeAreOpenResultSheet";
+import {
   accountStatusLabel,
   conversationTitle,
   cx,
@@ -135,6 +139,8 @@ export function MobileConversationList({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
+  const [openNoticeResult, setOpenNoticeResult] =
+    useState<WeAreOpenResult | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [editContact, setEditContact] = useState<InboxConversation | null>(
     null,
@@ -370,13 +376,10 @@ export function MobileConversationList({
     setError(null);
     try {
       const result = await sendWeAreOpenNotice(account?.id);
-      setError(
-        result.sent === 0 && result.failed === 0
-          ? "Nadie escribio fuera de horario desde el ultimo aviso."
-          : `Aviso enviado a ${result.sent} chat${result.sent === 1 ? "" : "s"}${
-              result.failed ? `. ${result.failed} fallaron.` : "."
-            }`,
-      );
+      setOpenNoticeResult({
+        ...result,
+        recipients: result.recipients ?? [],
+      });
       void loadList();
     } catch (caught) {
       setError(
@@ -492,7 +495,7 @@ export function MobileConversationList({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <header
         id="taku-mobile-header"
         className="bg-slate-900 px-4 pb-3 pt-4 text-white"
@@ -999,6 +1002,12 @@ export function MobileConversationList({
             ))}
           </div>
         </div>
+      ) : null}
+      {openNoticeResult ? (
+        <WeAreOpenResultSheet
+          result={openNoticeResult}
+          onClose={() => setOpenNoticeResult(null)}
+        />
       ) : null}
     </div>
   );

@@ -13,6 +13,7 @@ import type {
   InboxMessage,
   InboxWhatsAppAccount,
 } from "./types";
+import type { WeAreOpenResult } from "./WeAreOpenResultSheet";
 
 const MESSAGE_PAGE_SIZE = 50;
 
@@ -416,13 +417,6 @@ export async function punchAttendance(params: {
     }),
   });
 }
-
-export type WeAreOpenResult = {
-  message: string;
-  targeted: number;
-  sent: number;
-  failed: number;
-};
 
 export async function sendWeAreOpenNotice(whatsappAccountId?: string) {
   return takuApi<WeAreOpenResult>("/conversations/we-are-open", {

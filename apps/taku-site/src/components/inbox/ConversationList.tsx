@@ -17,6 +17,10 @@ import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
 import { inboxViewMenuItems, weAreOpenMenuItems } from "./inboxView";
 import { sendWeAreOpenNotice } from "./api";
+import {
+  WeAreOpenResultSheet,
+  type WeAreOpenResult,
+} from "./WeAreOpenResultSheet";
 import { ensureWeeklyReport } from "./weeklyReport";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
@@ -82,6 +86,8 @@ export function ConversationList({
       : "No hay conversaciones para este filtro.";
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
   const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
+  const [openNoticeResult, setOpenNoticeResult] =
+    useState<WeAreOpenResult | null>(null);
   const faqLights = useUnreadFaqLights(conversations);
   const [listTab, setListTab] = useState<InboxListTab>("chats");
   const searchParams = useSearchParams();
@@ -104,13 +110,10 @@ export function ConversationList({
       const result = await sendWeAreOpenNotice(
         accountId !== "all" ? accountId : undefined,
       );
-      window.alert(
-        result.sent === 0 && result.failed === 0
-          ? "Nadie escribio fuera de horario desde el ultimo aviso."
-          : `Aviso enviado a ${result.sent} chat${result.sent === 1 ? "" : "s"}${
-              result.failed ? `. ${result.failed} fallaron.` : "."
-            }`,
-      );
+      setOpenNoticeResult({
+        ...result,
+        recipients: result.recipients ?? [],
+      });
     } catch (caught) {
       window.alert(
         caught instanceof Error
@@ -323,6 +326,12 @@ export function ConversationList({
                 ]),
           ]}
           onClose={() => setRowMenu(null)}
+        />
+      ) : null}
+      {openNoticeResult ? (
+        <WeAreOpenResultSheet
+          result={openNoticeResult}
+          onClose={() => setOpenNoticeResult(null)}
         />
       ) : null}
     </aside>

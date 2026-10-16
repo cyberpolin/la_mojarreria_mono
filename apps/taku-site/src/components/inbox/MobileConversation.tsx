@@ -14,6 +14,10 @@ import {
 } from "./api";
 import { weAreOpenMenuItems } from "./inboxView";
 import {
+  WeAreOpenResultSheet,
+  type WeAreOpenResult,
+} from "./WeAreOpenResultSheet";
+import {
   accountStatusLabel,
   cx,
   digitsPhone,
@@ -204,6 +208,8 @@ export function MobileConversation({
   const [editContactOpen, setEditContactOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
+  const [openNoticeResult, setOpenNoticeResult] =
+    useState<WeAreOpenResult | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const conversationIdRef = useRef<string | null>(null);
   const conversationRef = useRef<InboxConversation | null>(null);
@@ -428,13 +434,10 @@ export function MobileConversation({
       const result = await sendWeAreOpenNotice(
         account?.id ?? conversation?.whatsappAccount?.id,
       );
-      setError(
-        result.sent === 0 && result.failed === 0
-          ? "Nadie escribio fuera de horario desde el ultimo aviso."
-          : `Aviso enviado a ${result.sent} chat${result.sent === 1 ? "" : "s"}${
-              result.failed ? `. ${result.failed} fallaron.` : "."
-            }`,
-      );
+      setOpenNoticeResult({
+        ...result,
+        recipients: result.recipients ?? [],
+      });
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -807,6 +810,12 @@ export function MobileConversation({
       ) : null}
       {dailyOrdersOpen ? (
         <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
+      ) : null}
+      {openNoticeResult ? (
+        <WeAreOpenResultSheet
+          result={openNoticeResult}
+          onClose={() => setOpenNoticeResult(null)}
+        />
       ) : null}
       {editContactOpen ? (
         <EditContactModal
