@@ -57,6 +57,7 @@ export default function OwnerDashboardV2Page() {
                   setDeleting(number);
                 }}
                 onAddNumber={() => setIsAddingNumber(true)}
+                onEditAutoReplies={() => router.push("/owner/auto-replies")}
                 onOpenInbox={(number) => {
                   const phone = (number.phoneNumber ?? "").replace(/\D/g, "");
                   router.push(

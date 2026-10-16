@@ -4,6 +4,7 @@ import type {
   Conversation,
   Message,
 } from "../types.js";
+import { addDateKey, todayDateKey } from "./weekClose.js";
 
 export const WE_ARE_OPEN_REASON = "we_are_open";
 export const WE_ARE_OPEN_MESSAGE =
@@ -90,6 +91,18 @@ export function isBusinessOpenAt(
   return minutes >= opensAt && minutes < closesAt;
 }
 
+export function currentWeekStartDateKey(now: Date, timeZone: string) {
+  const today = todayDateKey(now, timeZone);
+  const { dayOfWeek } = zonedWeekdayAndMinutes(now, timeZone);
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  return addDateKey(today, -daysSinceMonday) ?? today;
+}
+
+function isInCurrentWeek(iso: string, now: Date, timeZone: string) {
+  const weekStart = currentWeekStartDateKey(now, timeZone);
+  return todayDateKey(new Date(iso), timeZone) >= weekStart;
+}
+
 export function lastReasonAt(
   logs: Array<
     Pick<AutomationDecisionLog, "conversationId" | "reason" | "createdAt">
@@ -117,7 +130,9 @@ export function conversationWroteWhileClosed(params: {
   >;
   hours: BusinessHour[];
   timeZone: string;
+  now?: Date;
 }) {
+  const now = params.now ?? new Date();
   const since =
     lastReasonAt(params.logs, params.conversation.id, WE_ARE_OPEN_REASON) ?? "";
   const closedInbound = params.messages
@@ -126,6 +141,7 @@ export function conversationWroteWhileClosed(params: {
         message.conversationId === params.conversation.id &&
         message.direction === "inbound" &&
         message.createdAt > since &&
+        isInCurrentWeek(message.createdAt, now, params.timeZone) &&
         !isBusinessOpenAt(
           params.hours,
           new Date(message.createdAt),
@@ -140,7 +156,8 @@ export function conversationWroteWhileClosed(params: {
         (log) =>
           log.conversationId === params.conversation.id &&
           log.reason === "after_hours" &&
-          log.createdAt > since,
+          log.createdAt > since &&
+          isInCurrentWeek(log.createdAt, now, params.timeZone),
       )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
       ?.createdAt ?? null;

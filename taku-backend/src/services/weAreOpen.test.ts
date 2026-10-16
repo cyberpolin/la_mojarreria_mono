@@ -8,6 +8,7 @@ import {
 import type { BusinessHour } from "../types.js";
 
 const timeZone = "America/Mexico_City";
+const now = new Date("2026-10-16T18:00:00.000Z");
 const hours: BusinessHour[] = [0, 1, 2, 3, 4, 5, 6].map((day) => ({
   id: `h${day}`,
   workspaceId: "ws",
@@ -40,6 +41,7 @@ test("closed inbound qualifies until we_are_open is sent", () => {
       conversation: { id: "c1" },
       hours,
       timeZone,
+      now,
       messages: [
         {
           conversationId: "c1",
@@ -60,6 +62,7 @@ test("another FAQ-style after_hours log also qualifies", () => {
       conversation: { id: "c1" },
       hours,
       timeZone,
+      now,
       messages: [],
       logs: [
         {
@@ -79,6 +82,7 @@ test("already notified conversations are skipped", () => {
       conversation: { id: "c1" },
       hours,
       timeZone,
+      now,
       messages: [
         {
           conversationId: "c1",
@@ -105,6 +109,7 @@ test("human reply after the closed inbound skips the blast", () => {
       conversation: { id: "c1" },
       hours,
       timeZone,
+      now,
       messages: [
         {
           conversationId: "c1",
@@ -122,5 +127,47 @@ test("human reply after the closed inbound skips the blast", () => {
       logs: [],
     }),
     false,
+  );
+});
+
+test("closed inbound from a previous week is skipped", () => {
+  assert.equal(
+    conversationWroteWhileClosed({
+      conversation: { id: "c1" },
+      hours,
+      timeZone,
+      now,
+      messages: [
+        {
+          conversationId: "c1",
+          direction: "inbound",
+          status: "received",
+          createdAt: "2026-10-08T16:00:00.000Z",
+        },
+      ],
+      logs: [],
+    }),
+    false,
+  );
+});
+
+test("closed inbound from Monday of the current week still qualifies", () => {
+  assert.equal(
+    conversationWroteWhileClosed({
+      conversation: { id: "c1" },
+      hours,
+      timeZone,
+      now,
+      messages: [
+        {
+          conversationId: "c1",
+          direction: "inbound",
+          status: "received",
+          createdAt: "2026-10-12T16:00:00.000Z",
+        },
+      ],
+      logs: [],
+    }),
+    true,
   );
 });

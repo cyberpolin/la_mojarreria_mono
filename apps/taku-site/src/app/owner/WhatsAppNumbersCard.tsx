@@ -96,12 +96,14 @@ export function WhatsAppNumbersCard({
   onDeleteNumber,
   onOpenInbox,
   onAddNumber,
+  onEditAutoReplies,
 }: {
   numbers: OwnerWhatsAppNumber[];
   onEditNumber: (numberId: string) => void;
   onDeleteNumber: (number: OwnerWhatsAppNumber) => void;
   onOpenInbox: (number: OwnerWhatsAppNumber) => void;
   onAddNumber: () => void;
+  onEditAutoReplies: () => void;
 }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -125,18 +127,27 @@ export function WhatsAppNumbersCard({
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-5 md:p-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
           Numeros conectados
         </p>
-        <button
-          type="button"
-          onClick={onAddNumber}
-          className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-        >
-          <span aria-hidden="true">+</span>
-          Agregar numero
-        </button>
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={onEditAutoReplies}
+            className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+          >
+            Respuestas automaticas
+          </button>
+          <button
+            type="button"
+            onClick={onAddNumber}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+          >
+            <span aria-hidden="true">+</span>
+            Agregar numero
+          </button>
+        </div>
       </div>
 
       {numbers.length === 0 ? (
