@@ -7,6 +7,7 @@ import { Button } from "@/components/inbox/ui";
 import { AddNumberModal } from "./AddNumberForm";
 import { OwnerShell } from "./OwnerShell";
 import { DriversGroupModeCard } from "./DriversGroupModeCard";
+import { UsersCard } from "./UsersCard";
 import {
   WhatsAppNumbersCard,
   type OwnerWhatsAppNumber,
@@ -54,6 +55,7 @@ export default function OwnerDashboardV2Page() {
           <>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <DriversGroupModeCard key={selected.id} />
+              <UsersCard key={`users-${selected.id}`} />
               <WhatsAppNumbersCard
                 numbers={numbers}
                 isLoading={isLoadingNumbers}

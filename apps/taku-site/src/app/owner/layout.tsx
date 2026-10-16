@@ -56,6 +56,12 @@ export default function OwnerLayout({
         }
       }
 
+      const role = session.currentWorkspace.role ?? session.role;
+      if (role === "agent") {
+        router.replace("/conversation-mobile");
+        return;
+      }
+
       if (!cancelled) setIsChecking(false);
     }
 

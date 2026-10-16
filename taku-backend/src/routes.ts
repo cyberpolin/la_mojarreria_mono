@@ -3684,6 +3684,131 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
   );
 
   router.post(
+    "/users",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const name = requireString(req.body?.name, "name");
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const role = requireString(req.body?.role, "role");
+      const password = requireString(req.body?.password, "password");
+      const statusValue = readOptionalString(req.body?.status) ?? "active";
+      if (!isEmail(email) || !roleValid(role)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Email o rol invalido.",
+        });
+      }
+      if (context.role === "admin" && role === "owner") {
+        throw new ApiError({
+          status: 403,
+          code: "INSUFFICIENT_ROLE",
+          message: "Admin no puede crear owner.",
+        });
+      }
+      if (password.length < 8) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_PASSWORD",
+          message: "La contrasena debe tener al menos 8 caracteres.",
+        });
+      }
+      if (!["active", "disabled"].includes(statusValue)) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_STATUS",
+          message: "Estado invalido.",
+        });
+      }
+      const status = statusValue as "active" | "disabled";
+      const data = await store.update((database) => {
+        const existingUser = database.users.find(
+          (user) => user.email.toLowerCase() === email,
+        );
+        if (existingUser) {
+          const existingMembership = database.memberships.find(
+            (item) =>
+              item.userId === existingUser.id &&
+              item.workspaceId === context.workspace.id,
+          );
+          if (existingMembership) {
+            throw new ApiError({
+              status: 409,
+              code: "USER_ALREADY_EXISTS",
+              message: "El usuario ya pertenece al workspace.",
+            });
+          }
+          if (existingUser.status === "disabled")
+            existingUser.status = "active";
+          existingUser.name = name;
+          existingUser.passwordHash = hashPassword(password);
+          existingUser.updatedAt = now();
+          const membership = {
+            id: id("membership"),
+            workspaceId: context.workspace.id,
+            userId: existingUser.id,
+            role,
+            status,
+            invitationSentAt: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.memberships.push(membership);
+          return {
+            id: existingUser.id,
+            name: existingUser.name,
+            email: existingUser.email,
+            role,
+            status,
+            lastLoginAt: existingUser.lastLoginAt,
+            createdAt: existingUser.createdAt,
+          };
+        }
+        const user = {
+          id: id("user"),
+          name,
+          email,
+          passwordHash: hashPassword(password),
+          status: "active" as const,
+          lastLoginAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.users.push(user);
+        database.memberships.push({
+          id: id("membership"),
+          workspaceId: context.workspace.id,
+          userId: user.id,
+          role,
+          status,
+          invitationSentAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+        });
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role,
+          status,
+          lastLoginAt: null,
+          createdAt: user.createdAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "user.created",
+        entityType: "user",
+        entityId: data.id,
+        metadata: { role, status },
+      });
+      ok(res, data, 201);
+    }),
+  );
+
+  router.post(
     "/users/invitations",
     requireRole(ownerAdmin),
     asyncHandler(async (req, res) => {
@@ -3849,7 +3974,19 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             });
           }
         }
+        const password = readOptionalString(req.body?.password);
+        if (password && password.length < 8) {
+          throw new ApiError({
+            status: 400,
+            code: "INVALID_PASSWORD",
+            message: "La contrasena debe tener al menos 8 caracteres.",
+          });
+        }
         if (name) user.name = name;
+        if (password) {
+          user.passwordHash = hashPassword(password);
+          if (user.status !== "active") user.status = "active";
+        }
         if (role && roleValid(role)) membership.role = role;
         if (
           status === "active" ||
