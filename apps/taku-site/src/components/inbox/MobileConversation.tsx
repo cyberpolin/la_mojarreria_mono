@@ -12,7 +12,7 @@ import {
   sendConversationMessage,
   sendWeAreOpenNotice,
 } from "./api";
-import { weAreOpenMenuItems } from "./inboxView";
+import { inboxViewMenuItems, weAreOpenMenuItems } from "./inboxView";
 import {
   WeAreOpenResultSheet,
   type WeAreOpenResult,
@@ -726,6 +726,7 @@ export function MobileConversation({
             ...weAreOpenMenuItems(() => {
               void handleWeAreOpen();
             }),
+            ...inboxViewMenuItems(),
             ...(!isGroupConversation(conversation) && lockedPhone
               ? [
                   {

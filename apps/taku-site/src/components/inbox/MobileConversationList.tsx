@@ -30,7 +30,7 @@ import {
   sendWeAreOpenNotice,
   updateAutomationBlock,
 } from "./api";
-import { weAreOpenMenuItems } from "./inboxView";
+import { inboxViewMenuItems, weAreOpenMenuItems } from "./inboxView";
 import {
   WeAreOpenResultSheet,
   type WeAreOpenResult,
@@ -786,6 +786,7 @@ export function MobileConversationList({
                   ...weAreOpenMenuItems(() => {
                     void handleWeAreOpen();
                   }),
+                  ...inboxViewMenuItems(),
                   {
                     label: "Editar contacto",
                     onSelect: () => {
@@ -837,6 +838,7 @@ export function MobileConversationList({
                   ...weAreOpenMenuItems(() => {
                     void handleWeAreOpen();
                   }),
+                  ...inboxViewMenuItems(),
                   {
                     label: "Agregar grupo",
                     onSelect: () => setGroupModalOpen(true),

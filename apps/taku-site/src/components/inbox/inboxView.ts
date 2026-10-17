@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 
 export const INBOX_VIEW_KEY = "MOJARRERIA_TAKU_INBOX_VIEW";
@@ -17,14 +16,23 @@ export function isMobileInboxPath(pathname?: string | null) {
   return Boolean(pathname?.startsWith("/conversation-mobile"));
 }
 
-function currentPathname() {
-  return typeof window === "undefined" ? "" : window.location.pathname;
-}
+const TABLET_KIOSK_EMAIL = (
+  process.env.NEXT_PUBLIC_TAKU_KIOSK_EMAIL ?? "tablet@table.com"
+).toLowerCase();
 
 export function sessionInboxRole(): InboxViewRole {
   const session = getWorkspaceSession();
   const role = session?.currentWorkspace.role ?? session?.role;
   return role === "agent" ? "agent" : "owner";
+}
+
+export function isTabletKioskSession() {
+  const email = getWorkspaceSession()?.user.email?.trim().toLowerCase();
+  return email === TABLET_KIOSK_EMAIL;
+}
+
+export function canSwitchInboxView() {
+  return !isTabletKioskSession();
 }
 
 export function readStoredInboxView(): InboxViewRole {
@@ -33,26 +41,24 @@ export function readStoredInboxView(): InboxViewRole {
   return value === "agent" ? "agent" : "owner";
 }
 
-export function readInboxView(pathname?: string | null): InboxViewRole {
-  if (isMobileInboxPath(pathname ?? currentPathname())) {
-    return sessionInboxRole();
-  }
+export function readInboxView(): InboxViewRole {
+  if (!canSwitchInboxView()) return sessionInboxRole();
   return readStoredInboxView();
 }
 
 export function setInboxView(view: InboxViewRole) {
-  if (!canUseStorage()) return;
-  if (isMobileInboxPath(currentPathname())) return;
+  if (!canUseStorage() || !canSwitchInboxView()) return;
   window.localStorage.setItem(INBOX_VIEW_KEY, view);
   window.dispatchEvent(new Event(INBOX_VIEW_CHANGED_EVENT));
 }
 
 export function useInboxView() {
-  const pathname = usePathname();
-  const [stored, setStored] = useState<InboxViewRole>("owner");
+  const [view, setView] = useState<InboxViewRole>(() =>
+    typeof window === "undefined" ? "owner" : readInboxView(),
+  );
 
   useEffect(() => {
-    const sync = () => setStored(readStoredInboxView());
+    const sync = () => setView(readInboxView());
     sync();
     window.addEventListener(INBOX_VIEW_CHANGED_EVENT, sync);
     window.addEventListener("storage", sync);
@@ -62,8 +68,7 @@ export function useInboxView() {
     };
   }, []);
 
-  if (isMobileInboxPath(pathname)) return sessionInboxRole();
-  return stored;
+  return view;
 }
 
 export function canSendWeAreOpen() {
@@ -73,7 +78,7 @@ export function canSendWeAreOpen() {
 }
 
 export function inboxViewMenuItems() {
-  if (isMobileInboxPath(currentPathname())) return [];
+  if (!canSwitchInboxView()) return [];
   const view = readStoredInboxView();
   return [
     {
@@ -88,10 +93,7 @@ export function inboxViewMenuItems() {
 }
 
 export function weAreOpenMenuItems(onSelect: () => void) {
-  if (!canSendWeAreOpen()) return [];
-  if (!isMobileInboxPath(currentPathname()) && readInboxView() !== "owner") {
-    return [];
-  }
+  if (!canSendWeAreOpen() || readInboxView() !== "owner") return [];
   return [
     {
       label: "Avisar que estamos abiertos",
