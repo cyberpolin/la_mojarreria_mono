@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/services/faqAutoReplies.test.ts src/services/weAreOpen.test.ts"
+    "test": "tsx --test src/services/faqAutoReplies.test.ts src/services/weAreOpen.test.ts src/services/dailyExpenses.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

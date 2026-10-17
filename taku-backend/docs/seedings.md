@@ -66,6 +66,7 @@ El dataset de prueba incluye:
 - configuracion de bot
 - reglas de automatizacion
 - preferencias
+- gastos diarios de demo (hielo, gas)
 
 Conversaciones demo (vista mobile, un numero por URL):
 

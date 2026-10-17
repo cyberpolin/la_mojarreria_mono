@@ -69,8 +69,14 @@ import {
   isDateKey,
   isMondayDateKey,
   isPastWeek,
+  todayDateKey,
   weekEndFromStart,
 } from "./services/weekClose.js";
+import {
+  dailyExpenseView,
+  parseAmountCents,
+  sortDailyExpenses,
+} from "./services/dailyExpenses.js";
 import {
   analyzeBotResponderProbability,
   isBotResponderConfirmation,
@@ -102,6 +108,7 @@ import type {
   WhatsAppAccount,
   WhatsAppStatus,
   AttendancePunch,
+  DailyExpense,
   DayClose,
   DriversGroupMode,
   FaqAutoReply,
@@ -7502,6 +7509,119 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         metadata: { dayKey },
       });
       ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
+    }),
+  );
+
+  router.get(
+    "/expenses",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const date = readOptionalString(req.query?.date);
+      if (date && !isDateKey(date)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La fecha es invalida.",
+        });
+      }
+      const database = await store.read();
+      const rows = sortDailyExpenses(
+        database.dailyExpenses.filter((item) => {
+          if (item.workspaceId !== context.workspace.id) return false;
+          return date ? item.date === date : true;
+        }),
+      ).map(dailyExpenseView);
+      ok(res, rows);
+    }),
+  );
+
+  router.post(
+    "/expenses",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const concept = requireString(req.body?.concept, "concept");
+      const amountCents = parseAmountCents({
+        amount: req.body?.amount,
+        amountCents: req.body?.amountCents,
+      });
+      if (amountCents == null) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La cantidad debe ser mayor a 0.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      const date =
+        readOptionalString(req.body?.date) ??
+        todayDateKey(new Date(), timeZone);
+      if (!isDateKey(date)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La fecha es invalida.",
+        });
+      }
+      const item = await store.update((database) => {
+        const stamp = now();
+        const created: DailyExpense = {
+          id: id("expense"),
+          workspaceId: context.workspace.id,
+          date,
+          concept,
+          amountCents,
+          createdByUserId: context.user.id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
+        database.dailyExpenses.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "daily_expense.created",
+        entityType: "daily_expense",
+        entityId: item.id,
+        metadata: { date, amountCents },
+      });
+      ok(res, dailyExpenseView(item), 201);
+    }),
+  );
+
+  router.delete(
+    "/expenses/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const expenseId = requireString(req.params.id, "id");
+      const item = await store.update((database) => {
+        const index = database.dailyExpenses.findIndex(
+          (found) =>
+            found.id === expenseId &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (index < 0) {
+          throw new ApiError({
+            status: 404,
+            code: "EXPENSE_NOT_FOUND",
+            message: "Gasto no encontrado.",
+          });
+        }
+        const [removed] = database.dailyExpenses.splice(index, 1);
+        return removed;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "daily_expense.deleted",
+        entityType: "daily_expense",
+        entityId: item.id,
+        metadata: { date: item.date, amountCents: item.amountCents },
+      });
+      ok(res, { id: item.id });
     }),
   );
 

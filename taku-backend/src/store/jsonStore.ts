@@ -7,6 +7,7 @@ import {
   mondayDateKey,
   resetUnreadBadgesIfNeeded,
 } from "../services/unreadWeek.js";
+import { todayDateKey } from "../services/weekClose.js";
 import type {
   AdminAuditLog,
   AdminUser,
@@ -19,6 +20,7 @@ import type {
   BusinessHour,
   Contact,
   Conversation,
+  DailyExpense,
   Database,
   Membership,
   Message,
@@ -67,6 +69,7 @@ function createEmptyDatabase(): Database {
     preferences: [],
     weekCloses: [],
     dayCloses: [],
+    dailyExpenses: [],
     attendancePunches: [],
     auditLogs: [],
     refreshTokens: [],
@@ -101,6 +104,7 @@ function ensureDatabaseCollections(database: Database) {
   target.preferences ??= [];
   target.weekCloses ??= [];
   target.dayCloses ??= [];
+  target.dailyExpenses ??= [];
   target.attendancePunches ??= [];
   for (const account of target.whatsappAccounts) {
     account.timeClockEnabled ??= false;
@@ -745,6 +749,28 @@ function createTestSeed(): Database {
     preferences: [preferences],
     weekCloses: [],
     dayCloses: [],
+    dailyExpenses: [
+      {
+        id: "expense_hielo",
+        workspaceId: workspace.id,
+        date: todayDateKey(new Date(), workspace.timezone),
+        concept: "Hielo",
+        amountCents: 15000,
+        createdByUserId: owner.id,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        id: "expense_gas",
+        workspaceId: workspace.id,
+        date: todayDateKey(new Date(), workspace.timezone),
+        concept: "Gas",
+        amountCents: 28000,
+        createdByUserId: owner.id,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ] as DailyExpense[],
     attendancePunches: [],
     auditLogs: [],
     refreshTokens: [],
@@ -883,6 +909,8 @@ function ensureTestData(database: Database) {
     ) || changed;
   changed =
     addMissingById(database.preferences, testSeed.preferences) || changed;
+  changed =
+    addMissingById(database.dailyExpenses, testSeed.dailyExpenses) || changed;
   return changed;
 }
 

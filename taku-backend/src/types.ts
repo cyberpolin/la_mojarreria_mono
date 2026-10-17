@@ -340,6 +340,17 @@ export type AttendancePunch = {
   createdAt: string;
 };
 
+export type DailyExpense = {
+  id: string;
+  workspaceId: string;
+  date: string;
+  concept: string;
+  amountCents: number;
+  createdByUserId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type DayClose = {
   id: string;
   workspaceId: string;
@@ -416,6 +427,7 @@ export type Database = {
   preferences: Preferences[];
   weekCloses: WeekClose[];
   dayCloses: DayClose[];
+  dailyExpenses: DailyExpense[];
   attendancePunches: AttendancePunch[];
   auditLogs: AuditLog[];
   refreshTokens: Array<{
