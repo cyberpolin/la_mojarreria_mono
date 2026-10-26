@@ -52,12 +52,24 @@ export default function OwnerDashboardV2Page() {
             </div>
           );
         }
+        const hasNumbers = !isLoadingNumbers && numbers.length > 0;
+
         return (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <DriversGroupModeCard key={selected.id} />
-              <UsersCard key={`users-${selected.id}`} />
-              <ExpensesCard key={`expenses-${selected.id}`} />
+            <div
+              className={
+                hasNumbers
+                  ? "grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+                  : "grid gap-4"
+              }
+            >
+              {hasNumbers ? (
+                <>
+                  <DriversGroupModeCard key={selected.id} />
+                  <UsersCard key={`users-${selected.id}`} />
+                  <ExpensesCard key={`expenses-${selected.id}`} />
+                </>
+              ) : null}
               <WhatsAppNumbersCard
                 numbers={numbers}
                 isLoading={isLoadingNumbers}
