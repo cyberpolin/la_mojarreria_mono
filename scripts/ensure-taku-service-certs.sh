@@ -54,6 +54,46 @@ reload_nginx() {
   fi
 }
 
+print_http_listeners() {
+  echo "Listeners on :80 and :443"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lptn 'sport = :80 or sport = :443' || true
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:80 -sTCP:LISTEN || true
+    lsof -nP -iTCP:443 -sTCP:LISTEN || true
+  fi
+}
+
+stop_non_nginx_http() {
+  print_http_listeners
+
+  pids="$(
+    if command -v ss >/dev/null 2>&1; then
+      ss -lptn 'sport = :80' | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p'
+    fi | sort -u
+  )"
+
+  for pid in $pids; do
+    comm="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    case "$comm" in
+      nginx | "" ) continue ;;
+    esac
+    echo "Stopping $comm (pid $pid) so nginx can own port 80"
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl restart nginx
+  fi
+
+  print_http_listeners
+}
+
 disable_enabled_site() {
   enabled_file="$1"
   if [ -e "$enabled_file" ] || [ -L "$enabled_file" ]; then
@@ -126,9 +166,9 @@ assert_acme_webroot() {
       "http://$domain/.well-known/acme-challenge/$probe" || true
   )"
   if [ "$public_body" != "ok" ]; then
-    echo "Public ACME probe failed for $domain. DNS/HTTP is not reaching this nginx webroot." >&2
-    echo "Probe response: ${public_body:-<empty>}" >&2
-    return 1
+    echo "Public ACME probe failed for $domain. Skipping local certbot; use CloudCluster Website Management SSL."
+    echo "Probe response: ${public_body:-<empty>}"
+    return 2
   fi
 }
 
@@ -145,6 +185,7 @@ print_domain_debug() {
 
 disable_competing_http_sites
 install_shared_acme_site
+stop_non_nginx_http
 reload_nginx
 
 missing_count=0
@@ -177,7 +218,17 @@ while IFS= read -r service; do
   missing_count=$((missing_count + 1))
   echo "Creating certificate for $domain ($service on port $port)"
   print_domain_debug "$domain"
+  set +e
   assert_acme_webroot "$domain"
+  probe_status="$?"
+  set -e
+  if [ "$probe_status" -eq 2 ]; then
+    echo "Leaving $domain on HTTP inside the VPS. Enable Free SSL in CloudCluster Website Management."
+    continue
+  fi
+  if [ "$probe_status" -ne 0 ]; then
+    exit "$probe_status"
+  fi
   "$CERTBOT_BIN" "${certbot_args[@]}" -d "$domain"
 done < <(taku_selected_services)
 

@@ -143,7 +143,46 @@ for site_file in "${site_files[@]}"; do
   fi
 
   echo "Installing $site_file into $SITES_AVAILABLE_DIR"
-  "${SUDO[@]}" install -m 0644 "$source_file" "$available_file"
+  service="${site_file%_SITE.conf}"
+  domain="$(taku_service_value "$service" "DOMAIN")"
+  port="$(taku_service_value "$service" "PORT")"
+  cert_file="/etc/letsencrypt/live/$domain/fullchain.pem"
+  key_file="/etc/letsencrypt/live/$domain/privkey.pem"
+  if [ -n "$domain" ] && [ -n "$port" ] &&
+    ! { "${SUDO[@]}" test -f "$cert_file" && "${SUDO[@]}" test -f "$key_file"; }; then
+    echo "SSL certs missing for $domain; installing HTTP-only site for CloudCluster edge SSL"
+    http_only="$RUNNER_TEMP/${site_file}.http"
+    if [ -z "${RUNNER_TEMP:-}" ]; then
+      http_only="/tmp/${site_file}.http"
+    fi
+    cat > "$http_only" <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $domain;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:$port;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOF
+    "${SUDO[@]}" install -m 0644 "$http_only" "$available_file"
+    rm -f "$http_only"
+  else
+    "${SUDO[@]}" install -m 0644 "$source_file" "$available_file"
+  fi
   log_debug "Installed file details:"
   "${SUDO[@]}" ls -la "$available_file"
 
