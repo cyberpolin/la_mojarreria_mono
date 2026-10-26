@@ -11,6 +11,7 @@ NGINX_DIR="${NGINX_DIR:-/etc/nginx}"
 SITES_AVAILABLE_DIR="${SITES_AVAILABLE_DIR:-$NGINX_DIR/sites-available}"
 SITES_ENABLED_DIR="${SITES_ENABLED_DIR:-$NGINX_DIR/sites-enabled}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
+ACME_DEFAULT_SITE="TAKU_ACME_DEFAULT.conf"
 
 if [ ! -f "$PORTS_FILE" ]; then
   echo "Missing service config: $PORTS_FILE" >&2
@@ -53,51 +54,82 @@ reload_nginx() {
   fi
 }
 
-disable_final_ssl_site() {
-  service="$1"
-  site_file="${service}_SITE.conf"
-  enabled_file="$SITES_ENABLED_DIR/$site_file"
-
+disable_enabled_site() {
+  enabled_file="$1"
   if [ -e "$enabled_file" ] || [ -L "$enabled_file" ]; then
-    echo "Disabling final SSL nginx site while certificate is missing: $enabled_file"
+    echo "Disabling nginx site: $enabled_file"
     rm -f "$enabled_file"
   fi
 }
 
-install_acme_site() {
-  service="$1"
-  domain="$2"
-  port="$3"
-  site_file="${service}_ACME.conf"
-  available_file="$SITES_AVAILABLE_DIR/$site_file"
-  enabled_file="$SITES_ENABLED_DIR/$site_file"
+disable_competing_http_sites() {
+  disable_enabled_site "$SITES_ENABLED_DIR/default"
+  disable_enabled_site "$SITES_ENABLED_DIR/000-default"
+  disable_enabled_site "$SITES_ENABLED_DIR/default.conf"
+
+  while IFS= read -r service; do
+    disable_enabled_site "$SITES_ENABLED_DIR/${service}_SITE.conf"
+    disable_enabled_site "$SITES_ENABLED_DIR/${service}_ACME.conf"
+  done < <(taku_selected_services)
+}
+
+install_shared_acme_site() {
+  available_file="$SITES_AVAILABLE_DIR/$ACME_DEFAULT_SITE"
+  enabled_file="$SITES_ENABLED_DIR/$ACME_DEFAULT_SITE"
 
   mkdir -p "$CERTBOT_WEBROOT/.well-known/acme-challenge"
   mkdir -p "$SITES_AVAILABLE_DIR" "$SITES_ENABLED_DIR"
 
   cat > "$available_file" <<EOF
 server {
-    listen 80;
-    server_name $domain;
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
 
     location /.well-known/acme-challenge/ {
         root $CERTBOT_WEBROOT;
+        default_type text/plain;
+        try_files \$uri =404;
     }
 
     location / {
-        proxy_pass http://127.0.0.1:$port;
-        proxy_http_version 1.1;
-
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        return 404;
     }
 }
 EOF
 
   ln -sfn "$available_file" "$enabled_file"
-  echo "Installed temporary ACME nginx site for $domain: $enabled_file -> $available_file"
+  echo "Installed shared ACME default site: $enabled_file -> $available_file"
+}
+
+assert_acme_webroot() {
+  domain="$1"
+  probe="taku-certbot-probe"
+  probe_path="$CERTBOT_WEBROOT/.well-known/acme-challenge/$probe"
+  printf 'ok\n' > "$probe_path"
+
+  echo "ACME probe via 127.0.0.1 Host=$domain"
+  local_body="$(
+    curl -fsS --max-time 10 \
+      -H "Host: $domain" \
+      "http://127.0.0.1/.well-known/acme-challenge/$probe" || true
+  )"
+  if [ "$local_body" != "ok" ]; then
+    echo "Local ACME probe failed for $domain. nginx is not serving $probe_path" >&2
+    echo "Probe response: ${local_body:-<empty>}" >&2
+    return 1
+  fi
+
+  echo "ACME probe via http://$domain"
+  public_body="$(
+    curl -fsS --max-time 10 \
+      "http://$domain/.well-known/acme-challenge/$probe" || true
+  )"
+  if [ "$public_body" != "ok" ]; then
+    echo "Public ACME probe failed for $domain. DNS/HTTP is not reaching this nginx webroot." >&2
+    echo "Probe response: ${public_body:-<empty>}" >&2
+    return 1
+  fi
 }
 
 print_domain_debug() {
@@ -110,6 +142,10 @@ print_domain_debug() {
     curl -I --max-time 10 "http://$domain/.well-known/acme-challenge/taku-certbot-probe" || true
   fi
 }
+
+disable_competing_http_sites
+install_shared_acme_site
+reload_nginx
 
 missing_count=0
 
@@ -140,10 +176,8 @@ while IFS= read -r service; do
 
   missing_count=$((missing_count + 1))
   echo "Creating certificate for $domain ($service on port $port)"
-  disable_final_ssl_site "$service"
-  install_acme_site "$service" "$domain" "$port"
-  reload_nginx
   print_domain_debug "$domain"
+  assert_acme_webroot "$domain"
   "$CERTBOT_BIN" "${certbot_args[@]}" -d "$domain"
 done < <(taku_selected_services)
 
