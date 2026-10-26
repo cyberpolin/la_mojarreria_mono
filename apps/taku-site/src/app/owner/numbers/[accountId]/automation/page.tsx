@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { takuApi } from "@/lib/taku-api";
 import { Button, Field, Select, TextArea } from "@/components/inbox/ui";
 import { CheckOption } from "../../../CheckOption";
@@ -68,6 +69,14 @@ export default function OwnerNumberAutomationPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (isLoading) return;
+    const hash = window.location.hash.replace("#", "");
+    if (!hash) return;
+    const target = document.getElementById(hash);
+    target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [isLoading]);
+
   async function save() {
     setMessage(null);
     if (
@@ -129,34 +138,51 @@ export default function OwnerNumberAutomationPage() {
                 </div>
               ) : null}
               <div className="mt-5 grid gap-1">
-                <CheckOption
-                  checked={form.enabled}
-                  label="Automatizacion"
-                  onChange={(enabled) =>
-                    setForm((current) => ({ ...current, enabled }))
-                  }
-                />
-                <CheckOption
-                  checked={form.rulesEnabled}
-                  label="Reglas"
-                  onChange={(rulesEnabled) =>
-                    setForm((current) => ({ ...current, rulesEnabled }))
-                  }
-                />
-                <CheckOption
-                  checked={form.aiEnabled}
-                  label="IA"
-                  onChange={(aiEnabled) =>
-                    setForm((current) => ({ ...current, aiEnabled }))
-                  }
-                />
-                <CheckOption
-                  checked={form.afterHoursEnabled}
-                  label="Fuera de horario"
-                  onChange={(afterHoursEnabled) =>
-                    setForm((current) => ({ ...current, afterHoursEnabled }))
-                  }
-                />
+                <div id="automatizacion">
+                  <CheckOption
+                    checked={form.enabled}
+                    label="Automatizacion"
+                    onChange={(enabled) =>
+                      setForm((current) => ({ ...current, enabled }))
+                    }
+                  />
+                </div>
+                <div
+                  id="reglas"
+                  className="flex min-h-11 items-center justify-between gap-3"
+                >
+                  <CheckOption
+                    checked={form.rulesEnabled}
+                    label="Reglas"
+                    onChange={(rulesEnabled) =>
+                      setForm((current) => ({ ...current, rulesEnabled }))
+                    }
+                  />
+                  <Link
+                    href={`/owner/numbers/${accountId}/auto-replies`}
+                    className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-slate-700 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+                  >
+                    Configurar
+                  </Link>
+                </div>
+                <div id="ia">
+                  <CheckOption
+                    checked={form.aiEnabled}
+                    label="IA"
+                    onChange={(aiEnabled) =>
+                      setForm((current) => ({ ...current, aiEnabled }))
+                    }
+                  />
+                </div>
+                <div id="fuera-de-horario">
+                  <CheckOption
+                    checked={form.afterHoursEnabled}
+                    label="Fuera de horario"
+                    onChange={(afterHoursEnabled) =>
+                      setForm((current) => ({ ...current, afterHoursEnabled }))
+                    }
+                  />
+                </div>
                 {form.afterHoursEnabled ? (
                   <div className="mt-3 grid gap-4">
                     <Field label="Responder">

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { CheckOption } from "./CheckOption";
 import {
   afterHoursLabel,
@@ -40,26 +41,44 @@ function SectionCard({
 }
 
 export function NumberSectionCards({
+  accountId,
   settings,
   hours,
-  onOpenAutomation,
   onOpenHours,
 }: {
+  accountId: string;
   settings: OwnerBotSettings | null;
   hours: OwnerBusinessHours | null;
-  onOpenAutomation: () => void;
   onOpenHours: () => void;
 }) {
   const afterHours = settings ? afterHoursLabel(settings) : "";
+  const automationHref = `/owner/numbers/${accountId}/automation`;
   const automationItems = [
-    { label: "Automatizacion", checked: Boolean(settings?.enabled) },
-    { label: "Reglas", checked: Boolean(settings?.rulesEnabled) },
-    { label: "IA", checked: Boolean(settings?.aiEnabled) },
     {
+      id: "automatizacion",
+      label: "Automatizacion",
+      checked: Boolean(settings?.enabled),
+      href: automationHref,
+    },
+    {
+      id: "reglas",
+      label: "Reglas",
+      checked: Boolean(settings?.rulesEnabled),
+      href: `/owner/numbers/${accountId}/auto-replies`,
+    },
+    {
+      id: "ia",
+      label: "IA",
+      checked: Boolean(settings?.aiEnabled),
+      href: `${automationHref}#ia`,
+    },
+    {
+      id: "fuera-de-horario",
       label: afterHours
         ? `Fuera de horario: ${afterHours}`
         : "Fuera de horario",
       checked: Boolean(settings?.afterHoursEnabled),
+      href: `${automationHref}#fuera-de-horario`,
     },
   ];
 
@@ -70,17 +89,27 @@ export function NumberSectionCards({
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <SectionCard label="Automatizacion" onOpen={onOpenAutomation}>
+      <article className="rounded-xl border border-slate-200 bg-white p-5 md:p-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Automatizacion
+        </p>
         <div className="mt-5 grid gap-1">
           {automationItems.map((item) => (
-            <CheckOption
-              key={item.label}
-              label={item.label}
-              checked={item.checked}
-            />
+            <div
+              key={item.id}
+              className="flex min-h-11 items-center justify-between gap-3"
+            >
+              <CheckOption label={item.label} checked={item.checked} />
+              <Link
+                href={item.href}
+                className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-slate-700 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+              >
+                Configurar
+              </Link>
+            </div>
           ))}
         </div>
-      </SectionCard>
+      </article>
 
       <SectionCard label="Horario" onOpen={onOpenHours}>
         {openDays.length > 0 ? (

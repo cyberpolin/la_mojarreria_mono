@@ -83,11 +83,9 @@ export default function OwnerNumberFormsPage() {
           ) : account ? (
             <>
               <NumberSectionCards
+                accountId={accountId}
                 settings={settings}
                 hours={hours}
-                onOpenAutomation={() =>
-                  router.push(`/owner/numbers/${accountId}/automation`)
-                }
                 onOpenHours={() =>
                   router.push(`/owner/numbers/${accountId}/hours`)
                 }
