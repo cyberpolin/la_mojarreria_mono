@@ -151,10 +151,7 @@ for site_file in "${site_files[@]}"; do
   if [ -n "$domain" ] && [ -n "$port" ] &&
     ! { "${SUDO[@]}" test -f "$cert_file" && "${SUDO[@]}" test -f "$key_file"; }; then
     echo "SSL certs missing for $domain; installing HTTP-only site for CloudCluster edge SSL"
-    http_only="$RUNNER_TEMP/${site_file}.http"
-    if [ -z "${RUNNER_TEMP:-}" ]; then
-      http_only="/tmp/${site_file}.http"
-    fi
+    http_only="/tmp/${site_file}.http"
     cat > "$http_only" <<EOF
 server {
     listen 80;
