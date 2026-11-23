@@ -1,6 +1,6 @@
 export const DRIVERS_ORDER_MESSAGE = "Pedido por favor";
 export const SEND_CUSTOMER_ASSIGNMENT_MESSAGE = true;
-export const SEND_DRIVER_ASSIGNMENT_MESSAGE = false;
+export const SEND_DRIVER_ASSIGNMENT_MESSAGE = true;
 export const ESTIMATED_DELIVERY_MINUTES = 40;
 
 export const DELIVERY_BASE = 40;

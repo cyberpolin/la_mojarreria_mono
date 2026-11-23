@@ -24,9 +24,7 @@ export function AssignOrderSheet({
           </p>
           <p className="mt-1 text-sm text-slate-500">
             Asignado a {driver}
-            {customerNotified
-              ? ". Se aviso al cliente. El mensaje al repartidor no se envio."
-              : "."}
+            {customerNotified ? ". Se aviso al cliente y al repartidor." : "."}
           </p>
         </div>
         <dl className="divide-y divide-slate-100 px-4 py-1 text-sm">
