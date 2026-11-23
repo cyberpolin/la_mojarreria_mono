@@ -26,6 +26,7 @@ import {
   isDriversGroupConversation,
   isFullConversation,
   isGroupConversation,
+  messageBodyText,
   messageStatusLabel,
   mobileListPath,
   mobileThreadPath,
@@ -151,7 +152,7 @@ function MobileBubble({
         />
       ) : (
         <LinkedMessageText
-          text={message.body}
+          text={messageBodyText(message)}
           className="whitespace-pre-wrap break-words text-sm leading-5"
           linkClassName={
             isInbound || isBot || failed

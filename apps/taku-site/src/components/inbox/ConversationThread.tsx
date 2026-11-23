@@ -9,6 +9,7 @@ import {
   formatDate,
   isAccountConnected,
   isGroupConversation,
+  messageBodyText,
   messageStatusLabel,
 } from "./helpers";
 import { FaqIntentLight } from "./FaqIntentLight";
@@ -116,7 +117,7 @@ function MessageBubble({
         </div>
       ) : (
         <LinkedMessageText
-          text={message.body}
+          text={messageBodyText(message)}
           className="mt-2 whitespace-pre-wrap break-words text-sm"
           linkClassName={
             isInbound || isBot || failed

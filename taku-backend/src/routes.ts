@@ -3,6 +3,10 @@ import type { Request } from "express";
 import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import {
+  canonicalDirectPhone,
+  directPhonesMatch,
+} from "./services/contactPhones.js";
+import {
   createOpaqueToken,
   hashPassword,
   hashToken,
@@ -900,14 +904,15 @@ function findBlockedAutomationContact(
   workspaceId: string,
   phoneNumber: string,
 ) {
-  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const normalizedPhone =
+    canonicalDirectPhone(phoneNumber) ?? normalizePhoneNumber(phoneNumber);
   if (!normalizedPhone) return null;
   return (
     database.automationBlockedContacts.find(
       (item) =>
         item.workspaceId === workspaceId &&
         item.enabled &&
-        normalizePhoneNumber(item.phoneNumber) === normalizedPhone,
+        directPhonesMatch(item.phoneNumber, phoneNumber),
     ) ?? null
   );
 }
@@ -1986,7 +1991,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           account.lastDisconnectedAt = null;
           account.qrCode = null;
           account.updatedAt = now();
-          const from = requireString(payload.from, "from");
+          const rawFrom = requireString(payload.from, "from");
+          const incomingIsGroup = isGroupRecipient(rawFrom);
+          const from = incomingIsGroup
+            ? rawFrom
+            : (canonicalDirectPhone(rawFrom) ?? rawFrom.replace(/\D/g, ""));
           const latitude = readOptionalNumber(payload.latitude);
           const longitude = readOptionalNumber(payload.longitude);
           const incomingType =
@@ -2014,11 +2023,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               duplicate: true,
             };
           }
-          const incomingIsGroup = isGroupRecipient(from);
           let contact = database.contacts.find(
             (item) =>
               item.workspaceId === account.workspaceId &&
-              item.phoneNumber === from,
+              (incomingIsGroup
+                ? item.phoneNumber === from
+                : item.kind !== "group" &&
+                  !isGroupRecipient(item.phoneNumber) &&
+                  directPhonesMatch(item.phoneNumber, from)),
           );
           if (!contact && incomingIsGroup) {
             return {
@@ -4760,6 +4772,51 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           });
         if ("name" in req.body) contact.name = name ?? null;
         if ("notes" in req.body) contact.notes = notes ?? null;
+        if ("phoneNumber" in req.body) {
+          const rawPhone = requireString(
+            req.body.phoneNumber,
+            "phoneNumber",
+          ).trim();
+          const nextPhone = isGroupRecipient(rawPhone)
+            ? rawPhone
+            : canonicalDirectPhone(rawPhone);
+          if (!nextPhone) {
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Ingresa un telefono valido.",
+            });
+          }
+          const duplicate = database.contacts.find((item) => {
+            if (
+              item.id === contact.id ||
+              item.workspaceId !== contact.workspaceId
+            ) {
+              return false;
+            }
+            if (item.kind !== "group" && !isGroupRecipient(item.phoneNumber)) {
+              return false;
+            }
+            if (
+              isGroupRecipient(nextPhone) ||
+              isGroupRecipient(item.phoneNumber)
+            ) {
+              return item.phoneNumber === nextPhone;
+            }
+            return directPhonesMatch(item.phoneNumber, nextPhone);
+          });
+          if (duplicate) {
+            throw new ApiError({
+              status: 409,
+              code: "VALIDATION_ERROR",
+              message: "Ese numero ya es el otro destino de pedidos.",
+            });
+          }
+          contact.phoneNumber = nextPhone;
+          if (isGroupRecipient(nextPhone) || contact.kind === "group") {
+            contact.kind = "group";
+          }
+        }
         contact.updatedAt = now();
         return contactView(contact);
       });
@@ -4771,10 +4828,10 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     "/conversations",
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
-      const phone = requireString(req.body?.phoneNumber, "phoneNumber").replace(
-        /\D/g,
-        "",
-      );
+      const phone =
+        canonicalDirectPhone(
+          requireString(req.body?.phoneNumber, "phoneNumber"),
+        ) ?? "";
       if (phone.length < 8)
         throw new ApiError({
           status: 400,
@@ -4803,7 +4860,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         let contact = database.contacts.find(
           (item) =>
             item.workspaceId === context.workspace.id &&
-            item.phoneNumber.replace(/\D/g, "") === phone,
+            directPhonesMatch(item.phoneNumber, phone),
         );
         if (!contact) {
           contact = {
@@ -4871,12 +4928,20 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     "/conversations/groups",
     asyncHandler(async (req, res) => {
       const context = assertWorkspace(req);
-      const groupJid = requireString(req.body?.groupJid, "groupJid").trim();
-      if (!isGroupRecipient(groupJid)) {
+      const rawTarget = (
+        readOptionalString(req.body?.groupJid) ??
+        readOptionalString(req.body?.phoneNumber) ??
+        ""
+      ).trim();
+      const incomingIsGroup = isGroupRecipient(rawTarget);
+      const groupJid = incomingIsGroup
+        ? rawTarget
+        : (canonicalDirectPhone(rawTarget) ?? "");
+      if (!groupJid) {
         throw new ApiError({
           status: 400,
           code: "VALIDATION_ERROR",
-          message: "El grupo de WhatsApp no es valido.",
+          message: "Ingresa un telefono o un grupo de WhatsApp valido.",
         });
       }
       const rawName = readOptionalString(req.body?.name) ?? "Grupo";
@@ -4905,7 +4970,10 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         let contact = database.contacts.find(
           (item) =>
             item.workspaceId === context.workspace.id &&
-            item.phoneNumber === groupJid,
+            item.phoneNumber === groupJid &&
+            (incomingIsGroup ||
+              item.kind === "group" ||
+              isGroupRecipient(item.phoneNumber)),
         );
         if (!contact) {
           contact = {
@@ -5155,11 +5223,13 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         .filter((item) => {
           const phone = readOptionalString(req.query.phone);
           if (!phone) return true;
-          const wanted = phone.replace(/\D/g, "");
           const contact = database.contacts.find(
             (entry) => entry.id === item.contactId,
           );
-          return (contact?.phoneNumber ?? "").replace(/\D/g, "") === wanted;
+          if (phone.trim().toLowerCase().endsWith("@g.us")) {
+            return (contact?.phoneNumber ?? "") === phone.trim();
+          }
+          return directPhonesMatch(contact?.phoneNumber, phone);
         })
         .map((item) => conversationView(item, database))
         .filter((item) => {

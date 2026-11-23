@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { RaiseOrderModal } from "./RaiseOrderModal";
-import { cx } from "./helpers";
+import { cx, messageBodyText } from "./helpers";
 import { customerFromConversation } from "./assignDeliveryOrder";
 import type {
   InboxConversation,
@@ -69,10 +69,8 @@ export function LocationMessageCard({
   );
   const href = locationMapsUrl(message);
   const [orderOpen, setOrderOpen] = useState(false);
-  const detail =
-    message.body?.trim() && message.body.trim() !== "Ubicacion"
-      ? message.body.trim()
-      : null;
+  const detailText = messageBodyText(message).trim();
+  const detail = detailText && detailText !== "Ubicacion" ? detailText : null;
 
   return (
     <div className="grid w-full min-w-[240px] gap-3">

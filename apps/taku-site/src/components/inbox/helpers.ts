@@ -202,6 +202,18 @@ export function inboxOrderSearch(orderId?: string | null) {
     : {};
 }
 
+export function messageBodyText(message: {
+  body?: string | null;
+  senderName?: string | null;
+}) {
+  const body = message.body ?? "";
+  const sender = message.senderName?.trim();
+  if (sender && body.startsWith(`${sender}: `)) {
+    return body.slice(sender.length + 2);
+  }
+  return body;
+}
+
 export function lastMessagePreview(conversation: InboxConversation) {
   const last = conversation.lastMessage;
   if (!last) return "Sin mensajes";
@@ -211,10 +223,20 @@ export function lastMessagePreview(conversation: InboxConversation) {
       : last.direction === "bot"
         ? "Bot: "
         : "";
+  const body = messageBodyText(last);
   if (last.type === "location") {
-    return `${prefix}${last.body && last.body !== "Ubicacion" ? last.body : "Ubicacion"}`;
+    const label = body && body !== "Ubicacion" ? body : "Ubicacion";
+    return `${prefix}${label}`;
   }
-  return `${prefix}${last.body ?? "Sin mensajes"}`;
+  const text = body || "Sin mensajes";
+  if (
+    isGroupConversation(conversation) &&
+    last.direction === "inbound" &&
+    last.senderName?.trim()
+  ) {
+    return `${last.senderName.trim()}: ${text}`;
+  }
+  return `${prefix}${text}`;
 }
 
 export function conversationTitle(conversation: InboxConversation | null) {

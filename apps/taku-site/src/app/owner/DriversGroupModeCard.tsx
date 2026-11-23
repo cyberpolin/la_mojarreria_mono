@@ -2,11 +2,17 @@
 
 import { useEffect, useState } from "react";
 import {
+  addGroupConversation,
   fetchDriversGroupMode,
+  fetchDriversGroupTargets,
+  fetchWhatsAppAccounts,
+  updateContactPhone,
   updateDriversGroupMode,
 } from "@/components/inbox/api";
-import { cx } from "@/components/inbox/helpers";
+import { cx, isAccountConnected } from "@/components/inbox/helpers";
 import type { DriversGroupMode } from "@/components/inbox/helpers";
+import type { InboxConversation } from "@/components/inbox/types";
+import { Button, Field, Input } from "@/components/inbox/ui";
 
 const OPTIONS: Array<{
   value: DriversGroupMode;
@@ -25,18 +31,49 @@ const OPTIONS: Array<{
   },
 ];
 
+const EMPTY_TARGETS: Record<DriversGroupMode, InboxConversation | null> = {
+  prod: null,
+  test: null,
+};
+
+function phoneOf(conversation: InboxConversation | null) {
+  return conversation?.contact?.phoneNumber ?? "";
+}
+
 export function DriversGroupModeCard() {
   const [mode, setMode] = useState<DriversGroupMode>("prod");
   const [isLoading, setIsLoading] = useState(true);
   const [saving, setSaving] = useState<DriversGroupMode | null>(null);
+  const [savingPhone, setSavingPhone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [targets, setTargets] =
+    useState<Record<DriversGroupMode, InboxConversation | null>>(EMPTY_TARGETS);
+  const [drafts, setDrafts] = useState<Record<DriversGroupMode, string>>({
+    prod: "",
+    test: "",
+  });
+  const [savedPhones, setSavedPhones] = useState<
+    Record<DriversGroupMode, string>
+  >({
+    prod: "",
+    test: "",
+  });
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    void fetchDriversGroupMode()
-      .then((next) => {
-        if (!cancelled) setMode(next);
+    void Promise.all([fetchDriversGroupMode(), fetchDriversGroupTargets()])
+      .then(([next, groups]) => {
+        if (cancelled) return;
+        setMode(next);
+        setTargets(groups);
+        const phones = {
+          prod: phoneOf(groups.prod),
+          test: phoneOf(groups.test),
+        };
+        setDrafts(phones);
+        setSavedPhones(phones);
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
@@ -72,6 +109,80 @@ export function DriversGroupModeCard() {
       setSaving(null);
     }
   }
+
+  async function savePhone() {
+    const raw = drafts[mode].trim();
+    if (!raw) {
+      setPhoneError("Escribe un numero.");
+      return;
+    }
+    if (raw === savedPhones[mode] || savingPhone) return;
+    setSavingPhone(true);
+    setPhoneError(null);
+    try {
+      const current = targets[mode];
+      const contactId = current?.contact?.id;
+      if (contactId) {
+        const contact = await updateContactPhone(contactId, raw);
+        const nextPhone = contact?.phoneNumber ?? raw;
+        setTargets((currentTargets) => ({
+          ...currentTargets,
+          [mode]: current
+            ? {
+                ...current,
+                contact: current.contact
+                  ? { ...current.contact, phoneNumber: nextPhone }
+                  : current.contact,
+              }
+            : current,
+        }));
+        setDrafts((currentDrafts) => ({ ...currentDrafts, [mode]: nextPhone }));
+        setSavedPhones((currentSaved) => ({
+          ...currentSaved,
+          [mode]: nextPhone,
+        }));
+        return;
+      }
+      const accounts = await fetchWhatsAppAccounts();
+      const account = accounts.find((item) => isAccountConnected(item.status));
+      if (!account) {
+        throw new Error(
+          "Conecta un numero de WhatsApp para guardar el destino.",
+        );
+      }
+      const conversation = await addGroupConversation({
+        whatsappAccountId: account.id,
+        ...(raw.toLowerCase().endsWith("@g.us")
+          ? { groupJid: raw }
+          : { phoneNumber: raw }),
+        name: mode === "test" ? "Repartidores (prueba)" : "Repartidores",
+        role: mode,
+      });
+      const nextPhone = conversation.contact?.phoneNumber ?? raw;
+      setTargets((currentTargets) => ({
+        ...currentTargets,
+        [mode]: conversation,
+      }));
+      setDrafts((currentDrafts) => ({ ...currentDrafts, [mode]: nextPhone }));
+      setSavedPhones((currentSaved) => ({
+        ...currentSaved,
+        [mode]: nextPhone,
+      }));
+    } catch (caught) {
+      setPhoneError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo guardar el numero.",
+      );
+    } finally {
+      setSavingPhone(false);
+    }
+  }
+
+  const selectedName = targets[mode]?.contact?.name?.trim() || "";
+  const phoneLabel =
+    mode === "test" ? "Numero de pruebas" : "Numero de produccion";
+  const phoneUnchanged = drafts[mode].trim() === savedPhones[mode];
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-5 md:p-6">
@@ -121,6 +232,56 @@ export function DriversGroupModeCard() {
         </div>
       )}
       {error ? <p className="mt-3 text-sm text-slate-700">{error}</p> : null}
+      {!isLoading ? (
+        <form
+          className="mt-6 grid gap-3 border-t border-slate-200 pt-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void savePhone();
+          }}
+        >
+          <Field
+            label={phoneLabel}
+            hint={
+              selectedName
+                ? `Destino actual: ${selectedName}`
+                : "Sin destino. Este numero recibira los pedidos."
+            }
+          >
+            <Input
+              placeholder="5219931234567"
+              inputMode="tel"
+              autoComplete="tel"
+              value={drafts[mode]}
+              onChange={(value) => {
+                setPhoneError(null);
+                setDrafts((currentDrafts) => ({
+                  ...currentDrafts,
+                  [mode]: value,
+                }));
+              }}
+            />
+          </Field>
+          {phoneError ? (
+            <p className="text-sm text-slate-700">{phoneError}</p>
+          ) : null}
+          <Button
+            type="submit"
+            disabled={savingPhone || phoneUnchanged || !drafts[mode].trim()}
+          >
+            <span className="inline-flex items-center gap-2">
+              {savingPhone ? (
+                <span
+                  className="size-4 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-white motion-reduce:animate-none"
+                  role="status"
+                  aria-label="Guardando"
+                />
+              ) : null}
+              Guardar numero
+            </span>
+          </Button>
+        </form>
+      ) : null}
     </article>
   );
 }

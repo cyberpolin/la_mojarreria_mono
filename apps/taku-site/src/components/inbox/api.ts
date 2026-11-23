@@ -124,13 +124,39 @@ export async function fetchAccountGroups(accountId: string) {
 
 export async function addGroupConversation(params: {
   whatsappAccountId: string;
-  groupJid: string;
+  groupJid?: string;
+  phoneNumber?: string;
   name?: string;
   role?: "prod" | "test";
 }) {
   return takuApi<InboxConversation>("/conversations/groups", {
     method: "POST",
     body: JSON.stringify(params),
+  });
+}
+
+export async function fetchDriversGroupTargets() {
+  const rows = await fetchConversations({
+    filter: "all",
+    search: "",
+    accountId: "all",
+  });
+  const pinned = rows.filter(
+    (item) => item.pinned && (item.isGroup || item.contact?.kind === "group"),
+  );
+  return {
+    prod: pinned.find((item) => !isTestDriversGroupConversation(item)) ?? null,
+    test: pinned.find((item) => isTestDriversGroupConversation(item)) ?? null,
+  };
+}
+
+export async function updateContactPhone(
+  contactId: string,
+  phoneNumber: string,
+) {
+  return takuApi<InboxConversation["contact"]>(`/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ phoneNumber }),
   });
 }
 

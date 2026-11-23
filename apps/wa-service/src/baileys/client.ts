@@ -44,6 +44,7 @@ import {
 import {
   chatJidFromRecipient,
   digitsFromWhatsAppId,
+  firstDirectChatPhone,
   phoneFromWhatsAppJid,
 } from "../utils/phone.js";
 
@@ -812,12 +813,20 @@ export class WhatsAppClient {
     }
 
     const direction = message.key.fromMe ? "outbound" : "inbound";
+    const keyWithAlt = message.key as typeof message.key & {
+      remoteJidAlt?: string;
+    };
+    const altJid =
+      typeof keyWithAlt.remoteJidAlt === "string"
+        ? keyWithAlt.remoteJidAlt
+        : undefined;
     const phone = isGroup
       ? remoteJid
       : direction === "outbound"
-        ? phoneFromWhatsAppJid(remoteJid)
-        : (message.key.senderPn?.split("@")[0] ??
-          phoneFromWhatsAppJid(remoteJid));
+        ? (phoneFromWhatsAppJid(remoteJid) ??
+          (remoteJid ? (this.phoneByLid.get(remoteJid) ?? null) : null))
+        : (firstDirectChatPhone(message.key.senderPn, altJid, remoteJid) ??
+          (remoteJid ? (this.phoneByLid.get(remoteJid) ?? null) : null));
     const location = readLocationFromWhatsApp(message.message);
     const rawText =
       getMessageText(message.message) ??
@@ -827,10 +836,7 @@ export class WhatsAppClient {
       isGroup && direction === "inbound"
         ? this.resolveGroupSenderPhone(message)
         : null;
-    const text =
-      isGroup && direction === "inbound" && rawText && senderName
-        ? `${senderName}: ${rawText}`
-        : rawText;
+    const text = rawText;
     const messageId = message.key.id;
 
     if (messageId && message.message) {

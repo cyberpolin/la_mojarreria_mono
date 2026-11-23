@@ -1,3 +1,4 @@
+import { directPhonesMatch } from "./services/contactPhones.js";
 import type {
   AdminUser,
   Contact,
@@ -115,13 +116,12 @@ function isPhoneBlocked(
   workspaceId: string,
   phoneNumber: string | undefined,
 ) {
-  const wanted = (phoneNumber ?? "").replace(/\D/g, "");
-  if (!wanted) return false;
+  if (!phoneNumber) return false;
   return database.automationBlockedContacts.some(
     (item) =>
       item.workspaceId === workspaceId &&
       item.enabled &&
-      item.phoneNumber.replace(/\D/g, "") === wanted,
+      directPhonesMatch(item.phoneNumber, phoneNumber),
   );
 }
 
@@ -179,6 +179,7 @@ export function conversationView(
               : lastMessage.body,
           type: lastMessage.type,
           direction: lastMessage.direction,
+          senderName: lastMessage.senderName ?? null,
           createdAt: lastMessage.createdAt,
         }
       : null,

@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hashPassword, verifyPassword } from "../auth.js";
 import { config, isDemoSeedEnvironment } from "../config.js";
+import { mergeDuplicateDirectContacts } from "../services/contactPhones.js";
 import {
   mondayDateKey,
   resetUnreadBadgesIfNeeded,
@@ -1016,7 +1017,11 @@ export class JsonStore {
     try {
       const raw = await readFile(this.filePath, "utf8");
       const database = JSON.parse(raw) as Database;
-      if (hydrateSeed(database) || resetUnreadBadgesIfNeeded(database)) {
+      if (
+        hydrateSeed(database) ||
+        resetUnreadBadgesIfNeeded(database) ||
+        mergeDuplicateDirectContacts(database)
+      ) {
         await this.write(database);
       }
       return database;

@@ -61,6 +61,40 @@ export function phoneFromWhatsAppJid(jid: string): string | null {
   }
 }
 
+export function directChatPhone(
+  value: string | null | undefined,
+): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (
+    !trimmed ||
+    isGroupJid(trimmed) ||
+    trimmed.toLowerCase().endsWith("@lid")
+  ) {
+    return null;
+  }
+  if (trimmed.endsWith("@s.whatsapp.net")) {
+    return phoneFromWhatsAppJid(trimmed);
+  }
+  const user = trimmed.split("@")[0]?.split(":")[0] ?? "";
+  if (!user) return null;
+  try {
+    return normalizePhone(user);
+  } catch {
+    return null;
+  }
+}
+
+export function firstDirectChatPhone(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  for (const candidate of candidates) {
+    const phone = directChatPhone(candidate);
+    if (phone) return phone;
+  }
+  return null;
+}
+
 export function digitsFromWhatsAppId(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();

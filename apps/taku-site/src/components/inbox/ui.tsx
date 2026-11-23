@@ -94,7 +94,7 @@ export function Input({
   type?: string;
   min?: number;
   step?: string | number;
-  inputMode?: "decimal" | "numeric" | "text";
+  inputMode?: "decimal" | "numeric" | "tel" | "text";
   maxLength?: number;
   autoComplete?: string;
 }) {

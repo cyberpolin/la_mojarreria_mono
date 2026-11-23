@@ -47,6 +47,7 @@ export type InboxConversation = {
     body: string | null;
     type?: string;
     direction: string;
+    senderName?: string | null;
     createdAt: string;
   } | null;
   unreadCount: number;
