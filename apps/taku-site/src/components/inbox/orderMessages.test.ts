@@ -4,6 +4,7 @@ import {
   customerAssignmentMessage,
   driverAssignmentMessage,
   fillMessageTemplate,
+  ownerOverdueMessage,
 } from "./orderMessages";
 import type { DeliveryOrder } from "./pendingOrders";
 
@@ -49,6 +50,17 @@ test("assignment messages use the saved template", () => {
   assert.equal(
     customerAssignmentMessage(order, "Va <repartidor> en {tiempo} min"),
     "Va 5219930001111 en 40 min",
+  );
+});
+
+test("the delay alert uses the order number and the minutes", () => {
+  assert.equal(
+    ownerOverdueMessage(order, 10),
+    "Pedido 5435 lleva 10 minutos de retraso.",
+  );
+  assert.equal(
+    ownerOverdueMessage(order, 20, "Retraso {minutos} del pedido <noPedido>"),
+    "Retraso 20 del pedido 5435",
   );
 });
 

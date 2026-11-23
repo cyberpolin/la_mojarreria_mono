@@ -275,6 +275,8 @@ export type Preferences = {
   driversOrderMessage?: string | null;
   driversCustomerMessage?: string | null;
   driversDriverMessage?: string | null;
+  driversAlertMessage?: string | null;
+  driversAlertPhones?: string[] | null;
   createdAt: string;
   updatedAt: string;
 };

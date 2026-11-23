@@ -1,11 +1,18 @@
 import { getWorkspaceSession } from "@/lib/taku-api";
-import { createConversation, sendConversationMessage } from "./api";
+import {
+  createConversation,
+  fetchDriversPreferences,
+  sendConversationMessage,
+} from "./api";
 import {
   assignmentRemainingMs,
   dueOwnerAlertSteps,
 } from "./assignmentCountdown";
 import { digitsPhone, isGroupConversation } from "./helpers";
-import { ownerOverdueMessage } from "./orderMessages";
+import {
+  DEFAULT_OWNER_ALERT_MESSAGE,
+  ownerOverdueMessage,
+} from "./orderMessages";
 import {
   clearOwnerAlertSteps,
   listDeliveryOrders,
@@ -22,10 +29,13 @@ function flightKey(orderId: string, step: number) {
   return `${orderId}:${step}`;
 }
 
-async function sendOwnerAlert(order: DeliveryOrder, body: string) {
+async function sendOwnerAlert(
+  phone: string,
+  order: DeliveryOrder,
+  body: string,
+) {
   const conversation = await createConversation({
-    phoneNumber: OWNER_ALERT_PHONE,
-    name: "Dueno",
+    phoneNumber: phone,
     whatsappAccountId: order.whatsappAccountId ?? undefined,
   });
   if (isGroupConversation(conversation)) {
@@ -40,6 +50,17 @@ async function sendOwnerAlert(order: DeliveryOrder, body: string) {
 export async function flushOverdueOwnerAlerts(now = Date.now()) {
   if (typeof window === "undefined") return;
   if (!getWorkspaceSession()) return;
+
+  let phones = [OWNER_ALERT_PHONE];
+  let template = DEFAULT_OWNER_ALERT_MESSAGE;
+  try {
+    const preferences = await fetchDriversPreferences();
+    phones = preferences.alertPhones;
+    template = preferences.alertMessage;
+  } catch {
+    // Keep the built-in phone and text if preferences cannot be loaded.
+  }
+  if (phones.length === 0) return;
 
   for (const order of listDeliveryOrders()) {
     if (orderStatus(order) !== "open") continue;
@@ -68,7 +89,10 @@ export async function flushOverdueOwnerAlerts(now = Date.now()) {
     recordOwnerAlertSteps(order.id, locked);
     const latest = locked[locked.length - 1];
     try {
-      await sendOwnerAlert(order, ownerOverdueMessage(order, latest));
+      const body = ownerOverdueMessage(order, latest, template);
+      for (const phone of phones) {
+        await sendOwnerAlert(phone, order, body);
+      }
     } catch {
       clearOwnerAlertSteps(order.id, locked);
     } finally {

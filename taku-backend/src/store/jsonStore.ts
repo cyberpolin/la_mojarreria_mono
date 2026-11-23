@@ -738,6 +738,9 @@ function createTestSeed(): Database {
       "A pagar: {a_pagar}",
       "A cobrar: {a_cobrar}",
     ].join("\n"),
+    driversAlertMessage:
+      "Pedido {noPedido} lleva {minutos} minutos de retraso.",
+    driversAlertPhones: ["9931175435"],
     createdAt: timestamp,
     updatedAt: timestamp,
   };

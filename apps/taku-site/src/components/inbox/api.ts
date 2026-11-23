@@ -2,6 +2,7 @@ import { TakuApiError, takuApi, takuList, takuPaginated } from "@/lib/taku-api";
 import {
   DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
   DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
+  DEFAULT_OWNER_ALERT_MESSAGE,
 } from "./orderMessages";
 import {
   buildConversationQuery,
@@ -39,7 +40,11 @@ type DriversPreferences = {
   driversOrderMessage?: string | null;
   driversCustomerMessage?: string | null;
   driversDriverMessage?: string | null;
+  driversAlertMessage?: string | null;
+  driversAlertPhones?: string[] | null;
 };
+
+const DEFAULT_ALERT_PHONES = ["9931175435"];
 
 const DEFAULT_DRIVERS_ORDER_MESSAGE = "Pedido por favor";
 
@@ -57,6 +62,9 @@ export async function fetchDriversPreferences() {
     driverMessage:
       preferences?.driversDriverMessage?.trim() ||
       DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
+    alertMessage:
+      preferences?.driversAlertMessage?.trim() || DEFAULT_OWNER_ALERT_MESSAGE,
+    alertPhones: preferences?.driversAlertPhones ?? [...DEFAULT_ALERT_PHONES],
   };
 }
 
@@ -86,6 +94,8 @@ export async function updateMessageSettings(input: {
   orderMessage: string;
   customerMessage: string;
   driverMessage: string;
+  alertMessage: string;
+  alertPhones: string[];
 }) {
   return takuApi<{
     message: string;
@@ -96,6 +106,8 @@ export async function updateMessageSettings(input: {
       driversOrderMessage: input.orderMessage,
       driversCustomerMessage: input.customerMessage,
       driversDriverMessage: input.driverMessage,
+      driversAlertMessage: input.alertMessage,
+      driversAlertPhones: input.alertPhones,
     }),
   });
 }

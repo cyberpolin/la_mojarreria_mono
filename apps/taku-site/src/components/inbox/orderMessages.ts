@@ -8,6 +8,9 @@ export const DEFAULT_DRIVER_ASSIGNMENT_MESSAGE = [
   "A cobrar: {a_cobrar}",
 ].join("\n");
 
+export const DEFAULT_OWNER_ALERT_MESSAGE =
+  "Pedido {noPedido} lleva {minutos} minutos de retraso.";
+
 export const DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE = [
   "Repartidor: {repartidor}",
   "Total: {total}",
@@ -58,12 +61,15 @@ export function driverAssignmentMessage(
   return fillMessageTemplate(template, assignmentTemplateValues(order));
 }
 
-export function ownerOverdueMessage(order: DeliveryOrder, stepMinutes: number) {
-  const number = orderNumber(order.customerPhone) || "----";
-  if (stepMinutes <= 0) {
-    return `Pedido ${number} se vencio.`;
-  }
-  return `Pedido ${number} lleva ${stepMinutes} minutos de retraso.`;
+export function ownerOverdueMessage(
+  order: DeliveryOrder,
+  stepMinutes: number,
+  template = DEFAULT_OWNER_ALERT_MESSAGE,
+) {
+  return fillMessageTemplate(template, {
+    ...assignmentTemplateValues(order),
+    minutos: String(Math.max(0, stepMinutes)),
+  });
 }
 
 export function customerAssignmentMessage(

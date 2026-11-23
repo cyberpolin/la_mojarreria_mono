@@ -600,6 +600,8 @@ function ensureWorkspaceDefaults(
       driversOrderMessage: "Pedido por favor",
       driversCustomerMessage: DEFAULT_DRIVERS_CUSTOMER_MESSAGE,
       driversDriverMessage: DEFAULT_DRIVERS_DRIVER_MESSAGE,
+      driversAlertMessage: DEFAULT_DRIVERS_ALERT_MESSAGE,
+      driversAlertPhones: [...DEFAULT_DRIVERS_ALERT_PHONES],
       createdAt: now(),
       updatedAt: now(),
     });
@@ -879,6 +881,9 @@ const DEFAULT_DRIVERS_DRIVER_MESSAGE = [
   "A pagar: {a_pagar}",
   "A cobrar: {a_cobrar}",
 ].join("\n");
+const DEFAULT_DRIVERS_ALERT_MESSAGE =
+  "Pedido {noPedido} lleva {minutos} minutos de retraso.";
+const DEFAULT_DRIVERS_ALERT_PHONES = ["9931175435"];
 
 function driversOrderMessageOf(preferences?: Preferences | null) {
   const message = preferences?.driversOrderMessage?.trim();
@@ -893,6 +898,48 @@ function driversCustomerMessageOf(preferences?: Preferences | null) {
 function driversDriverMessageOf(preferences?: Preferences | null) {
   const message = preferences?.driversDriverMessage?.trim();
   return message || DEFAULT_DRIVERS_DRIVER_MESSAGE;
+}
+
+function driversAlertMessageOf(preferences?: Preferences | null) {
+  const message = preferences?.driversAlertMessage?.trim();
+  return message || DEFAULT_DRIVERS_ALERT_MESSAGE;
+}
+
+function driversAlertPhonesOf(preferences?: Preferences | null) {
+  const phones = preferences?.driversAlertPhones;
+  if (!phones) return [...DEFAULT_DRIVERS_ALERT_PHONES];
+  return phones;
+}
+
+function readDriversAlertPhones(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Agrega los telefonos que reciben el retraso.",
+    });
+  }
+  const phones: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim()) continue;
+    const phone = canonicalDirectPhone(item);
+    if (!phone) {
+      throw new ApiError({
+        status: 400,
+        code: "VALIDATION_ERROR",
+        message: "Ingresa un telefono valido.",
+      });
+    }
+    if (!phones.includes(phone)) phones.push(phone);
+  }
+  if (phones.length > 20) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Hay demasiados destinatarios.",
+    });
+  }
+  return phones;
 }
 
 function readDriversOrderMessage(value: unknown) {
@@ -7420,6 +7467,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               driversOrderMessage: driversOrderMessageOf(preferences),
               driversCustomerMessage: driversCustomerMessageOf(preferences),
               driversDriverMessage: driversDriverMessageOf(preferences),
+              driversAlertMessage: driversAlertMessageOf(preferences),
+              driversAlertPhones: driversAlertPhonesOf(preferences),
             }
           : null,
       );
@@ -7449,6 +7498,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             driversOrderMessage: DEFAULT_DRIVERS_ORDER_MESSAGE,
             driversCustomerMessage: DEFAULT_DRIVERS_CUSTOMER_MESSAGE,
             driversDriverMessage: DEFAULT_DRIVERS_DRIVER_MESSAGE,
+            driversAlertMessage: DEFAULT_DRIVERS_ALERT_MESSAGE,
+            driversAlertPhones: [...DEFAULT_DRIVERS_ALERT_PHONES],
             createdAt: now(),
             updatedAt: now(),
           };
@@ -7496,6 +7547,15 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             req.body.driversDriverMessage,
             DEFAULT_DRIVERS_DRIVER_MESSAGE,
           );
+        if ("driversAlertMessage" in req.body)
+          preferences.driversAlertMessage = readDriversTemplateMessage(
+            req.body.driversAlertMessage,
+            DEFAULT_DRIVERS_ALERT_MESSAGE,
+          );
+        if ("driversAlertPhones" in req.body)
+          preferences.driversAlertPhones = readDriversAlertPhones(
+            req.body.driversAlertPhones,
+          );
         preferences.updatedAt = now();
         return {
           ...preferences,
@@ -7503,6 +7563,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           driversOrderMessage: driversOrderMessageOf(preferences),
           driversCustomerMessage: driversCustomerMessageOf(preferences),
           driversDriverMessage: driversDriverMessageOf(preferences),
+          driversAlertMessage: driversAlertMessageOf(preferences),
+          driversAlertPhones: driversAlertPhonesOf(preferences),
         } as Preferences;
       });
       ok(res, {
