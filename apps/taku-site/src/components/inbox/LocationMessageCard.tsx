@@ -23,6 +23,18 @@ export function isLocationMessage(message: {
   );
 }
 
+export function savedLocationForLastCustomerMessage(messages: InboxMessage[]) {
+  let lastInbound: InboxMessage | null = null;
+  let location: InboxMessage | null = null;
+  for (const message of messages) {
+    if (message.direction !== "inbound") continue;
+    lastInbound = message;
+    if (isLocationMessage(message)) location = message;
+  }
+  if (!lastInbound || !location || lastInbound.id === location.id) return null;
+  return { messageId: lastInbound.id, location };
+}
+
 export function locationMapsUrl(message: InboxMessage) {
   if (
     typeof message.latitude === "number" &&
@@ -49,7 +61,7 @@ function PinIcon({ className }: { className?: string }) {
   );
 }
 
-export function LocationMessageCard({
+function RaiseOrderButton({
   message,
   inverted = false,
   account = null,
@@ -67,8 +79,76 @@ export function LocationMessageCard({
     message,
     fallbackPhone,
   );
-  const href = locationMapsUrl(message);
   const [orderOpen, setOrderOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOrderOpen(true);
+        }}
+        className={cx(
+          "inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-semibold",
+          inverted
+            ? "border border-white/40 bg-white/10 text-white hover:bg-white/20"
+            : "border border-slate-300 bg-white text-slate-950 hover:border-slate-950",
+        )}
+      >
+        Levantar pedido
+      </button>
+      {orderOpen ? (
+        <RaiseOrderModal
+          account={account ?? conversation?.whatsappAccount ?? null}
+          message={message}
+          customerPhone={customer.customerPhone}
+          customerConversationId={customer.customerConversationId}
+          onClose={() => setOrderOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function SavedLocationOrder({
+  location,
+  account = null,
+  conversation = null,
+  fallbackPhone = null,
+}: {
+  location: InboxMessage;
+  account?: InboxWhatsAppAccount | null;
+  conversation?: InboxConversation | null;
+  fallbackPhone?: string | null;
+}) {
+  return (
+    <div className="mt-3 grid gap-2">
+      <p className="text-[12px] leading-4 text-slate-500">
+        Ubicacion guardada de este cliente.
+      </p>
+      <RaiseOrderButton
+        message={location}
+        account={account}
+        conversation={conversation}
+        fallbackPhone={fallbackPhone}
+      />
+    </div>
+  );
+}
+export function LocationMessageCard({
+  message,
+  inverted = false,
+  account = null,
+  conversation = null,
+  fallbackPhone = null,
+}: {
+  message: InboxMessage;
+  inverted?: boolean;
+  account?: InboxWhatsAppAccount | null;
+  conversation?: InboxConversation | null;
+  fallbackPhone?: string | null;
+}) {
+  const href = locationMapsUrl(message);
   const detailText = messageBodyText(message).trim();
   const detail = detailText && detailText !== "Ubicacion" ? detailText : null;
 
@@ -114,31 +194,14 @@ export function LocationMessageCard({
         ) : (
           <p className="text-[13px] opacity-70">Sin coordenadas</p>
         )}
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setOrderOpen(true);
-          }}
-          className={cx(
-            "inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm font-semibold",
-            inverted
-              ? "border border-white/40 bg-white/10 text-white hover:bg-white/20"
-              : "border border-slate-300 bg-white text-slate-950 hover:border-slate-950",
-          )}
-        >
-          Levantar pedido
-        </button>
-      </div>
-      {orderOpen ? (
-        <RaiseOrderModal
-          account={account ?? conversation?.whatsappAccount ?? null}
+        <RaiseOrderButton
           message={message}
-          customerPhone={customer.customerPhone}
-          customerConversationId={customer.customerConversationId}
-          onClose={() => setOrderOpen(false)}
+          inverted={inverted}
+          account={account}
+          conversation={conversation}
+          fallbackPhone={fallbackPhone}
         />
-      ) : null}
+      </div>
     </div>
   );
 }

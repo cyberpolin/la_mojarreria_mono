@@ -15,7 +15,12 @@ import {
 import { FaqIntentLight } from "./FaqIntentLight";
 import { shouldShowFaqSemaforo } from "./faqSemaforo";
 import { LinkedMessageText } from "./LinkedMessageText";
-import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
+import {
+  isLocationMessage,
+  LocationMessageCard,
+  SavedLocationOrder,
+  savedLocationForLastCustomerMessage,
+} from "./LocationMessageCard";
 import { MotoIcon } from "./ConversationAvatar";
 import { AssignOrderSheet } from "./AssignOrderSheet";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
@@ -39,6 +44,7 @@ function MessageBubble({
   account,
   conversation,
   isDriverSender = false,
+  savedLocation = null,
 }: {
   message: InboxMessage;
   clickable?: boolean;
@@ -46,6 +52,7 @@ function MessageBubble({
   account?: InboxConversation["whatsappAccount"];
   conversation?: InboxConversation | null;
   isDriverSender?: boolean;
+  savedLocation?: InboxMessage | null;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -126,6 +133,13 @@ function MessageBubble({
           }
         />
       )}
+      {savedLocation ? (
+        <SavedLocationOrder
+          location={savedLocation}
+          account={account}
+          conversation={conversation}
+        />
+      ) : null}
       {messageStatusLabel(message.status) ? (
         <p className="mt-2 text-xs opacity-70">
           {messageStatusLabel(message.status)}
@@ -283,6 +297,9 @@ export function ConversationThread({
             Boolean(conversation?.pinned) &&
             isGroup &&
             message.direction === "inbound";
+          const savedLocation = isGroup
+            ? null
+            : savedLocationForLastCustomerMessage(messages);
           return (
             <div key={message.id} className="flex items-end gap-1">
               <FaqIntentLight
@@ -298,6 +315,11 @@ export function ConversationThread({
                 )}
                 clickable={showDriverMenu}
                 onOpen={() => setMenuMessage(message)}
+                savedLocation={
+                  savedLocation?.messageId === message.id
+                    ? savedLocation.location
+                    : null
+                }
               />
               {showDriverMenu ? (
                 <button

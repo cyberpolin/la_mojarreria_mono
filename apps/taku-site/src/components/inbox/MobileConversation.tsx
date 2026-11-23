@@ -45,7 +45,12 @@ import type {
 import { FaqIntentLight } from "./FaqIntentLight";
 import { shouldShowFaqSemaforo } from "./faqSemaforo";
 import { LinkedMessageText } from "./LinkedMessageText";
-import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
+import {
+  isLocationMessage,
+  LocationMessageCard,
+  SavedLocationOrder,
+  savedLocationForLastCustomerMessage,
+} from "./LocationMessageCard";
 import { AssignOrderSheet } from "./AssignOrderSheet";
 import {
   KebabIcon,
@@ -86,6 +91,7 @@ function MobileBubble({
   conversation,
   fallbackPhone,
   isDriverSender = false,
+  savedLocation = null,
 }: {
   message: InboxMessage;
   clickable?: boolean;
@@ -94,6 +100,7 @@ function MobileBubble({
   conversation?: InboxConversation | null;
   fallbackPhone?: string | null;
   isDriverSender?: boolean;
+  savedLocation?: InboxMessage | null;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -162,6 +169,14 @@ function MobileBubble({
           }
         />
       )}
+      {savedLocation ? (
+        <SavedLocationOrder
+          location={savedLocation}
+          account={account}
+          conversation={conversation}
+          fallbackPhone={fallbackPhone}
+        />
+      ) : null}
       <p
         className={cx(
           "mt-1 text-right text-[10px]",
@@ -656,6 +671,9 @@ export function MobileConversation({
             !showDriverMenu &&
             !isGroupConversation(conversation) &&
             message.direction === "inbound";
+          const savedLocation = isGroupConversation(conversation)
+            ? null
+            : savedLocationForLastCustomerMessage(messages);
           return (
             <div
               key={message.id}
@@ -678,6 +696,11 @@ export function MobileConversation({
                 )}
                 clickable={showDriverMenu}
                 onOpen={() => setMessageMenu(message)}
+                savedLocation={
+                  savedLocation?.messageId === message.id
+                    ? savedLocation.location
+                    : null
+                }
               />
               {showDriverMenu || showCustomerMenu ? (
                 <button
