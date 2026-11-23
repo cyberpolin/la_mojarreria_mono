@@ -938,7 +938,7 @@ export class WhatsAppClient {
     }
 
     if (!this.isDefaultConnection) {
-      await dispatchWebhookEvent({
+      const skipAutoReply = await dispatchWebhookEvent({
         filePath: this.config.webhookSubscriptionsFile,
         logger: this.logger,
         event: "message.received",
@@ -952,6 +952,18 @@ export class WhatsAppClient {
           message: conversationMessage,
         },
       });
+      if (skipAutoReply) {
+        recordDebugLog({
+          event: "taku_bot_reply_skipped_drivers_test_phone",
+          data: {
+            messageId,
+            phone,
+            connectionId: this.connectionId,
+            businessId: this.businessId,
+          },
+        });
+        return;
+      }
       recordDebugLog({
         event: "transport_only_message_received_dispatched",
         data: {

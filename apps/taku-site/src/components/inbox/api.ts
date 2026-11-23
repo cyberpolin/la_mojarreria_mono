@@ -28,11 +28,41 @@ export async function fetchConversations(params: {
   return result.items;
 }
 
+type DriversPreferences = {
+  driversGroupMode?: string;
+  driversProdPhone?: string | null;
+  driversTestPhone?: string | null;
+};
+
+export async function fetchDriversPreferences() {
+  const preferences = await takuApi<DriversPreferences | null>("/preferences");
+  return {
+    mode: normalizeDriversGroupMode(preferences?.driversGroupMode),
+    prodPhone: preferences?.driversProdPhone?.trim() ?? "",
+    testPhone: preferences?.driversTestPhone?.trim() ?? "",
+  };
+}
+
 export async function fetchDriversGroupMode(): Promise<DriversGroupMode> {
-  const preferences = await takuApi<{ driversGroupMode?: string } | null>(
-    "/preferences",
-  );
-  return normalizeDriversGroupMode(preferences?.driversGroupMode);
+  const preferences = await fetchDriversPreferences();
+  return preferences.mode;
+}
+
+export async function updateDriversPhone(
+  mode: DriversGroupMode,
+  phone: string,
+) {
+  return takuApi<{
+    message: string;
+    preferences: DriversPreferences;
+  }>("/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(
+      mode === "test"
+        ? { driversTestPhone: phone }
+        : { driversProdPhone: phone },
+    ),
+  });
 }
 
 export async function updateDriversGroupMode(mode: DriversGroupMode) {
@@ -46,7 +76,20 @@ export async function updateDriversGroupMode(mode: DriversGroupMode) {
 }
 
 export async function fetchPinnedGroupConversation(accountId?: string) {
-  const mode = await fetchDriversGroupMode();
+  const preferences = await fetchDriversPreferences();
+  const destination =
+    preferences.mode === "test" ? preferences.testPhone : preferences.prodPhone;
+  if (destination && !destination.toLowerCase().endsWith("@g.us")) {
+    const existing = await fetchConversationByPhone(destination, accountId);
+    if (existing) return existing;
+    if (accountId && accountId !== "all") {
+      return createConversation({
+        phoneNumber: destination,
+        whatsappAccountId: accountId,
+      });
+    }
+  }
+  const mode = preferences.mode;
   const scoped = await fetchConversations({
     filter: "all",
     search: "",

@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import {
   addGroupConversation,
-  fetchDriversGroupMode,
+  createConversation,
   fetchDriversGroupTargets,
+  fetchDriversPreferences,
   fetchWhatsAppAccounts,
-  updateContactPhone,
   updateDriversGroupMode,
+  updateDriversPhone,
 } from "@/components/inbox/api";
 import { cx, isAccountConnected } from "@/components/inbox/helpers";
 import type { DriversGroupMode } from "@/components/inbox/helpers";
@@ -22,12 +23,12 @@ const OPTIONS: Array<{
   {
     value: "prod",
     label: "Produccion",
-    hint: "Los pedidos avisan al grupo actual.",
+    hint: "Los pedidos avisan al destino de produccion.",
   },
   {
     value: "test",
     label: "Pruebas",
-    hint: "Los pedidos avisan al grupo de pruebas.",
+    hint: "Los pedidos avisan al numero o grupo de pruebas.",
   },
 ];
 
@@ -63,14 +64,14 @@ export function DriversGroupModeCard() {
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    void Promise.all([fetchDriversGroupMode(), fetchDriversGroupTargets()])
-      .then(([next, groups]) => {
+    void Promise.all([fetchDriversPreferences(), fetchDriversGroupTargets()])
+      .then(([preferences, groups]) => {
         if (cancelled) return;
-        setMode(next);
+        setMode(preferences.mode);
         setTargets(groups);
         const phones = {
-          prod: phoneOf(groups.prod),
-          test: phoneOf(groups.test),
+          prod: preferences.prodPhone || phoneOf(groups.prod),
+          test: preferences.testPhone || phoneOf(groups.test),
         };
         setDrafts(phones);
         setSavedPhones(phones);
@@ -120,49 +121,47 @@ export function DriversGroupModeCard() {
     setSavingPhone(true);
     setPhoneError(null);
     try {
-      const current = targets[mode];
-      const contactId = current?.contact?.id;
-      if (contactId) {
-        const contact = await updateContactPhone(contactId, raw);
-        const nextPhone = contact?.phoneNumber ?? raw;
-        setTargets((currentTargets) => ({
-          ...currentTargets,
-          [mode]: current
-            ? {
-                ...current,
-                contact: current.contact
-                  ? { ...current.contact, phoneNumber: nextPhone }
-                  : current.contact,
-              }
-            : current,
-        }));
-        setDrafts((currentDrafts) => ({ ...currentDrafts, [mode]: nextPhone }));
-        setSavedPhones((currentSaved) => ({
-          ...currentSaved,
-          [mode]: nextPhone,
-        }));
-        return;
-      }
-      const accounts = await fetchWhatsAppAccounts();
-      const account = accounts.find((item) => isAccountConnected(item.status));
-      if (!account) {
+      const saved = await updateDriversPhone(mode, raw);
+      const nextPhone = (
+        mode === "test"
+          ? saved.preferences.driversTestPhone
+          : saved.preferences.driversProdPhone
+      )?.trim();
+      if (!nextPhone) {
         throw new Error(
-          "Conecta un numero de WhatsApp para guardar el destino.",
+          "El servidor no guardo el numero. Actualiza el backend y vuelve a intentar.",
         );
       }
-      const conversation = await addGroupConversation({
-        whatsappAccountId: account.id,
-        ...(raw.toLowerCase().endsWith("@g.us")
-          ? { groupJid: raw }
-          : { phoneNumber: raw }),
-        name: mode === "test" ? "Repartidores (prueba)" : "Repartidores",
-        role: mode,
-      });
-      const nextPhone = conversation.contact?.phoneNumber ?? raw;
-      setTargets((currentTargets) => ({
-        ...currentTargets,
-        [mode]: conversation,
-      }));
+      const isGroup = nextPhone.toLowerCase().endsWith("@g.us");
+      if (isGroup) {
+        const accounts = await fetchWhatsAppAccounts();
+        const account = accounts.find((item) =>
+          isAccountConnected(item.status),
+        );
+        if (!account) {
+          throw new Error(
+            "Conecta un numero de WhatsApp para guardar el grupo.",
+          );
+        }
+        await addGroupConversation({
+          whatsappAccountId: account.id,
+          groupJid: nextPhone,
+          name: mode === "test" ? "Repartidores (prueba)" : "Repartidores",
+          role: mode,
+        });
+      } else {
+        const accounts = await fetchWhatsAppAccounts();
+        const account = accounts.find((item) =>
+          isAccountConnected(item.status),
+        );
+        if (account) {
+          await createConversation({
+            phoneNumber: nextPhone,
+            whatsappAccountId: account.id,
+            name: mode === "test" ? "Pruebas" : "Produccion",
+          });
+        }
+      }
       setDrafts((currentDrafts) => ({ ...currentDrafts, [mode]: nextPhone }));
       setSavedPhones((currentSaved) => ({
         ...currentSaved,
@@ -193,7 +192,7 @@ export function DriversGroupModeCard() {
         Destino de pedidos
       </h2>
       <p className="mt-2 text-sm leading-6 text-slate-600">
-        Cambia esto en produccion para mandar pedidos al grupo de pruebas sin
+        Cambia esto en produccion para mandar pedidos al destino de pruebas sin
         tocar el de ahora.
       </p>
       {isLoading ? (
@@ -243,9 +242,11 @@ export function DriversGroupModeCard() {
           <Field
             label={phoneLabel}
             hint={
-              selectedName
-                ? `Destino actual: ${selectedName}`
-                : "Sin destino. Este numero recibira los pedidos."
+              savedPhones[mode] && !savedPhones[mode].includes("@g.us")
+                ? "Los pedidos de este destino se envian a este numero."
+                : selectedName
+                  ? `Destino actual: ${selectedName}`
+                  : "Sin destino. Este numero recibira los pedidos."
             }
           >
             <Input

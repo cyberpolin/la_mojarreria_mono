@@ -270,6 +270,8 @@ export type Preferences = {
   agentsCanCloseConversations: boolean;
   agentsCanReassignConversations: boolean;
   driversGroupMode?: DriversGroupMode;
+  driversProdPhone?: string | null;
+  driversTestPhone?: string | null;
   createdAt: string;
   updatedAt: string;
 };

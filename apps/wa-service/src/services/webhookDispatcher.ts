@@ -20,7 +20,7 @@ export async function dispatchWebhookEvent(params: {
   logger: Logger;
   event: WebhookEventName;
   payload: WebhookPayload;
-}): Promise<void> {
+}): Promise<boolean> {
   const subscriptions = await listWebhookSubscriptions(params.filePath);
   const targets = subscriptions.filter(
     (subscription) =>
@@ -33,7 +33,7 @@ export async function dispatchWebhookEvent(params: {
           subscription.connectionIds.includes(params.payload.connectionId))),
   );
 
-  await Promise.all(
+  const skipped = await Promise.all(
     targets.map(async (subscription) => {
       try {
         const headers: Record<string, string> = {
@@ -60,7 +60,16 @@ export async function dispatchWebhookEvent(params: {
             },
             "v1 webhook subscription request failed",
           );
+          return false;
         }
+
+        const body = (await response.json().catch(() => null)) as {
+          data?: { skipAutoReply?: unknown };
+          skipAutoReply?: unknown;
+        } | null;
+        return (
+          body?.data?.skipAutoReply === true || body?.skipAutoReply === true
+        );
       } catch (error) {
         params.logger.warn(
           {
@@ -70,7 +79,9 @@ export async function dispatchWebhookEvent(params: {
           },
           "v1 webhook subscription request failed",
         );
+        return false;
       }
     }),
   );
+  return skipped.some(Boolean);
 }

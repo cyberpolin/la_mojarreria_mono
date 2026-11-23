@@ -862,6 +862,44 @@ function driversGroupModeOf(
   return preferences?.driversGroupMode === "test" ? "test" : "prod";
 }
 
+function readDriversDestinationPhone(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Ingresa un telefono valido.",
+    });
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isGroupRecipient(trimmed)) return trimmed;
+  const phone = canonicalDirectPhone(trimmed);
+  if (!phone) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Ingresa un telefono valido.",
+    });
+  }
+  return phone;
+}
+
+function isActiveDriversTestPhone(
+  database: Database,
+  workspaceId: string,
+  from: string,
+) {
+  const preferences = database.preferences.find(
+    (item) => item.workspaceId === workspaceId,
+  );
+  if (driversGroupModeOf(preferences) !== "test") return false;
+  const destination = preferences?.driversTestPhone?.trim();
+  if (!destination) return false;
+  if (isGroupRecipient(destination)) return from.trim() === destination;
+  return directPhonesMatch(destination, from);
+}
+
 function driversGroupKind(
   database: Database,
   conversation: Conversation,
@@ -1461,6 +1499,11 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         );
         if (
           !contact ||
+          isActiveDriversTestPhone(
+            database,
+            workspaceId,
+            contact.phoneNumber,
+          ) ||
           findBlockedAutomationContact(
             database,
             workspaceId,
@@ -1661,6 +1704,9 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
       params.workspaceId,
       params.accountId,
     );
+    if (isActiveDriversTestPhone(database, params.workspaceId, params.from)) {
+      return;
+    }
     if (!workspaceRecord || workspaceRecord.status === "suspended") {
       await store.update((current) => {
         current.automationDecisionLogs.push({
@@ -2221,7 +2267,24 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           text: result.text,
         });
       }
-      ok(res, { received: true, duplicate: "duplicate" in result });
+      const inboundFrom = readOptionalString(payload.from) ?? "";
+      const currentDatabase = await store.read();
+      const skipAutoReply =
+        event === "message.received" &&
+        inboundFrom.length > 0 &&
+        !isGroupRecipient(inboundFrom) &&
+        currentDatabase.preferences.some((preferences) =>
+          isActiveDriversTestPhone(
+            currentDatabase,
+            preferences.workspaceId,
+            inboundFrom,
+          ),
+        );
+      ok(res, {
+        received: true,
+        duplicate: "duplicate" in result,
+        skipAutoReply,
+      });
     }),
   );
 
@@ -7162,6 +7225,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             req.body.agentsCanReassignConversations;
         if (isDriversGroupMode(req.body?.driversGroupMode))
           preferences.driversGroupMode = req.body.driversGroupMode;
+        if ("driversProdPhone" in req.body)
+          preferences.driversProdPhone = readDriversDestinationPhone(
+            req.body.driversProdPhone,
+          );
+        if ("driversTestPhone" in req.body)
+          preferences.driversTestPhone = readDriversDestinationPhone(
+            req.body.driversTestPhone,
+          );
         preferences.updatedAt = now();
         return {
           ...preferences,
