@@ -76,6 +76,7 @@ export function RaiseOrderModal({
   const [savingLocation, setSavingLocation] = useState(false);
   const [driversMessage, setDriversMessage] = useState(DRIVERS_ORDER_MESSAGE);
   const [kilometers, setKilometers] = useState("");
+  const [kilometersFromRoute, setKilometersFromRoute] = useState(false);
   const [mojarras, setMojarras] = useState("0");
   const [empanadas, setEmpanadas] = useState("0");
   const [payment, setPayment] = useState<"efectivo" | "transferencia" | null>(
@@ -396,6 +397,10 @@ export function RaiseOrderModal({
                   name: null,
                 });
                 setLocationName(place.name === "Ubicacion" ? "" : place.name);
+                if (typeof place.kilometers === "number") {
+                  setKilometers(String(place.kilometers));
+                  setKilometersFromRoute(true);
+                }
                 setStep("save-name");
               })
               .catch((caught: unknown) => {
@@ -508,7 +513,9 @@ export function RaiseOrderModal({
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
             <Field
               label="Kilometros"
-              hint={`Minimo ${formatMxn(DELIVERY_BASE)} e incluye los primeros ${DELIVERY_INCLUDED_KM} km. Cada km extra cuesta ${formatMxn(DELIVERY_PER_KM)}.`}
+              hint={`${
+                kilometersFromRoute ? "Tomados de la ruta en Google Maps. " : ""
+              }Minimo ${formatMxn(DELIVERY_BASE)} e incluye los primeros ${DELIVERY_INCLUDED_KM} km. Cada km extra cuesta ${formatMxn(DELIVERY_PER_KM)}.`}
             >
               <Input
                 type="number"

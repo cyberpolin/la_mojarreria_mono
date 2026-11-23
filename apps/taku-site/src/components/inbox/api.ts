@@ -94,6 +94,7 @@ export async function resolveGoogleMapsLink(url: string) {
     address: string;
     latitude: number;
     longitude: number;
+    kilometers?: number;
   }>("/maps-link", {
     method: "POST",
     body: JSON.stringify({ url }),
