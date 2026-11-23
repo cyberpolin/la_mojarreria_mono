@@ -24,6 +24,7 @@ import {
   formatTime,
   isAccountConnected,
   isDriversGroupConversation,
+  isDriversTestChat,
   isFromMojarreriaApp,
   isFullConversation,
   isGroupConversation,
@@ -65,6 +66,7 @@ import {
   forgetDriverPhone,
   isDriverInList,
   rememberDriverPhone,
+  useDriversTestPhone,
   useKnownDriverPhones,
 } from "./drivers";
 import { completeOrderAssignment } from "./assignDeliveryOrder";
@@ -235,6 +237,8 @@ export function MobileConversation({
   const seenMessageIdsRef = useRef<Set<string>>(new Set());
   const threadReadyRef = useRef(false);
   const driverPhones = useKnownDriverPhones();
+  const testPhone = useDriversTestPhone();
+  const testChat = isDriversTestChat(conversation, testPhone);
   conversationRef.current = conversation;
   useArmIncomingSound();
 
@@ -499,7 +503,12 @@ export function MobileConversation({
   }
 
   async function handleAssignOrder(message: InboxMessage) {
-    const phone = digitsPhone(message.senderPhone ?? "");
+    const phone = digitsPhone(
+      message.senderPhone ??
+        (isGroupConversation(conversation)
+          ? ""
+          : (conversation?.contact?.phoneNumber ?? "")),
+    );
     if (!phone) {
       setError(
         "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
@@ -508,7 +517,7 @@ export function MobileConversation({
     }
     const result = await completeOrderAssignment({
       driverPhone: phone,
-      driverName: message.senderName,
+      driverName: message.senderName ?? conversation?.contact?.name,
     });
     if (!result.ok) {
       setError(result.error);
@@ -664,9 +673,10 @@ export function MobileConversation({
         ) : null}
         {messages.map((message) => {
           const showDriverMenu =
-            Boolean(conversation?.pinned) &&
-            isGroupConversation(conversation) &&
-            message.direction === "inbound";
+            message.direction === "inbound" &&
+            ((Boolean(conversation?.pinned) &&
+              isGroupConversation(conversation)) ||
+              testChat);
           const showCustomerMenu =
             !onTablet &&
             !showDriverMenu &&
@@ -824,7 +834,7 @@ export function MobileConversation({
             "Mensaje"
           }
           items={[
-            ...(conversation?.pinned
+            ...(conversation?.pinned || testChat
               ? [
                   {
                     label: "Asignar pedido",
@@ -834,12 +844,16 @@ export function MobileConversation({
                   },
                 ]
               : []),
-            {
-              label: "Iniciar chat privado",
-              onSelect: () => {
-                void handleStartPrivateChat(messageMenu);
-              },
-            },
+            ...(isGroupConversation(conversation)
+              ? [
+                  {
+                    label: "Iniciar chat privado",
+                    onSelect: () => {
+                      void handleStartPrivateChat(messageMenu);
+                    },
+                  },
+                ]
+              : []),
           ]}
           onClose={() => setMessageMenu(null)}
         />

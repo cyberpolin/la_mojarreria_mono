@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchDriversPreferences } from "./api";
 import { digitsPhone } from "./helpers";
 import { listDeliveryOrders } from "./pendingOrders";
 
@@ -99,4 +100,22 @@ export function isDriverInList(
 ) {
   const digits = digitsPhone(phone ?? "");
   return Boolean(digits) && phones.includes(digits);
+}
+
+export function useDriversTestPhone() {
+  const [phone, setPhone] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDriversPreferences()
+      .then((preferences) => {
+        if (!cancelled) setPhone(preferences.testPhone);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return phone;
 }

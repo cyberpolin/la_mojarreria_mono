@@ -8,6 +8,7 @@ import {
   digitsPhone,
   formatDate,
   isAccountConnected,
+  isDriversTestChat,
   isGroupConversation,
   messageBodyText,
   messageStatusLabel,
@@ -23,7 +24,11 @@ import {
 } from "./LocationMessageCard";
 import { MotoIcon } from "./ConversationAvatar";
 import { AssignOrderSheet } from "./AssignOrderSheet";
-import { isDriverInList, useKnownDriverPhones } from "./drivers";
+import {
+  isDriverInList,
+  useDriversTestPhone,
+  useKnownDriverPhones,
+} from "./drivers";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import { completeOrderAssignment } from "./assignDeliveryOrder";
 import type { DeliveryOrder } from "./pendingOrders";
@@ -189,10 +194,15 @@ export function ConversationThread({
   const [assignError, setAssignError] = useState<string | null>(null);
   const [customerNotified, setCustomerNotified] = useState(false);
   const driverPhones = useKnownDriverPhones();
+  const testPhone = useDriversTestPhone();
+  const testChat = isDriversTestChat(conversation, testPhone);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   async function handleAssignOrder(message: InboxMessage) {
-    const phone = digitsPhone(message.senderPhone ?? "");
+    const phone = digitsPhone(
+      message.senderPhone ??
+        (isGroup ? "" : (conversation?.contact?.phoneNumber ?? "")),
+    );
     if (!phone) {
       setAssignError(
         "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
@@ -201,7 +211,7 @@ export function ConversationThread({
     }
     const result = await completeOrderAssignment({
       driverPhone: phone,
-      driverName: message.senderName,
+      driverName: message.senderName ?? conversation?.contact?.name,
     });
     if (!result.ok) {
       setAssignError(result.error);
@@ -295,9 +305,8 @@ export function ConversationThread({
         ) : null}
         {messages.map((message) => {
           const showDriverMenu =
-            Boolean(conversation?.pinned) &&
-            isGroup &&
-            message.direction === "inbound";
+            message.direction === "inbound" &&
+            ((Boolean(conversation?.pinned) && isGroup) || testChat);
           const savedLocation = isGroup
             ? null
             : savedLocationForLastCustomerMessage(messages);
@@ -376,7 +385,7 @@ export function ConversationThread({
             "Mensaje"
           }
           items={[
-            ...(conversation?.pinned
+            ...(conversation?.pinned || testChat
               ? [
                   {
                     label: "Asignar pedido",
@@ -386,10 +395,14 @@ export function ConversationThread({
                   },
                 ]
               : []),
-            {
-              label: "Iniciar chat privado",
-              onSelect: () => onStartPrivateChat?.(menuMessage),
-            },
+            ...(isGroup
+              ? [
+                  {
+                    label: "Iniciar chat privado",
+                    onSelect: () => onStartPrivateChat?.(menuMessage),
+                  },
+                ]
+              : []),
           ]}
           onClose={() => setMenuMessage(null)}
         />

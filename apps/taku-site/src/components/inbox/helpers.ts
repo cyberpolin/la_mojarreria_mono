@@ -301,6 +301,23 @@ export function isDriversGroupConversation(
   );
 }
 
+export function sameLocalPhone(
+  left: string | null | undefined,
+  right: string | null | undefined,
+) {
+  const a = digitsPhone(left ?? "").slice(-10);
+  const b = digitsPhone(right ?? "").slice(-10);
+  return a.length === 10 && a === b;
+}
+
+export function isDriversTestChat(
+  conversation: InboxConversation | null | undefined,
+  testPhone: string | null | undefined,
+) {
+  if (!conversation || isGroupConversation(conversation)) return false;
+  return sameLocalPhone(conversation.contact?.phoneNumber, testPhone);
+}
+
 export function withLiveAccount(
   conversation: InboxConversation,
   accounts: InboxWhatsAppAccount[],
