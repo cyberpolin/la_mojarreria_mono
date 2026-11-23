@@ -214,10 +214,14 @@ export function RaiseOrderModal({
       setChosen(saved);
       setStep("form");
     } catch (caught) {
-      setError(
+      const message =
         caught instanceof Error
           ? caught.message
-          : "No se pudo guardar la ubicacion.",
+          : "No se pudo guardar la ubicacion.";
+      setError(
+        message === "Failed to fetch"
+          ? "No se pudo conectar para guardar la ubicacion. Intenta de nuevo."
+          : message,
       );
     } finally {
       setSavingLocation(false);

@@ -7304,6 +7304,33 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
+  router.delete(
+    "/customer-locations/:id",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const removed = await store.update((database) => {
+        database.customerLocations ??= [];
+        const index = database.customerLocations.findIndex(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (index < 0) return false;
+        database.customerLocations.splice(index, 1);
+        return true;
+      });
+      if (!removed) {
+        throw new ApiError({
+          status: 404,
+          code: "NOT_FOUND",
+          message: "No se encontro la ubicacion.",
+        });
+      }
+      ok(res, { id: req.params.id });
+    }),
+  );
+
   router.get(
     "/preferences",
     requireRole(allRoles),
