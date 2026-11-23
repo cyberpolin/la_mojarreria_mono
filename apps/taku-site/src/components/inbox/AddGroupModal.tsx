@@ -24,10 +24,12 @@ export function AddGroupModal({
   accounts,
   onClose,
   onAdded,
+  role,
 }: {
   accounts: InboxWhatsAppAccount[];
   onClose: () => void;
   onAdded: (conversation: InboxConversation) => void;
+  role?: DriversGroupMode;
 }) {
   const connected = useMemo(
     () => accounts.filter((account) => isAccountConnected(account.status)),
@@ -39,14 +41,18 @@ export function AddGroupModal({
   const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [groupMode, setGroupMode] = useState<DriversGroupMode>("prod");
+  const [groupMode, setGroupMode] = useState<DriversGroupMode>(role ?? "prod");
 
   useEffect(() => {
     setHost(modalHost());
+    if (role) {
+      setGroupMode(role);
+      return;
+    }
     void fetchDriversGroupMode()
       .then(setGroupMode)
       .catch(() => undefined);
-  }, []);
+  }, [role]);
 
   useEffect(() => {
     if (!accountId) {

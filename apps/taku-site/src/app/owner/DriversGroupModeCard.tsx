@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AddGroupModal } from "@/components/inbox/AddGroupModal";
 import {
   addGroupConversation,
   createConversation,
+  fetchConversationByPhone,
   fetchDriversGroupTargets,
   fetchDriversPreferences,
   fetchWhatsAppAccounts,
@@ -12,7 +14,10 @@ import {
 } from "@/components/inbox/api";
 import { cx, isAccountConnected } from "@/components/inbox/helpers";
 import type { DriversGroupMode } from "@/components/inbox/helpers";
-import type { InboxConversation } from "@/components/inbox/types";
+import type {
+  InboxConversation,
+  InboxWhatsAppAccount,
+} from "@/components/inbox/types";
 import { Button, Field, Input } from "@/components/inbox/ui";
 
 const OPTIONS: Array<{
@@ -41,6 +46,12 @@ function phoneOf(conversation: InboxConversation | null) {
   return conversation?.contact?.phoneNumber ?? "";
 }
 
+function groupTitle(conversation: InboxConversation | null) {
+  const name = conversation?.contact?.name?.trim() ?? "";
+  if (!name || name.toLowerCase().endsWith("@g.us")) return "";
+  return name;
+}
+
 export function DriversGroupModeCard() {
   const [mode, setMode] = useState<DriversGroupMode>("prod");
   const [isLoading, setIsLoading] = useState(true);
@@ -48,6 +59,9 @@ export function DriversGroupModeCard() {
   const [savingPhone, setSavingPhone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [openingPicker, setOpeningPicker] = useState(false);
+  const [accounts, setAccounts] = useState<InboxWhatsAppAccount[]>([]);
   const [targets, setTargets] =
     useState<Record<DriversGroupMode, InboxConversation | null>>(EMPTY_TARGETS);
   const [drafts, setDrafts] = useState<Record<DriversGroupMode, string>>({
@@ -65,13 +79,23 @@ export function DriversGroupModeCard() {
     let cancelled = false;
     setIsLoading(true);
     void Promise.all([fetchDriversPreferences(), fetchDriversGroupTargets()])
-      .then(([preferences, groups]) => {
+      .then(async ([preferences, groups]) => {
         if (cancelled) return;
+        let prod = groups.prod;
+        if (preferences.prodPhone.toLowerCase().endsWith("@g.us")) {
+          prod =
+            (await fetchConversationByPhone(preferences.prodPhone)) ?? prod;
+        }
+        if (cancelled) return;
+        const nextTargets = {
+          prod,
+          test: groups.test?.id === prod?.id ? null : groups.test,
+        };
         setMode(preferences.mode);
-        setTargets(groups);
+        setTargets(nextTargets);
         const phones = {
-          prod: preferences.prodPhone || phoneOf(groups.prod),
-          test: preferences.testPhone || phoneOf(groups.test),
+          prod: preferences.prodPhone || phoneOf(nextTargets.prod),
+          test: preferences.testPhone || phoneOf(nextTargets.test),
         };
         setDrafts(phones);
         setSavedPhones(phones);
@@ -178,10 +202,46 @@ export function DriversGroupModeCard() {
     }
   }
 
-  const selectedName = targets[mode]?.contact?.name?.trim() || "";
-  const phoneLabel =
-    mode === "test" ? "Numero de pruebas" : "Numero de produccion";
-  const phoneUnchanged = drafts[mode].trim() === savedPhones[mode];
+  const prodTitle = groupTitle(targets.prod);
+  const phoneLabel = "Numero de pruebas";
+  const phoneUnchanged = drafts.test.trim() === savedPhones.test;
+
+  async function openProdPicker() {
+    if (openingPicker) return;
+    setOpeningPicker(true);
+    setPhoneError(null);
+    try {
+      const rows = accounts.length ? accounts : await fetchWhatsAppAccounts();
+      setAccounts(rows);
+      setPickerOpen(true);
+    } catch (caught) {
+      setPhoneError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudieron cargar los grupos.",
+      );
+    } finally {
+      setOpeningPicker(false);
+    }
+  }
+
+  async function selectProdGroup(conversation: InboxConversation) {
+    const jid = conversation.contact?.phoneNumber?.trim() ?? "";
+    if (!jid.toLowerCase().endsWith("@g.us")) {
+      throw new Error("Ese destino no es un grupo.");
+    }
+    setTargets((current) => ({ ...current, prod: conversation }));
+    setPickerOpen(false);
+    const saved = await updateDriversPhone("prod", jid);
+    const stored = saved.preferences.driversProdPhone?.trim();
+    if (!stored) {
+      throw new Error(
+        "El servidor no guardo el grupo. Actualiza el backend y vuelve a intentar.",
+      );
+    }
+    setDrafts((current) => ({ ...current, prod: stored }));
+    setSavedPhones((current) => ({ ...current, prod: stored }));
+  }
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white p-5 md:p-6">
@@ -223,7 +283,9 @@ export function DriversGroupModeCard() {
                     active ? "text-slate-300" : "text-slate-500",
                   )}
                 >
-                  {option.hint}
+                  {option.value === "prod" && prodTitle
+                    ? prodTitle
+                    : option.hint}
                 </span>
               </button>
             );
@@ -231,7 +293,40 @@ export function DriversGroupModeCard() {
         </div>
       )}
       {error ? <p className="mt-3 text-sm text-slate-700">{error}</p> : null}
-      {!isLoading ? (
+      {!isLoading && mode === "prod" ? (
+        <div className="mt-6 grid gap-3 border-t border-slate-200 pt-5">
+          <p className="text-sm font-medium text-slate-700">
+            Grupo de produccion
+          </p>
+          <p className="text-base font-semibold text-slate-950">
+            {prodTitle || "Sin grupo"}
+          </p>
+          <p className="text-xs text-slate-500">
+            {prodTitle
+              ? "Los pedidos de produccion se envian a este grupo."
+              : "Elige el grupo que recibira los pedidos."}
+          </p>
+          {phoneError ? (
+            <p className="text-sm text-slate-700">{phoneError}</p>
+          ) : null}
+          <Button
+            disabled={openingPicker}
+            onClick={() => void openProdPicker()}
+          >
+            <span className="inline-flex items-center gap-2">
+              {openingPicker ? (
+                <span
+                  className="size-4 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-white motion-reduce:animate-none"
+                  role="status"
+                  aria-label="Cargando"
+                />
+              ) : null}
+              {prodTitle ? "Cambiar grupo" : "Elegir grupo"}
+            </span>
+          </Button>
+        </div>
+      ) : null}
+      {!isLoading && mode === "test" ? (
         <form
           className="mt-6 grid gap-3 border-t border-slate-200 pt-5"
           onSubmit={(event) => {
@@ -242,23 +337,21 @@ export function DriversGroupModeCard() {
           <Field
             label={phoneLabel}
             hint={
-              savedPhones[mode] && !savedPhones[mode].includes("@g.us")
+              savedPhones.test && !savedPhones.test.includes("@g.us")
                 ? "Los pedidos de este destino se envian a este numero."
-                : selectedName
-                  ? `Destino actual: ${selectedName}`
-                  : "Sin destino. Este numero recibira los pedidos."
+                : "Sin destino. Este numero recibira los pedidos."
             }
           >
             <Input
               placeholder="5219931234567"
               inputMode="tel"
               autoComplete="tel"
-              value={drafts[mode]}
+              value={drafts.test}
               onChange={(value) => {
                 setPhoneError(null);
                 setDrafts((currentDrafts) => ({
                   ...currentDrafts,
-                  [mode]: value,
+                  test: value,
                 }));
               }}
             />
@@ -268,7 +361,7 @@ export function DriversGroupModeCard() {
           ) : null}
           <Button
             type="submit"
-            disabled={savingPhone || phoneUnchanged || !drafts[mode].trim()}
+            disabled={savingPhone || phoneUnchanged || !drafts.test.trim()}
           >
             <span className="inline-flex items-center gap-2">
               {savingPhone ? (
@@ -282,6 +375,22 @@ export function DriversGroupModeCard() {
             </span>
           </Button>
         </form>
+      ) : null}
+      {pickerOpen ? (
+        <AddGroupModal
+          accounts={accounts}
+          role="prod"
+          onClose={() => setPickerOpen(false)}
+          onAdded={(conversation) => {
+            void selectProdGroup(conversation).catch((caught: unknown) => {
+              setPhoneError(
+                caught instanceof Error
+                  ? caught.message
+                  : "No se pudo guardar el grupo.",
+              );
+            });
+          }}
+        />
       ) : null}
     </article>
   );

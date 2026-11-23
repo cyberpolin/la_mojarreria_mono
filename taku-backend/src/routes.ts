@@ -914,8 +914,8 @@ function pinExclusiveGroup(
   database: Database,
   workspaceId: string,
   conversation: Conversation,
+  kind: "test" | "prod" = driversGroupKind(database, conversation),
 ) {
-  const kind = driversGroupKind(database, conversation);
   conversation.pinned = true;
   conversation.updatedAt = now();
   for (const item of database.conversations) {
@@ -5053,8 +5053,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           database.contacts.push(contact);
         } else {
           contact.kind = "group";
-          if (requestedRole === "test") contact.name = name;
-          else if (name && !contact.name) contact.name = name;
+          if (name) contact.name = name;
           contact.updatedAt = now();
         }
         const existing = database.conversations.find(
@@ -5075,8 +5074,14 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             message: "Ese grupo es el de produccion. Elige otro para pruebas.",
           });
         }
+        const pinKind =
+          requestedRole === "test" || requestedRole === "prod"
+            ? requestedRole
+            : isTestDriversGroupName(contact.name)
+              ? "test"
+              : "prod";
         if (existing) {
-          pinExclusiveGroup(database, context.workspace.id, existing);
+          pinExclusiveGroup(database, context.workspace.id, existing, pinKind);
           return {
             created: false,
             conversation: conversationView(existing, database),
@@ -5097,7 +5102,12 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           updatedAt: now(),
         };
         database.conversations.push(conversation);
-        pinExclusiveGroup(database, context.workspace.id, conversation);
+        pinExclusiveGroup(
+          database,
+          context.workspace.id,
+          conversation,
+          pinKind,
+        );
         return {
           created: true,
           conversation: conversationView(conversation, database),

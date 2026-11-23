@@ -79,7 +79,10 @@ export async function fetchPinnedGroupConversation(accountId?: string) {
   const preferences = await fetchDriversPreferences();
   const destination =
     preferences.mode === "test" ? preferences.testPhone : preferences.prodPhone;
-  if (destination && !destination.toLowerCase().endsWith("@g.us")) {
+  if (destination.toLowerCase().endsWith("@g.us")) {
+    const group = await fetchConversationByPhone(destination, accountId);
+    if (group) return group;
+  } else if (destination) {
     const existing = await fetchConversationByPhone(destination, accountId);
     if (existing) return existing;
     if (accountId && accountId !== "all") {
