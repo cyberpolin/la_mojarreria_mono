@@ -12,6 +12,7 @@ import {
   lastMessagePreview,
 } from "./helpers";
 import { clearReturnOrder, hasOrderReturn } from "./inboxReturn";
+import { ActiveOrderMark } from "./ActiveOrderMark";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
@@ -23,6 +24,8 @@ import {
 } from "./WeAreOpenResultSheet";
 import { ensureWeeklyReport } from "./weeklyReport";
 import { isDriverInList, useKnownDriverPhones } from "./drivers";
+import { activeOrderCustomerKeys, phoneHasActiveOrder } from "./pendingOrders";
+import { useDeliveryOrders } from "./useDeliveryOrders";
 import { KebabIcon, MobileContextMenu } from "./mobile-shell";
 import type {
   ConversationFilterId,
@@ -79,11 +82,6 @@ export function ConversationList({
   onBlock: (conversation: InboxConversation) => void;
   onPin: (conversation: InboxConversation, pinned: boolean) => void;
 }) {
-  const emptyLabel = search.trim()
-    ? "No hay resultados para esa busqueda."
-    : filter === "all"
-      ? "No hay conversaciones."
-      : "No hay conversaciones para este filtro.";
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
   const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
   const [openNoticeResult, setOpenNoticeResult] =
@@ -92,6 +90,26 @@ export function ConversationList({
   const [listTab, setListTab] = useState<InboxListTab>("chats");
   const searchParams = useSearchParams();
   const driverPhones = useKnownDriverPhones();
+  const activeOrderPhones = activeOrderCustomerKeys(useDeliveryOrders());
+  const [activeOnly, setActiveOnly] = useState(false);
+  const listed = activeOnly
+    ? conversations.filter(
+        (conversation) =>
+          !isGroupConversation(conversation) &&
+          phoneHasActiveOrder(
+            conversation.contact?.phoneNumber,
+            activeOrderPhones,
+          ),
+      )
+    : conversations;
+  const emptyLabel =
+    activeOnly && !search.trim()
+      ? "No hay clientes con pedidos activos."
+      : search.trim()
+        ? "No hay resultados para esa busqueda."
+        : filter === "all"
+          ? "No hay conversaciones."
+          : "No hay conversaciones para este filtro.";
   useEffect(() => {
     if (hasOrderReturn(searchParams)) setListTab("pedidos");
   }, [searchParams]);
@@ -145,12 +163,27 @@ export function ConversationList({
             </button>
           ))}
         </div>
-        <input
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Buscar por nombre, telefono o mensaje..."
-          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
-        />
+        <div className="flex items-center gap-2">
+          <input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Buscar por nombre, telefono o mensaje..."
+            className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
+          />
+          <button
+            type="button"
+            aria-pressed={activeOnly}
+            onClick={() => setActiveOnly((current) => !current)}
+            className={cx(
+              "inline-flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm font-semibold",
+              activeOnly
+                ? "bg-slate-950 text-white"
+                : "border border-slate-300 bg-white text-slate-950 hover:border-slate-950",
+            )}
+          >
+            Activos
+          </button>
+        </div>
         <InboxListTabs value={listTab} onChange={setListTab} />
         <select
           value={accountId}
@@ -197,10 +230,10 @@ export function ConversationList({
             Cargando conversaciones...
           </div>
         ) : null}
-        {!isLoading && conversations.length === 0 ? (
+        {!isLoading && listed.length === 0 ? (
           <div className="p-4 text-sm text-slate-500">{emptyLabel}</div>
         ) : null}
-        {conversations.map((conversation) => {
+        {listed.map((conversation) => {
           const selected = conversation.id === selectedId;
           return (
             <div
@@ -241,6 +274,13 @@ export function ConversationList({
                           {conversation.pinned ? "📌 " : ""}
                           {conversationTitle(conversation)}
                         </span>
+                        {!isGroupConversation(conversation) &&
+                        phoneHasActiveOrder(
+                          conversation.contact?.phoneNumber,
+                          activeOrderPhones,
+                        ) ? (
+                          <ActiveOrderMark />
+                        ) : null}
                         <FaqIntentLight
                           visible={faqLights.has(conversation.id)}
                         />

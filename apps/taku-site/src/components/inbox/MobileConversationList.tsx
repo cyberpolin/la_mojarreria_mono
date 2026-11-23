@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getWorkspaceSession } from "@/lib/taku-api";
 import { AddGroupModal } from "./AddGroupModal";
 import { EditContactModal } from "./EditContactModal";
+import { ActiveOrderMark } from "./ActiveOrderMark";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { InboxListTabs, type InboxListTab } from "./InboxListTabs";
 import { OrdersList } from "./OrdersList";
@@ -62,6 +63,8 @@ import {
 } from "./inboxReturn";
 import { openChecador } from "./attendance";
 import { ensureWeeklyReport } from "./weeklyReport";
+import { activeOrderCustomerKeys, phoneHasActiveOrder } from "./pendingOrders";
+import { useDeliveryOrders } from "./useDeliveryOrders";
 import {
   MobileAuthGate,
   MobileContextMenu,
@@ -134,6 +137,7 @@ export function MobileConversationList({
   const [needsAuth, setNeedsAuth] = useState(false);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
   const [query, setQuery] = useState("");
+  const [activeOnly, setActiveOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -166,6 +170,7 @@ export function MobileConversationList({
   const [rowMenu, setRowMenu] = useState<InboxConversation | null>(null);
   const didLongPressRef = useRef(false);
   const driverPhones = useKnownDriverPhones();
+  const activeOrderPhones = activeOrderCustomerKeys(useDeliveryOrders());
   useArmIncomingSound();
 
   const seenInboundRef = useRef<Map<string, string>>(new Map());
@@ -238,8 +243,18 @@ export function MobileConversationList({
           return haystack.includes(needle);
         })
       : inboxVisible;
-    return sortConversationsUnreadFirst(filtered);
-  }, [conversations, query]);
+    const withOrders = activeOnly
+      ? filtered.filter(
+          (conversation) =>
+            !isGroupConversation(conversation) &&
+            phoneHasActiveOrder(
+              conversation.contact?.phoneNumber,
+              activeOrderPhones,
+            ),
+        )
+      : filtered;
+    return sortConversationsUnreadFirst(withOrders);
+  }, [activeOnly, activeOrderPhones, conversations, query]);
   const faqLights = useUnreadFaqLights(conversations);
 
   const prefetchKey = visible
@@ -563,14 +578,30 @@ export function MobileConversationList({
           )}
         >
           <div className="bg-slate-900">
-            <div className="px-4 pb-2">
+            <div className="flex items-center gap-2 px-4 pb-2">
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onFocus={unlockIncomingSound}
                 placeholder="Buscar..."
-                className="min-h-10 w-full rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
+                className="min-h-10 min-w-0 flex-1 rounded-full bg-slate-800 px-4 text-sm text-white outline-none placeholder:text-slate-400"
               />
+              <button
+                type="button"
+                aria-pressed={activeOnly}
+                onClick={() => {
+                  unlockIncomingSound();
+                  setActiveOnly((current) => !current);
+                }}
+                className={cx(
+                  "inline-flex h-10 shrink-0 items-center rounded-full px-3 text-sm font-semibold",
+                  activeOnly
+                    ? "bg-white text-slate-950"
+                    : "bg-slate-800 text-white",
+                )}
+              >
+                Activos
+              </button>
             </div>
             <InboxListTabs tone="dark" value={listTab} onChange={setListTab} />
           </div>
@@ -615,9 +646,11 @@ export function MobileConversationList({
             ) : null}
             {!loading && visible.length === 0 && searchedPhone.length < 8 ? (
               <p className="p-4 text-sm text-slate-500">
-                {query.trim()
-                  ? "No hay chats para esa busqueda."
-                  : "No hay conversaciones."}
+                {activeOnly && !query.trim()
+                  ? "No hay clientes con pedidos activos."
+                  : query.trim()
+                    ? "No hay chats para esa busqueda."
+                    : "No hay conversaciones."}
               </p>
             ) : null}
             {visible.map((conversation) => {
@@ -667,6 +700,13 @@ export function MobileConversationList({
                             {conversation.pinned ? "📌 " : ""}
                             {title}
                           </span>
+                          {!isGroupConversation(conversation) &&
+                          phoneHasActiveOrder(
+                            conversation.contact?.phoneNumber,
+                            activeOrderPhones,
+                          ) ? (
+                            <ActiveOrderMark />
+                          ) : null}
                           <FaqIntentLight
                             visible={faqLights.has(conversation.id)}
                           />

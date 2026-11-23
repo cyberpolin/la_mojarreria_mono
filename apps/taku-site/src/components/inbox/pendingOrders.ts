@@ -153,6 +153,24 @@ export function orderStatus(order: DeliveryOrder): DeliveryOrderStatus {
   return order.status === "closed" ? "closed" : "open";
 }
 
+export function activeOrderCustomerKeys(orders: DeliveryOrder[]) {
+  const keys = new Set<string>();
+  for (const order of orders) {
+    if (orderStatus(order) !== "open") continue;
+    const key = digitsPhone(order.customerPhone ?? "").slice(-10);
+    if (key.length === 10) keys.add(key);
+  }
+  return keys;
+}
+
+export function phoneHasActiveOrder(
+  phone: string | null | undefined,
+  keys: Set<string>,
+) {
+  const key = digitsPhone(phone ?? "").slice(-10);
+  return key.length === 10 && keys.has(key);
+}
+
 export function listOrdersByStatus() {
   return [...listDeliveryOrders()].sort((left, right) => {
     const status =
