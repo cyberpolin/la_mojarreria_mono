@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { BarChart3 } from "lucide-react";
 import {
   clearAdminSession,
   getWorkspaceSession,
@@ -53,6 +54,7 @@ export function OwnerShell({
   }) => ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [hasAdminBackup, setHasAdminBackup] = useState(false);
   const [tenants, setTenants] = useState<OwnerTenant[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -267,6 +269,19 @@ export function OwnerShell({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    if (!pathname.startsWith("/owner/insights")) {
+                      router.push("/owner/insights");
+                    }
+                  }}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <BarChart3 className="size-4 shrink-0" aria-hidden />
+                    Analisis
+                  </span>
+                </Button>
                 <Button
                   variant="secondary"
                   onClick={() => router.push("/owner/select")}
