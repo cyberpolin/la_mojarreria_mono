@@ -101,6 +101,7 @@ import type {
   BusinessHour,
   Conversation,
   ConversationStatus,
+  CustomerLocation,
   Database,
   MatchType,
   Message,
@@ -595,6 +596,7 @@ function ensureWorkspaceDefaults(
       agentsCanCloseConversations: true,
       agentsCanReassignConversations: false,
       driversGroupMode: "prod",
+      driversOrderMessage: "Pedido por favor",
       createdAt: now(),
       updatedAt: now(),
     });
@@ -860,6 +862,56 @@ function driversGroupModeOf(
   preferences?: Preferences | null,
 ): DriversGroupMode {
   return preferences?.driversGroupMode === "test" ? "test" : "prod";
+}
+
+const DEFAULT_DRIVERS_ORDER_MESSAGE = "Pedido por favor";
+
+function driversOrderMessageOf(preferences?: Preferences | null) {
+  const message = preferences?.driversOrderMessage?.trim();
+  return message || DEFAULT_DRIVERS_ORDER_MESSAGE;
+}
+
+function readDriversOrderMessage(value: unknown) {
+  if (typeof value !== "string") {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Escribe el mensaje del pedido.",
+    });
+  }
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return DEFAULT_DRIVERS_ORDER_MESSAGE;
+  if (trimmed.length > 280) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "El mensaje del pedido es demasiado largo.",
+    });
+  }
+  return trimmed;
+}
+
+function customerLocationView(item: CustomerLocation) {
+  return {
+    id: item.id,
+    customerPhone: item.customerPhone,
+    name: item.name,
+    latitude: item.latitude,
+    longitude: item.longitude,
+  };
+}
+
+function sameSavedLocation(
+  item: CustomerLocation,
+  phone: string,
+  latitude: number,
+  longitude: number,
+) {
+  return (
+    directPhonesMatch(item.customerPhone, phone) &&
+    Math.abs(item.latitude - latitude) < 0.0002 &&
+    Math.abs(item.longitude - longitude) < 0.0002
+  );
 }
 
 function readDriversDestinationPhone(value: unknown): string | null {
@@ -7169,6 +7221,90 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
   );
 
   router.get(
+    "/customer-locations",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const phone = canonicalDirectPhone(readOptionalString(req.query.phone));
+      if (!phone) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Ingresa el telefono del cliente.",
+        });
+      }
+      const database = await store.read();
+      const items = database.customerLocations
+        .filter(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            directPhonesMatch(item.customerPhone, phone),
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .map(customerLocationView);
+      ok(res, items);
+    }),
+  );
+
+  router.post(
+    "/customer-locations",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const phone = canonicalDirectPhone(
+        requireString(req.body?.customerPhone, "customerPhone"),
+      );
+      if (!phone) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Ingresa el telefono del cliente.",
+        });
+      }
+      const name = requireString(req.body?.name, "name");
+      if (name.length > 80) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "El nombre de la ubicacion es demasiado largo.",
+        });
+      }
+      const latitude = readOptionalNumber(req.body?.latitude);
+      const longitude = readOptionalNumber(req.body?.longitude);
+      if (latitude == null || longitude == null) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La ubicacion no tiene coordenadas.",
+        });
+      }
+      const data = await store.update((database) => {
+        database.customerLocations ??= [];
+        const existing = database.customerLocations.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            sameSavedLocation(item, phone, latitude, longitude),
+        );
+        if (existing) return customerLocationView(existing);
+        const timestamp = now();
+        const created: CustomerLocation = {
+          id: id("customer_location"),
+          workspaceId: context.workspace.id,
+          customerPhone: phone,
+          name,
+          latitude,
+          longitude,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        database.customerLocations.push(created);
+        return customerLocationView(created);
+      });
+      ok(res, data, 201);
+    }),
+  );
+
+  router.get(
     "/preferences",
     requireRole(allRoles),
     asyncHandler(async (req, res) => {
@@ -7184,6 +7320,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           ? {
               ...preferences,
               driversGroupMode: driversGroupModeOf(preferences),
+              driversOrderMessage: driversOrderMessageOf(preferences),
             }
           : null,
       );
@@ -7210,6 +7347,7 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             agentsCanCloseConversations: true,
             agentsCanReassignConversations: false,
             driversGroupMode: "prod",
+            driversOrderMessage: DEFAULT_DRIVERS_ORDER_MESSAGE,
             createdAt: now(),
             updatedAt: now(),
           };
@@ -7243,10 +7381,15 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           preferences.driversTestPhone = readDriversDestinationPhone(
             req.body.driversTestPhone,
           );
+        if ("driversOrderMessage" in req.body)
+          preferences.driversOrderMessage = readDriversOrderMessage(
+            req.body.driversOrderMessage,
+          );
         preferences.updatedAt = now();
         return {
           ...preferences,
           driversGroupMode: driversGroupModeOf(preferences),
+          driversOrderMessage: driversOrderMessageOf(preferences),
         } as Preferences;
       });
       ok(res, {

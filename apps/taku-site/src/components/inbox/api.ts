@@ -1,4 +1,4 @@
-import { TakuApiError, takuApi, takuPaginated } from "@/lib/taku-api";
+import { TakuApiError, takuApi, takuList, takuPaginated } from "@/lib/taku-api";
 import {
   buildConversationQuery,
   normalizeDriversGroupMode,
@@ -32,7 +32,10 @@ type DriversPreferences = {
   driversGroupMode?: string;
   driversProdPhone?: string | null;
   driversTestPhone?: string | null;
+  driversOrderMessage?: string | null;
 };
+
+const DEFAULT_DRIVERS_ORDER_MESSAGE = "Pedido por favor";
 
 export async function fetchDriversPreferences() {
   const preferences = await takuApi<DriversPreferences | null>("/preferences");
@@ -40,6 +43,8 @@ export async function fetchDriversPreferences() {
     mode: normalizeDriversGroupMode(preferences?.driversGroupMode),
     prodPhone: preferences?.driversProdPhone?.trim() ?? "",
     testPhone: preferences?.driversTestPhone?.trim() ?? "",
+    orderMessage:
+      preferences?.driversOrderMessage?.trim() || DEFAULT_DRIVERS_ORDER_MESSAGE,
   };
 }
 
@@ -62,6 +67,41 @@ export async function updateDriversPhone(
         ? { driversTestPhone: phone }
         : { driversProdPhone: phone },
     ),
+  });
+}
+
+export async function updateDriversOrderMessage(message: string) {
+  return takuApi<{
+    message: string;
+    preferences: DriversPreferences;
+  }>("/preferences", {
+    method: "PATCH",
+    body: JSON.stringify({ driversOrderMessage: message }),
+  });
+}
+
+export type CustomerLocation = {
+  id: string;
+  customerPhone: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+};
+
+export async function fetchCustomerLocations(phone: string) {
+  const query = new URLSearchParams({ phone });
+  return takuList<CustomerLocation>(`/customer-locations?${query.toString()}`);
+}
+
+export async function saveCustomerLocation(input: {
+  customerPhone: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+}) {
+  return takuApi<CustomerLocation>("/customer-locations", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 

@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  fetchDriversGroupMode,
+  fetchCustomerLocations,
+  fetchDriversPreferences,
   fetchPinnedGroupConversation,
   fetchWhatsAppAccounts,
+  saveCustomerLocation,
   sendConversationMessage,
+  type CustomerLocation,
 } from "./api";
 import { AddGroupModal } from "./AddGroupModal";
+import { locationsMatch, mockFoundLocation } from "./customerLocations";
 import { Field, Input } from "./ui";
 import {
   DELIVERY_BASE,
@@ -25,6 +29,21 @@ import {
 import { savePendingOrder } from "./pendingOrders";
 import type { DriversGroupMode } from "./helpers";
 import type { InboxMessage, InboxWhatsAppAccount } from "./types";
+
+type OrderStep =
+  | "location-choice"
+  | "location-search"
+  | "save-name"
+  | "form"
+  | "summary"
+  | "missing-group"
+  | "done";
+
+type ChosenLocation = {
+  latitude: number;
+  longitude: number;
+  name: string | null;
+};
 
 function modalHost() {
   return document.getElementById("taku-mobile-window") ?? document.body;
@@ -44,9 +63,19 @@ export function RaiseOrderModal({
   customerConversationId?: string | null;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  const [step, setStep] = useState<
-    "form" | "summary" | "missing-group" | "done"
-  >("form");
+  const [ready, setReady] = useState(false);
+  const [showLoading, setShowLoading] = useState(false);
+  const [step, setStep] = useState<OrderStep>("form");
+  const [entryStep, setEntryStep] = useState<OrderStep>("form");
+  const [savedLocations, setSavedLocations] = useState<CustomerLocation[]>([]);
+  const [chosen, setChosen] = useState<ChosenLocation | null>(null);
+  const [locationName, setLocationName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHit, setSearchHit] = useState<ReturnType<
+    typeof mockFoundLocation
+  > | null>(null);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [driversMessage, setDriversMessage] = useState(DRIVERS_ORDER_MESSAGE);
   const [kilometers, setKilometers] = useState("");
   const [mojarras, setMojarras] = useState("0");
   const [empanadas, setEmpanadas] = useState("0");
@@ -74,15 +103,73 @@ export function RaiseOrderModal({
   }, []);
 
   useEffect(() => {
+    if (ready) {
+      setShowLoading(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowLoading(true), 200);
+    return () => window.clearTimeout(timer);
+  }, [ready]);
+
+  useEffect(() => {
     void fetchWhatsAppAccounts()
       .then((rows) => {
         setAccounts(rows);
       })
       .catch(() => undefined);
-    void fetchDriversGroupMode()
-      .then(setGroupMode)
-      .catch(() => undefined);
   }, []);
+
+  const pinLatitude =
+    message && typeof message.latitude === "number" ? message.latitude : null;
+  const pinLongitude =
+    message && typeof message.longitude === "number" ? message.longitude : null;
+  const hasPin =
+    message?.type === "location" ||
+    (pinLatitude != null && pinLongitude != null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReady(false);
+    const pin =
+      hasPin && pinLatitude != null && pinLongitude != null
+        ? { latitude: pinLatitude, longitude: pinLongitude }
+        : null;
+    void Promise.all([
+      fetchDriversPreferences().catch(() => null),
+      customerPhone
+        ? fetchCustomerLocations(customerPhone).catch(() => [])
+        : Promise.resolve([] as CustomerLocation[]),
+    ]).then(([preferences, locations]) => {
+      if (cancelled) return;
+      if (preferences) {
+        setGroupMode(preferences.mode);
+        setDriversMessage(preferences.orderMessage);
+      }
+      setSavedLocations(locations);
+      if (pin) {
+        const existing = locations.find((item) => locationsMatch(item, pin));
+        setChosen(
+          existing ?? {
+            latitude: pin.latitude,
+            longitude: pin.longitude,
+            name: null,
+          },
+        );
+        const next = existing ? "form" : "save-name";
+        setLocationName("");
+        setEntryStep(next);
+        setStep(next);
+      } else {
+        setChosen(null);
+        setEntryStep("location-choice");
+        setStep("location-choice");
+      }
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerPhone, hasPin, pinLatitude, pinLongitude]);
 
   const totals = raiseOrderTotals({
     kilometers: parseNonNegativeNumber(kilometers),
@@ -96,9 +183,45 @@ export function RaiseOrderModal({
       : "fixed inset-0 z-[80]";
 
   async function sendToDriversGroup(conversationId: string) {
-    await sendConversationMessage(conversationId, DRIVERS_ORDER_MESSAGE);
+    await sendConversationMessage(conversationId, driversMessage);
     setError(null);
     setStep("done");
+  }
+
+  async function saveNamedLocation() {
+    const name = locationName.trim();
+    if (!name || !chosen || savingLocation) return;
+    if (!customerPhone?.trim()) {
+      setError(
+        "Este pedido no tiene el telefono del cliente. Abrelo desde el chat del cliente.",
+      );
+      return;
+    }
+    setSavingLocation(true);
+    setError(null);
+    try {
+      const saved = await saveCustomerLocation({
+        customerPhone,
+        name,
+        latitude: chosen.latitude,
+        longitude: chosen.longitude,
+      });
+      setSavedLocations((current) =>
+        current.some((item) => item.id === saved.id)
+          ? current
+          : [saved, ...current],
+      );
+      setChosen(saved);
+      setStep("form");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo guardar la ubicacion.",
+      );
+    } finally {
+      setSavingLocation(false);
+    }
   }
 
   async function handlePayment(nextPayment: "efectivo" | "transferencia") {
@@ -116,8 +239,8 @@ export function RaiseOrderModal({
     savePendingOrder({
       totals,
       payment: nextPayment,
-      latitude: message?.latitude,
-      longitude: message?.longitude,
+      latitude: chosen?.latitude ?? message?.latitude,
+      longitude: chosen?.longitude ?? message?.longitude,
       customerPhone,
       customerConversationId,
       whatsappAccountId: account?.id,
@@ -146,12 +269,20 @@ export function RaiseOrderModal({
   return createPortal(
     <div className={`${overlayClass} flex flex-col bg-white text-slate-950`}>
       <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
-        {step === "summary" || step === "missing-group" ? (
+        {step === "summary" ||
+        step === "missing-group" ||
+        step === "location-search" ||
+        (step === "form" && entryStep !== "form") ||
+        (step === "save-name" && entryStep !== "save-name") ? (
           <button
             type="button"
             onClick={() => {
               setError(null);
-              setStep(step === "missing-group" ? "summary" : "form");
+              if (step === "missing-group") setStep("summary");
+              else if (step === "summary") setStep("form");
+              else if (step === "form") setStep(entryStep);
+              else if (step === "save-name") setStep("location-search");
+              else setStep("location-choice");
             }}
             className="grid h-11 w-11 place-items-center text-lg"
             aria-label="Regresar"
@@ -166,7 +297,11 @@ export function RaiseOrderModal({
             ? "Pedido"
             : step === "missing-group"
               ? "Grupo de repartidores"
-              : "Levantar pedido"}
+              : step === "location-search"
+                ? "Buscar ubicacion"
+                : step === "save-name" || step === "location-choice"
+                  ? "Ubicacion"
+                  : "Levantar pedido"}
         </h2>
         <button
           type="button"
@@ -178,7 +313,179 @@ export function RaiseOrderModal({
         </button>
       </header>
 
-      {step === "form" ? (
+      {!ready ? (
+        <div
+          className="flex min-h-24 flex-1 items-center justify-center"
+          aria-busy="true"
+        >
+          {showLoading ? (
+            <span
+              className="size-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-950 motion-reduce:animate-none"
+              role="status"
+              aria-label="Cargando"
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {ready && step === "location-choice" ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            {savedLocations.length > 0 ? (
+              <>
+                <p className="text-sm font-semibold text-slate-950">
+                  Ubicaciones guardadas
+                </p>
+                <div className="grid gap-2">
+                  {savedLocations.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setError(null);
+                        setChosen(item);
+                        setStep("form");
+                      }}
+                      className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-950 hover:border-slate-950"
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-slate-600">
+                Este pedido no trae ubicacion.
+              </p>
+            )}
+            {error ? <p className="text-sm text-slate-700">{error}</p> : null}
+          </div>
+          <div className="border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setSearchQuery("");
+                setSearchHit(null);
+                setStep("location-search");
+              }}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Buscar ubicacion
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {ready && step === "location-search" ? (
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const query = searchQuery.trim();
+            if (!query) return;
+            setSearchHit(mockFoundLocation(query));
+          }}
+        >
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+            <Field
+              label="Buscar"
+              hint="Busqueda de ejemplo. Elige el resultado para guardarlo."
+            >
+              <Input
+                placeholder="Calle, colonia o referencia"
+                value={searchQuery}
+                onChange={(value) => {
+                  setSearchQuery(value);
+                  setSearchHit(null);
+                }}
+              />
+            </Field>
+            {searchHit ? (
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  {searchHit.name}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Ubicacion de ejemplo
+                </p>
+              </div>
+            ) : null}
+          </div>
+          <div className="grid gap-2 border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {searchHit ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setChosen({
+                    latitude: searchHit.latitude,
+                    longitude: searchHit.longitude,
+                    name: null,
+                  });
+                  setLocationName(searchHit.name);
+                  setError(null);
+                  setStep("save-name");
+                }}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Usar esta ubicacion
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!searchQuery.trim()}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Buscar
+              </button>
+            )}
+          </div>
+        </form>
+      ) : null}
+
+      {ready && step === "save-name" ? (
+        <form
+          className="flex min-h-0 flex-1 flex-col"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveNamedLocation();
+          }}
+        >
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+            <p className="text-sm text-slate-600">
+              Esta ubicacion aun no esta guardada. Ponle un nombre para usarla
+              en el siguiente pedido.
+            </p>
+            <Field label="Nombre">
+              <Input
+                placeholder="Casa, trabajo, local"
+                value={locationName}
+                onChange={setLocationName}
+              />
+            </Field>
+            {error ? <p className="text-sm text-slate-700">{error}</p> : null}
+          </div>
+          <div className="border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <button
+              type="submit"
+              disabled={!locationName.trim() || savingLocation}
+              aria-busy={savingLocation}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {savingLocation ? (
+                <span
+                  className="size-4 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-white motion-reduce:animate-none"
+                  role="status"
+                  aria-label="Cargando"
+                />
+              ) : null}
+              Guardar y continuar
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {ready && step === "form" ? (
         <form
           className="flex min-h-0 flex-1 flex-col"
           onSubmit={(event) => {
@@ -243,7 +550,7 @@ export function RaiseOrderModal({
         </form>
       ) : null}
 
-      {step === "summary" ? (
+      {ready && step === "summary" ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex-1 overflow-y-auto px-4 py-4">
             <p className="text-sm font-semibold text-slate-950">
@@ -319,7 +626,7 @@ export function RaiseOrderModal({
         </div>
       ) : null}
 
-      {step === "missing-group" ? (
+      {ready && step === "missing-group" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <p className="text-base font-semibold">
             Falta el grupo de repartidores
@@ -340,7 +647,7 @@ export function RaiseOrderModal({
         </div>
       ) : null}
 
-      {step === "done" ? (
+      {ready && step === "done" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <p className="text-base font-semibold">Pedido listo</p>
           <p className="text-sm text-slate-500">
@@ -348,7 +655,7 @@ export function RaiseOrderModal({
               ? "Pago transferencia"
               : "Pago efectivo"}
             .{" "}
-            {`Se envio "${DRIVERS_ORDER_MESSAGE}" al grupo de ${
+            {`Se envio "${driversMessage}" al grupo de ${
               groupMode === "prod" ? "produccion" : "pruebas"
             }.`}
           </p>

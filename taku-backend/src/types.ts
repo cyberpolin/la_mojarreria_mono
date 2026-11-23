@@ -272,6 +272,18 @@ export type Preferences = {
   driversGroupMode?: DriversGroupMode;
   driversProdPhone?: string | null;
   driversTestPhone?: string | null;
+  driversOrderMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CustomerLocation = {
+  id: string;
+  workspaceId: string;
+  customerPhone: string;
+  name: string;
+  latitude: number;
+  longitude: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -427,6 +439,7 @@ export type Database = {
   automationDecisionLogs: AutomationDecisionLog[];
   paymentIntents: PaymentIntent[];
   preferences: Preferences[];
+  customerLocations: CustomerLocation[];
   weekCloses: WeekClose[];
   dayCloses: DayClose[];
   dailyExpenses: DailyExpense[];

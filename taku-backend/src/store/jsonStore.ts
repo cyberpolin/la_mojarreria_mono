@@ -21,6 +21,7 @@ import type {
   BusinessHour,
   Contact,
   Conversation,
+  CustomerLocation,
   DailyExpense,
   Database,
   Membership,
@@ -68,6 +69,7 @@ function createEmptyDatabase(): Database {
     automationDecisionLogs: [],
     paymentIntents: [],
     preferences: [],
+    customerLocations: [],
     weekCloses: [],
     dayCloses: [],
     dailyExpenses: [],
@@ -103,6 +105,7 @@ function ensureDatabaseCollections(database: Database) {
   target.automationDecisionLogs ??= [];
   target.paymentIntents ??= [];
   target.preferences ??= [];
+  target.customerLocations ??= [];
   target.weekCloses ??= [];
   target.dayCloses ??= [];
   target.dailyExpenses ??= [];
@@ -723,6 +726,7 @@ function createTestSeed(): Database {
     agentsCanCloseConversations: true,
     agentsCanReassignConversations: false,
     driversGroupMode: "prod",
+    driversOrderMessage: "Pedido por favor",
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -748,6 +752,7 @@ function createTestSeed(): Database {
     automationDecisionLogs: [],
     paymentIntents: [] as PaymentIntent[],
     preferences: [preferences],
+    customerLocations: [] as CustomerLocation[],
     weekCloses: [],
     dayCloses: [],
     dailyExpenses: [
