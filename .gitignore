@@ -15,6 +15,8 @@ coverage
 # env
 .env
 .env.*
+!apps/fb-service/.env.example
+apps/fb-service/data/
 
 # logs
 *.log

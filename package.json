@@ -24,6 +24,7 @@
     "dev:taku-wa-web": "pnpm --filter @taku/wa-web dev",
     "dev:taku-wa": "bash ./scripts/dev-taku-wa.sh",
     "dev:taku-bot": "bash ./scripts/dev-taku-bot.sh",
+    "dev:taku-fb": "pnpm --filter @mojarreria/fb-service dev",
     "dev:taku-api": "pnpm --filter @taku/backend dev",
     "dev:taku-restaurant": "pnpm --filter @taku/restaurant-site dev",
     "dev:taku-restaurant-api": "pnpm --filter @taku/restaurant-api dev",

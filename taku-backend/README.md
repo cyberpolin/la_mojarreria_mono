@@ -102,6 +102,20 @@ Flujo de auto-respuesta:
 
 Si un numero no tiene horario configurado, se considera siempre activo.
 
+## Facebook (pendiente de conectar)
+
+`apps/fb-service` recibe Messenger y comentarios en publicaciones de una Page.
+Todavia no decide el producto: en modo `local` responde con reglas guardadas en
+el propio servicio. Cuando se conecte aqui, el flujo queda asi:
+
+1. `fb-service` envia `POST /api/webhooks/facebook`.
+2. La firma usa `X-Timestamp`, `X-Signature` (`hmac_sha256(timestamp + "." + jsonBody)`) y `x-fb-service-secret`.
+3. `taku-backend` decide si responde.
+4. `taku-backend` manda la respuesta a `fb-service` por `POST /v1/messenger/messages` o `POST /v1/comments/replies`.
+
+Ese webhook aun no existe en `taku-backend`. El modo `backend` de `fb-service` ya
+entrega los eventos con ese contrato.
+
 ## Endpoints principales
 
 - `/api/auth/*`
