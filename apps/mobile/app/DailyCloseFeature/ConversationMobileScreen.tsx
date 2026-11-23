@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
@@ -140,6 +140,10 @@ export default function ConversationMobileScreen({ navigation }: Props) {
           }}
           onNavigationStateChange={(navState) => {
             setCanGoBack(navState.canGoBack);
+          }}
+          onOpenWindow={(event) => {
+            const url = event.nativeEvent.targetUrl;
+            if (url) void Linking.openURL(url);
           }}
         />
         {isLoading ? (

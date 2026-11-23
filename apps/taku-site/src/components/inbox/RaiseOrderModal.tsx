@@ -7,8 +7,8 @@ import {
   fetchDriversPreferences,
   fetchPinnedGroupConversation,
   fetchWhatsAppAccounts,
+  resolveGoogleMapsLink,
   saveCustomerLocation,
-  searchGoogleMapsLocation,
   sendConversationMessage,
   type CustomerLocation,
 } from "./api";
@@ -71,14 +71,8 @@ export function RaiseOrderModal({
   const [savedLocations, setSavedLocations] = useState<CustomerLocation[]>([]);
   const [chosen, setChosen] = useState<ChosenLocation | null>(null);
   const [locationName, setLocationName] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchingMap, setSearchingMap] = useState(false);
-  const [searchHit, setSearchHit] = useState<{
-    name: string;
-    address: string;
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const [mapLink, setMapLink] = useState("");
+  const [readingLink, setReadingLink] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
   const [driversMessage, setDriversMessage] = useState(DRIVERS_ORDER_MESSAGE);
   const [kilometers, setKilometers] = useState("");
@@ -374,8 +368,7 @@ export function RaiseOrderModal({
               type="button"
               onClick={() => {
                 setError(null);
-                setSearchQuery("");
-                setSearchHit(null);
+                setMapLink("");
                 setStep("location-search");
               }}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
@@ -391,99 +384,72 @@ export function RaiseOrderModal({
           className="flex min-h-0 flex-1 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
-            const query = searchQuery.trim();
-            if (!query || searchingMap) return;
-            setSearchingMap(true);
+            const url = mapLink.trim();
+            if (!url || readingLink) return;
+            setReadingLink(true);
             setError(null);
-            setSearchHit(null);
-            void searchGoogleMapsLocation(query)
+            void resolveGoogleMapsLink(url)
               .then((place) => {
-                setSearchHit(place);
+                setChosen({
+                  latitude: place.latitude,
+                  longitude: place.longitude,
+                  name: null,
+                });
+                setLocationName(place.name === "Ubicacion" ? "" : place.name);
+                setStep("save-name");
               })
               .catch((caught: unknown) => {
                 const message =
                   caught instanceof Error
                     ? caught.message
-                    : "Google Maps no encontro ese lugar.";
+                    : "Ese enlace no trae una ubicacion.";
                 setError(
                   message === "Failed to fetch"
-                    ? "No se pudo conectar con Google Maps. Intenta de nuevo."
+                    ? "No se pudo leer el enlace. Intenta de nuevo."
                     : message,
                 );
               })
-              .finally(() => setSearchingMap(false));
+              .finally(() => setReadingLink(false));
           }}
         >
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-            <Field
-              label="Buscar en Google Maps"
-              hint="Escribe la calle, colonia o lugar. El mapa es de Google Maps."
+            <p className="text-sm leading-6 text-slate-600">
+              Abre Google Maps, elige el lugar, pulsa Compartir y pega aqui el
+              enlace.
+            </p>
+            <a
+              href="https://www.google.com/maps"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-950 hover:border-slate-950"
             >
+              Abrir Google Maps
+            </a>
+            <Field label="Enlace">
               <Input
-                placeholder="Calle, colonia o referencia"
-                value={searchQuery}
-                onChange={(value) => {
-                  setSearchQuery(value);
-                  setSearchHit(null);
-                }}
+                placeholder="https://maps.app.goo.gl/..."
+                value={mapLink}
+                onChange={setMapLink}
               />
             </Field>
-            {searchHit ? (
-              <div className="overflow-hidden rounded-xl border border-slate-200">
-                <iframe
-                  title="Google Maps"
-                  src={`https://maps.google.com/maps?q=${searchHit.latitude},${searchHit.longitude}&z=16&hl=es&output=embed`}
-                  className="h-56 w-full border-0"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-                <div className="px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-950">
-                    {searchHit.name}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    {searchHit.address}
-                  </p>
-                </div>
-              </div>
-            ) : null}
             {error ? <p className="text-sm text-slate-700">{error}</p> : null}
           </div>
-          <div className="grid gap-2 border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            {searchHit ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setChosen({
-                    latitude: searchHit.latitude,
-                    longitude: searchHit.longitude,
-                    name: null,
-                  });
-                  setLocationName(searchHit.name);
-                  setError(null);
-                  setStep("save-name");
-                }}
-                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Usar esta ubicacion
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!searchQuery.trim() || searchingMap}
-                aria-busy={searchingMap}
-                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {searchingMap ? (
-                  <span
-                    className="size-4 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-white motion-reduce:animate-none"
-                    role="status"
-                    aria-label="Cargando"
-                  />
-                ) : null}
-                Buscar
-              </button>
-            )}
+          <div className="border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <button
+              type="submit"
+              disabled={!mapLink.trim() || readingLink}
+              aria-busy={readingLink}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {readingLink ? (
+                <span
+                  className="size-4 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-white motion-reduce:animate-none"
+                  role="status"
+                  aria-label="Cargando"
+                />
+              ) : null}
+              Usar enlace
+            </button>
           </div>
         </form>
       ) : null}

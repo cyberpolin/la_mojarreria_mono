@@ -90,7 +90,7 @@ import {
   createMercadoPagoCardPayment,
   MercadoPagoRequestError,
 } from "./services/mercadoPagoClient.js";
-import { searchGoogleMaps } from "./services/googleMapsSearch.js";
+import { resolveGoogleMapsLink } from "./services/googleMapsSearch.js";
 import { whatsappClient } from "./services/whatsappClient.js";
 import { id, now, type JsonStore } from "./store/jsonStore.js";
 import type {
@@ -7221,32 +7221,26 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
     }),
   );
 
-  router.get(
-    "/maps-search",
+  router.post(
+    "/maps-link",
     requireRole(allRoles),
     asyncHandler(async (req, res) => {
       assertWorkspace(req);
-      const query = readOptionalString(req.query.q);
-      if (!query || query.length < 2) {
+      const url = requireString(req.body?.url, "url");
+      if (url.length > 2000) {
         throw new ApiError({
           status: 400,
           code: "VALIDATION_ERROR",
-          message: "Escribe que lugar quieres buscar.",
+          message: "El enlace es demasiado largo.",
         });
       }
-      if (query.length > 160) {
-        throw new ApiError({
-          status: 400,
-          code: "VALIDATION_ERROR",
-          message: "La busqueda es demasiado larga.",
-        });
-      }
-      const place = await searchGoogleMaps(query);
+      const place = await resolveGoogleMapsLink(url);
       if (!place) {
         throw new ApiError({
-          status: 404,
-          code: "NOT_FOUND",
-          message: "Google Maps no encontro ese lugar.",
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message:
+            "Ese enlace no trae una ubicacion. Comparte el lugar desde Google Maps.",
         });
       }
       ok(res, place);
