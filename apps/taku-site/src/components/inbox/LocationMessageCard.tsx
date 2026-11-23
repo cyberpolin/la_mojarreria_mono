@@ -31,7 +31,7 @@ export function savedLocationForLastCustomerMessage(messages: InboxMessage[]) {
     lastInbound = message;
     if (isLocationMessage(message)) location = message;
   }
-  if (!lastInbound || !location || lastInbound.id === location.id) return null;
+  if (!lastInbound || isLocationMessage(lastInbound)) return null;
   return { messageId: lastInbound.id, location };
 }
 
@@ -111,23 +111,27 @@ function RaiseOrderButton({
 }
 
 export function SavedLocationOrder({
-  location,
+  location = null,
+  message,
   account = null,
   conversation = null,
   fallbackPhone = null,
 }: {
-  location: InboxMessage;
+  location?: InboxMessage | null;
+  message: InboxMessage;
   account?: InboxWhatsAppAccount | null;
   conversation?: InboxConversation | null;
   fallbackPhone?: string | null;
 }) {
   return (
     <div className="mt-3 grid gap-2">
-      <p className="text-[12px] leading-4 text-slate-500">
-        Ubicacion guardada de este cliente.
-      </p>
+      {location ? (
+        <p className="text-[12px] leading-4 text-slate-500">
+          Ubicacion guardada de este cliente.
+        </p>
+      ) : null}
       <RaiseOrderButton
-        message={location}
+        message={location ?? message}
         account={account}
         conversation={conversation}
         fallbackPhone={fallbackPhone}

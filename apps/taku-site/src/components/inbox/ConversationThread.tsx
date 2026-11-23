@@ -52,7 +52,7 @@ function MessageBubble({
   account?: InboxConversation["whatsappAccount"];
   conversation?: InboxConversation | null;
   isDriverSender?: boolean;
-  savedLocation?: InboxMessage | null;
+  savedLocation?: { location: InboxMessage | null } | null;
 }) {
   const isInbound = message.direction === "inbound";
   const isSystem = message.direction === "system";
@@ -135,7 +135,8 @@ function MessageBubble({
       )}
       {savedLocation ? (
         <SavedLocationOrder
-          location={savedLocation}
+          location={savedLocation.location}
+          message={message}
           account={account}
           conversation={conversation}
         />
@@ -316,9 +317,7 @@ export function ConversationThread({
                 clickable={showDriverMenu}
                 onOpen={() => setMenuMessage(message)}
                 savedLocation={
-                  savedLocation?.messageId === message.id
-                    ? savedLocation.location
-                    : null
+                  savedLocation?.messageId === message.id ? savedLocation : null
                 }
               />
               {showDriverMenu ? (
