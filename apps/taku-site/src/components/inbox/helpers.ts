@@ -159,9 +159,13 @@ export function isFromMojarreriaApp() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("from") === "app") {
     window.sessionStorage.setItem("TAKU_FROM_APP", "1");
+    window.localStorage.setItem("TAKU_FROM_APP", "1");
     return true;
   }
-  return window.sessionStorage.getItem("TAKU_FROM_APP") === "1";
+  return (
+    window.sessionStorage.getItem("TAKU_FROM_APP") === "1" ||
+    window.localStorage.getItem("TAKU_FROM_APP") === "1"
+  );
 }
 
 export function mobileListPath(account?: InboxWhatsAppAccount | null) {

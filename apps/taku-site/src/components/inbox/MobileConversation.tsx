@@ -24,6 +24,7 @@ import {
   formatTime,
   isAccountConnected,
   isDriversGroupConversation,
+  isFromMojarreriaApp,
   isFullConversation,
   isGroupConversation,
   messageBodyText,
@@ -221,7 +222,7 @@ export function MobileConversation({
   useArmIncomingSound();
 
   const loadThread = useCallback(async () => {
-    if (!getWorkspaceSession()) {
+    if (!getWorkspaceSession() && !isFromMojarreriaApp()) {
       setNeedsAuth(true);
       setLoading(false);
       return;

@@ -1,6 +1,8 @@
 "use client";
 
+import { isFromMojarreriaApp } from "@/components/inbox/helpers";
 import {
+  clearWorkspaceSession,
   getAdminSession,
   getBackendApiBaseUrl,
   getWorkspaceSession,
@@ -19,6 +21,7 @@ type ApiPayload<T> = {
 };
 
 let workspaceRefreshPromise: Promise<WorkspaceSession | null> | null = null;
+let kioskSessionPromise: Promise<WorkspaceSession | null> | null = null;
 
 export class TakuApiError extends Error {
   readonly status: number;
@@ -37,7 +40,7 @@ export async function takuApi<T>(
   init: RequestInit = {},
   retryOnUnauthorized = true,
 ): Promise<T> {
-  const session = await getFreshWorkspaceSession();
+  const session = await sessionForRequest();
   if (!session) throw new Error("Sesion requerida.");
 
   const response = await fetch(`${getBackendApiBaseUrl()}${path}`, {
@@ -53,7 +56,7 @@ export async function takuApi<T>(
     .json()
     .catch(() => null)) as ApiPayload<T> | null;
   if (response.status === 401 && retryOnUnauthorized) {
-    const refreshed = await refreshWorkspaceSession(session);
+    const refreshed = await recoverUnauthorizedSession(session);
     if (refreshed) {
       return takuApi<T>(path, init, false);
     }
@@ -89,7 +92,7 @@ export async function takuPaginated<T>(
   init: RequestInit = {},
   retryOnUnauthorized = true,
 ): Promise<PaginatedResult<T>> {
-  const session = await getFreshWorkspaceSession();
+  const session = await sessionForRequest();
   if (!session) throw new Error("Sesion requerida.");
 
   const response = await fetch(`${getBackendApiBaseUrl()}${path}`, {
@@ -105,7 +108,7 @@ export async function takuPaginated<T>(
     T[]
   > | null;
   if (response.status === 401 && retryOnUnauthorized) {
-    const refreshed = await refreshWorkspaceSession(session);
+    const refreshed = await recoverUnauthorizedSession(session);
     if (refreshed) {
       return takuPaginated<T>(path, init, false);
     }
@@ -135,9 +138,58 @@ export async function takuPaginated<T>(
 
 async function getFreshWorkspaceSession() {
   const session = getWorkspaceSession();
-  if (!session) return null;
+  if (!session?.currentWorkspace?.id) return null;
   if (!isTokenExpiring(session.accessToken)) return session;
   return refreshWorkspaceSession(session);
+}
+
+async function sessionForRequest() {
+  const session = await getFreshWorkspaceSession();
+  if (session) return session;
+  if (!isFromMojarreriaApp()) return null;
+  clearWorkspaceSession();
+  return loginKioskSession();
+}
+
+async function recoverUnauthorizedSession(session: WorkspaceSession) {
+  const refreshed = await refreshWorkspaceSession(session);
+  if (refreshed) return refreshed;
+  if (!isFromMojarreriaApp()) return null;
+  clearWorkspaceSession();
+  return loginKioskSession();
+}
+
+async function loginKioskSession() {
+  if (!kioskSessionPromise) {
+    kioskSessionPromise = loginKioskSessionOnce().finally(() => {
+      kioskSessionPromise = null;
+    });
+  }
+  return kioskSessionPromise;
+}
+
+async function loginKioskSessionOnce() {
+  const response = await fetch("/api/kiosk-session", { method: "POST" });
+  const payload = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    data?: WorkspaceSession;
+    error?: { message?: string };
+  } | null;
+  const session = payload?.data;
+  if (
+    !response.ok ||
+    !payload?.ok ||
+    session?.sessionType !== "client" ||
+    !session.currentWorkspace?.id ||
+    !session.accessToken ||
+    !session.refreshToken
+  ) {
+    throw new Error(
+      payload?.error?.message ?? "No se pudo entrar desde la app.",
+    );
+  }
+  saveAppSession(session);
+  return session;
 }
 
 function isTokenExpiring(token: string) {

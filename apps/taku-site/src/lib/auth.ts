@@ -152,6 +152,14 @@ export function clearAdminSession() {
   window.localStorage.removeItem(ownerModeAdminBackupKey);
 }
 
+export function clearWorkspaceSession() {
+  if (typeof window === "undefined") return;
+  const session = getAppSession();
+  if (session?.sessionType === "client") {
+    window.localStorage.removeItem(sessionKey);
+  }
+}
+
 export function safeNextPath(value: string | null | undefined) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
   if (
