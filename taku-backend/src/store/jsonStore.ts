@@ -733,6 +733,7 @@ function createTestSeed(): Database {
       "Tiempo estimado : {tiempo} minutos",
     ].join("\n"),
     driversDriverMessage: [
+      "Pedido: {noPedido}",
       "Cliente : {cliente}",
       "A pagar: {a_pagar}",
       "A cobrar: {a_cobrar}",

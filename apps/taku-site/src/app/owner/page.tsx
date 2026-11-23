@@ -7,8 +7,7 @@ import { Button } from "@/components/inbox/ui";
 import { AddNumberModal } from "./AddNumberForm";
 import { OwnerShell } from "./OwnerShell";
 import { DriversGroupModeCard } from "./DriversGroupModeCard";
-import { AssignmentMessagesCard } from "./AssignmentMessagesCard";
-import { OrderMessageCard } from "./OrderMessageCard";
+import { MessageSettingsCard } from "./AssignmentMessagesCard";
 import { ExpensesCard } from "./ExpensesCard";
 import { UsersCard } from "./UsersCard";
 import {
@@ -68,9 +67,8 @@ export default function OwnerDashboardV2Page() {
               {hasNumbers ? (
                 <>
                   <DriversGroupModeCard key={selected.id} />
-                  <OrderMessageCard key={`order-message-${selected.id}`} />
-                  <AssignmentMessagesCard
-                    key={`assignment-messages-${selected.id}`}
+                  <MessageSettingsCard
+                    key={`message-settings-${selected.id}`}
                   />
                   <UsersCard key={`users-${selected.id}`} />
                   <ExpensesCard key={`expenses-${selected.id}`} />

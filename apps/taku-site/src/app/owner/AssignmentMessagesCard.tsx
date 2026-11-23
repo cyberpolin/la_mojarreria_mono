@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   fetchDriversPreferences,
-  updateAssignmentMessages,
+  updateMessageSettings,
 } from "@/components/inbox/api";
 import {
   DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
@@ -11,13 +11,17 @@ import {
 } from "@/components/inbox/orderMessages";
 import { Button, Field, TextArea } from "@/components/inbox/ui";
 
-export function AssignmentMessagesCard() {
+const DEFAULT_ORDER_MESSAGE = "Pedido por favor";
+
+export function MessageSettingsCard() {
+  const [orderMessage, setOrderMessage] = useState(DEFAULT_ORDER_MESSAGE);
   const [customerMessage, setCustomerMessage] = useState(
     DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
   );
   const [driverMessage, setDriverMessage] = useState(
     DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
   );
+  const [savedOrder, setSavedOrder] = useState(DEFAULT_ORDER_MESSAGE);
   const [savedCustomer, setSavedCustomer] = useState(
     DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
   );
@@ -45,8 +49,10 @@ export function AssignmentMessagesCard() {
     void fetchDriversPreferences()
       .then((preferences) => {
         if (cancelled) return;
+        setOrderMessage(preferences.orderMessage);
         setCustomerMessage(preferences.customerMessage);
         setDriverMessage(preferences.driverMessage);
+        setSavedOrder(preferences.orderMessage);
         setSavedCustomer(preferences.customerMessage);
         setSavedDriver(preferences.driverMessage);
         setError(null);
@@ -78,32 +84,39 @@ export function AssignmentMessagesCard() {
   }, [helpOpen]);
 
   const unchanged =
-    customerMessage === savedCustomer && driverMessage === savedDriver;
+    orderMessage === savedOrder &&
+    customerMessage === savedCustomer &&
+    driverMessage === savedDriver;
 
   async function save() {
+    const order = orderMessage.trim();
     const customer = customerMessage.trim();
     const driver = driverMessage.trim();
-    if (!customer || !driver) {
-      setError("Escribe los dos mensajes.");
+    if (!order || !customer || !driver) {
+      setError("Escribe los tres mensajes.");
       return;
     }
     if (unchanged || saving) return;
     setSaving(true);
     setError(null);
     try {
-      const result = await updateAssignmentMessages({
+      const result = await updateMessageSettings({
+        orderMessage: order,
         customerMessage: customer,
         driverMessage: driver,
       });
+      const storedOrder = result.preferences.driversOrderMessage?.trim();
       const storedCustomer = result.preferences.driversCustomerMessage?.trim();
       const storedDriver = result.preferences.driversDriverMessage?.trim();
-      if (!storedCustomer || !storedDriver) {
+      if (!storedOrder || !storedCustomer || !storedDriver) {
         throw new Error(
           "El servidor no guardo los mensajes. Actualiza el backend y vuelve a intentar.",
         );
       }
+      setOrderMessage(storedOrder);
       setCustomerMessage(storedCustomer);
       setDriverMessage(storedDriver);
+      setSavedOrder(storedOrder);
       setSavedCustomer(storedCustomer);
       setSavedDriver(storedDriver);
     } catch (caught) {
@@ -123,10 +136,11 @@ export function AssignmentMessagesCard() {
         Repartidores
       </p>
       <h2 className="mt-2 text-lg font-semibold text-slate-950">
-        Mensajes al asignar
+        Configuracion de mensajes
       </h2>
       <p className="mt-2 text-sm leading-6 text-slate-600">
-        Estos textos se envian al cliente y al repartidor.
+        El aviso al levantar un pedido, y los textos para el cliente y el
+        repartidor.
       </p>
       <div className="mt-4">
         <Button variant="secondary" onClick={() => setHelpOpen(true)}>
@@ -155,8 +169,20 @@ export function AssignmentMessagesCard() {
           }}
         >
           <Field
+            label="Mensaje de pedido"
+            hint="Se envia al destino cuando se levanta un pedido."
+          >
+            <TextArea
+              rows={3}
+              placeholder={DEFAULT_ORDER_MESSAGE}
+              value={orderMessage}
+              onChange={setOrderMessage}
+              disabled={saving}
+            />
+          </Field>
+          <Field
             label="Mensaje al cliente"
-            hint="{repartidor} {total} {tiempo} {cliente}"
+            hint="{noPedido} {repartidor} {total} {tiempo} {cliente}"
           >
             <TextArea
               rows={4}
@@ -168,7 +194,7 @@ export function AssignmentMessagesCard() {
           </Field>
           <Field
             label="Mensaje al repartidor"
-            hint="{cliente} {a_pagar} {a_cobrar} {envio} {total} {pago} {mojarras} {empanadas}"
+            hint="{noPedido} {cliente} {a_pagar} {a_cobrar} {envio} {total} {pago} {mojarras} {empanadas}"
           >
             <TextArea
               rows={4}
@@ -184,6 +210,7 @@ export function AssignmentMessagesCard() {
             disabled={
               saving ||
               unchanged ||
+              !orderMessage.trim() ||
               !customerMessage.trim() ||
               !driverMessage.trim()
             }
@@ -209,6 +236,7 @@ export function AssignmentMessagesCard() {
 }
 
 const CUSTOMER_TOKENS = [
+  ["{noPedido}", "Ultimos 4 digitos del celular del cliente."],
   ["{repartidor}", "Telefono del repartidor."],
   ["{total}", "Total del pedido."],
   ["{tiempo}", "Minutos estimados de entrega."],
@@ -216,6 +244,7 @@ const CUSTOMER_TOKENS = [
 ] as const;
 
 const DRIVER_TOKENS = [
+  ["{noPedido}", "Ultimos 4 digitos del celular del cliente."],
   ["{cliente}", "Telefono del cliente."],
   ["{a_pagar}", "En efectivo, la comida. En transferencia, $0."],
   ["{a_cobrar}", "En efectivo, el total. En transferencia, solo el envio."],

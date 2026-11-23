@@ -57,6 +57,7 @@ test("a transfer only asks the driver to collect the delivery", () => {
     ...order,
     payment: "transferencia",
   });
+  assert.match(message, /Pedido: 5435/);
   assert.match(message, /A pagar: \$0\.00/);
   assert.match(message, /A cobrar: \$50\.00/);
 });

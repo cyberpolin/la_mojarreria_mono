@@ -874,6 +874,7 @@ const DEFAULT_DRIVERS_CUSTOMER_MESSAGE = [
   "Tiempo estimado : {tiempo} minutos",
 ].join("\n");
 const DEFAULT_DRIVERS_DRIVER_MESSAGE = [
+  "Pedido: {noPedido}",
   "Cliente : {cliente}",
   "A pagar: {a_pagar}",
   "A cobrar: {a_cobrar}",

@@ -2,6 +2,7 @@ import { orderNumber, type DeliveryOrder } from "./pendingOrders";
 import { ESTIMATED_DELIVERY_MINUTES, formatMxn } from "./raiseOrder";
 
 export const DEFAULT_DRIVER_ASSIGNMENT_MESSAGE = [
+  "Pedido: {noPedido}",
   "Cliente : {cliente}",
   "A pagar: {a_pagar}",
   "A cobrar: {a_cobrar}",
@@ -36,6 +37,7 @@ export function assignmentTemplateValues(order: DeliveryOrder) {
   const food = orderFoodTotal(order);
   return {
     cliente: order.customerPhone?.trim() || "-",
+    nopedido: orderNumber(order.customerPhone) || "-",
     repartidor: order.assignedDriver?.phone?.trim() || "-",
     nombre: order.assignedDriver?.name?.trim() || "",
     a_pagar: formatMxn(transfer ? 0 : food),

@@ -82,17 +82,8 @@ export async function updateDriversPhone(
   });
 }
 
-export async function updateDriversOrderMessage(message: string) {
-  return takuApi<{
-    message: string;
-    preferences: DriversPreferences;
-  }>("/preferences", {
-    method: "PATCH",
-    body: JSON.stringify({ driversOrderMessage: message }),
-  });
-}
-
-export async function updateAssignmentMessages(input: {
+export async function updateMessageSettings(input: {
+  orderMessage: string;
   customerMessage: string;
   driverMessage: string;
 }) {
@@ -102,6 +93,7 @@ export async function updateAssignmentMessages(input: {
   }>("/preferences", {
     method: "PATCH",
     body: JSON.stringify({
+      driversOrderMessage: input.orderMessage,
       driversCustomerMessage: input.customerMessage,
       driversDriverMessage: input.driverMessage,
     }),
