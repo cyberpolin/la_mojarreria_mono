@@ -515,7 +515,7 @@ export function RaiseOrderModal({
               label="Kilometros"
               hint={`${
                 kilometersFromRoute ? "Tomados de la ruta en Google Maps. " : ""
-              }Minimo ${formatMxn(DELIVERY_BASE)} e incluye los primeros ${DELIVERY_INCLUDED_KM} km. Cada km extra cuesta ${formatMxn(DELIVERY_PER_KM)}.`}
+              }Minimo ${formatMxn(DELIVERY_BASE)} e incluye los primeros ${DELIVERY_INCLUDED_KM} km. De ahi, cada km o fraccion cuesta ${formatMxn(DELIVERY_PER_KM)}.`}
             >
               <Input
                 type="number"

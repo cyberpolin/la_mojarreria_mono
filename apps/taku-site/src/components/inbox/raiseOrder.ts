@@ -24,7 +24,9 @@ export type RaiseOrderTotals = RaiseOrderDraft & {
 };
 
 export function extraDeliveryKilometers(kilometers: number) {
-  return Math.max(0, kilometers - DELIVERY_INCLUDED_KM);
+  const extra = kilometers - DELIVERY_INCLUDED_KM;
+  if (extra <= 0) return 0;
+  return Math.ceil(extra);
 }
 
 export function deliveryCost(kilometers: number) {
