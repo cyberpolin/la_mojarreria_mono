@@ -1,12 +1,15 @@
 import {
   createConversation,
   fetchConversation,
+  fetchDriversPreferences,
   sendConversationMessage,
 } from "./api";
 import { rememberDriverPhone } from "./drivers";
 import { digitsPhone, isGroupConversation } from "./helpers";
 import {
   customerAssignmentMessage,
+  DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
+  DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
   driverAssignmentMessage,
 } from "./orderMessages";
 import {
@@ -87,8 +90,17 @@ async function sendDriverAssignment(order: DeliveryOrder, body: string) {
 }
 
 export async function sendAssignmentNotifications(order: DeliveryOrder) {
-  const customerBody = customerAssignmentMessage(order);
-  const driverBody = driverAssignmentMessage(order);
+  let customerTemplate = DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE;
+  let driverTemplate = DEFAULT_DRIVER_ASSIGNMENT_MESSAGE;
+  try {
+    const preferences = await fetchDriversPreferences();
+    customerTemplate = preferences.customerMessage;
+    driverTemplate = preferences.driverMessage;
+  } catch {
+    // Keep the built-in texts if preferences cannot be loaded.
+  }
+  const customerBody = customerAssignmentMessage(order, customerTemplate);
+  const driverBody = driverAssignmentMessage(order, driverTemplate);
 
   if (SEND_CUSTOMER_ASSIGNMENT_MESSAGE) {
     const conversation = await resolveCustomerConversation(order);

@@ -727,6 +727,16 @@ function createTestSeed(): Database {
     agentsCanReassignConversations: false,
     driversGroupMode: "prod",
     driversOrderMessage: "Pedido por favor",
+    driversCustomerMessage: [
+      "Repartidor: {repartidor}",
+      "Total: {total}",
+      "Tiempo estimado : {tiempo} minutos",
+    ].join("\n"),
+    driversDriverMessage: [
+      "Cliente : {cliente}",
+      "A pagar: {a_pagar}",
+      "A cobrar: {a_cobrar}",
+    ].join("\n"),
     createdAt: timestamp,
     updatedAt: timestamp,
   };

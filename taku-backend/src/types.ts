@@ -273,6 +273,8 @@ export type Preferences = {
   driversProdPhone?: string | null;
   driversTestPhone?: string | null;
   driversOrderMessage?: string | null;
+  driversCustomerMessage?: string | null;
+  driversDriverMessage?: string | null;
   createdAt: string;
   updatedAt: string;
 };

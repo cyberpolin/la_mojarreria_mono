@@ -1,26 +1,59 @@
 import { orderNumber, type DeliveryOrder } from "./pendingOrders";
 import { ESTIMATED_DELIVERY_MINUTES, formatMxn } from "./raiseOrder";
 
+export const DEFAULT_DRIVER_ASSIGNMENT_MESSAGE = [
+  "Cliente : {cliente}",
+  "A pagar: {a_pagar}",
+  "A cobrar: {a_cobrar}",
+].join("\n");
+
+export const DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE = [
+  "Repartidor: {repartidor}",
+  "Total: {total}",
+  "Tiempo estimado : {tiempo} minutos",
+].join("\n");
+
+const TEMPLATE_TOKEN = /[{<]\s*([a-zA-Z0-9_]+)\s*[}>]/g;
+
 export function orderFoodTotal(
   order: Pick<DeliveryOrder, "mojarraTotal" | "empanadaTotal">,
 ) {
   return order.mojarraTotal + order.empanadaTotal;
 }
 
-export function driverAssignmentMessage(order: DeliveryOrder) {
-  const customer = order.customerPhone?.trim() || "-";
-  if (order.payment === "transferencia") {
-    return [
-      `Cliente : ${customer}`,
-      `A pagar: ${formatMxn(0)}`,
-      `A cobrar: ${formatMxn(order.delivery)}`,
-    ].join("\n");
-  }
-  return [
-    `Cliente : ${customer}`,
-    `A pagar: ${formatMxn(orderFoodTotal(order))}`,
-    `A cobrar: ${formatMxn(order.total)}`,
-  ].join("\n");
+export function fillMessageTemplate(
+  template: string,
+  values: Record<string, string>,
+) {
+  return template.replace(TEMPLATE_TOKEN, (token, name: string) => {
+    const key = name.toLowerCase();
+    return key in values ? (values[key] ?? "") : token;
+  });
+}
+
+export function assignmentTemplateValues(order: DeliveryOrder) {
+  const transfer = order.payment === "transferencia";
+  const food = orderFoodTotal(order);
+  return {
+    cliente: order.customerPhone?.trim() || "-",
+    repartidor: order.assignedDriver?.phone?.trim() || "-",
+    nombre: order.assignedDriver?.name?.trim() || "",
+    a_pagar: formatMxn(transfer ? 0 : food),
+    a_cobrar: formatMxn(transfer ? order.delivery : order.total),
+    envio: formatMxn(order.delivery),
+    total: formatMxn(order.total),
+    tiempo: String(ESTIMATED_DELIVERY_MINUTES),
+    pago: transfer ? "Transferencia" : "Efectivo",
+    mojarras: String(order.mojarras),
+    empanadas: String(order.empanadas),
+  };
+}
+
+export function driverAssignmentMessage(
+  order: DeliveryOrder,
+  template = DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
+) {
+  return fillMessageTemplate(template, assignmentTemplateValues(order));
 }
 
 export function ownerOverdueMessage(order: DeliveryOrder, stepMinutes: number) {
@@ -31,11 +64,9 @@ export function ownerOverdueMessage(order: DeliveryOrder, stepMinutes: number) {
   return `Pedido ${number} lleva ${stepMinutes} minutos de retraso.`;
 }
 
-export function customerAssignmentMessage(order: DeliveryOrder) {
-  const driver = order.assignedDriver?.phone?.trim() || "-";
-  return [
-    `Repartidor: ${driver}`,
-    `Total: ${formatMxn(order.total)}`,
-    `Tiempo estimado : ${ESTIMATED_DELIVERY_MINUTES} minutos`,
-  ].join("\n");
+export function customerAssignmentMessage(
+  order: DeliveryOrder,
+  template = DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
+) {
+  return fillMessageTemplate(template, assignmentTemplateValues(order));
 }

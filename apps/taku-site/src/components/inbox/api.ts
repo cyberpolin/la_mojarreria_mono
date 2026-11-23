@@ -1,5 +1,9 @@
 import { TakuApiError, takuApi, takuList, takuPaginated } from "@/lib/taku-api";
 import {
+  DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
+  DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
+} from "./orderMessages";
+import {
   buildConversationQuery,
   normalizeDriversGroupMode,
   isTestDriversGroupConversation,
@@ -33,6 +37,8 @@ type DriversPreferences = {
   driversProdPhone?: string | null;
   driversTestPhone?: string | null;
   driversOrderMessage?: string | null;
+  driversCustomerMessage?: string | null;
+  driversDriverMessage?: string | null;
 };
 
 const DEFAULT_DRIVERS_ORDER_MESSAGE = "Pedido por favor";
@@ -45,6 +51,12 @@ export async function fetchDriversPreferences() {
     testPhone: preferences?.driversTestPhone?.trim() ?? "",
     orderMessage:
       preferences?.driversOrderMessage?.trim() || DEFAULT_DRIVERS_ORDER_MESSAGE,
+    customerMessage:
+      preferences?.driversCustomerMessage?.trim() ||
+      DEFAULT_CUSTOMER_ASSIGNMENT_MESSAGE,
+    driverMessage:
+      preferences?.driversDriverMessage?.trim() ||
+      DEFAULT_DRIVER_ASSIGNMENT_MESSAGE,
   };
 }
 
@@ -77,6 +89,22 @@ export async function updateDriversOrderMessage(message: string) {
   }>("/preferences", {
     method: "PATCH",
     body: JSON.stringify({ driversOrderMessage: message }),
+  });
+}
+
+export async function updateAssignmentMessages(input: {
+  customerMessage: string;
+  driverMessage: string;
+}) {
+  return takuApi<{
+    message: string;
+    preferences: DriversPreferences;
+  }>("/preferences", {
+    method: "PATCH",
+    body: JSON.stringify({
+      driversCustomerMessage: input.customerMessage,
+      driversDriverMessage: input.driverMessage,
+    }),
   });
 }
 

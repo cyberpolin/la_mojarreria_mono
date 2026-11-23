@@ -598,6 +598,8 @@ function ensureWorkspaceDefaults(
       agentsCanReassignConversations: false,
       driversGroupMode: "prod",
       driversOrderMessage: "Pedido por favor",
+      driversCustomerMessage: DEFAULT_DRIVERS_CUSTOMER_MESSAGE,
+      driversDriverMessage: DEFAULT_DRIVERS_DRIVER_MESSAGE,
       createdAt: now(),
       updatedAt: now(),
     });
@@ -866,10 +868,30 @@ function driversGroupModeOf(
 }
 
 const DEFAULT_DRIVERS_ORDER_MESSAGE = "Pedido por favor";
+const DEFAULT_DRIVERS_CUSTOMER_MESSAGE = [
+  "Repartidor: {repartidor}",
+  "Total: {total}",
+  "Tiempo estimado : {tiempo} minutos",
+].join("\n");
+const DEFAULT_DRIVERS_DRIVER_MESSAGE = [
+  "Cliente : {cliente}",
+  "A pagar: {a_pagar}",
+  "A cobrar: {a_cobrar}",
+].join("\n");
 
 function driversOrderMessageOf(preferences?: Preferences | null) {
   const message = preferences?.driversOrderMessage?.trim();
   return message || DEFAULT_DRIVERS_ORDER_MESSAGE;
+}
+
+function driversCustomerMessageOf(preferences?: Preferences | null) {
+  const message = preferences?.driversCustomerMessage?.trim();
+  return message || DEFAULT_DRIVERS_CUSTOMER_MESSAGE;
+}
+
+function driversDriverMessageOf(preferences?: Preferences | null) {
+  const message = preferences?.driversDriverMessage?.trim();
+  return message || DEFAULT_DRIVERS_DRIVER_MESSAGE;
 }
 
 function readDriversOrderMessage(value: unknown) {
@@ -887,6 +909,26 @@ function readDriversOrderMessage(value: unknown) {
       status: 400,
       code: "VALIDATION_ERROR",
       message: "El mensaje del pedido es demasiado largo.",
+    });
+  }
+  return trimmed;
+}
+
+function readDriversTemplateMessage(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Escribe el mensaje.",
+    });
+  }
+  const trimmed = value.replace(/\r\n/g, "\n").trim();
+  if (!trimmed) return fallback;
+  if (trimmed.length > 1000) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "El mensaje es demasiado largo.",
     });
   }
   return trimmed;
@@ -7375,6 +7417,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
               ...preferences,
               driversGroupMode: driversGroupModeOf(preferences),
               driversOrderMessage: driversOrderMessageOf(preferences),
+              driversCustomerMessage: driversCustomerMessageOf(preferences),
+              driversDriverMessage: driversDriverMessageOf(preferences),
             }
           : null,
       );
@@ -7402,6 +7446,8 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
             agentsCanReassignConversations: false,
             driversGroupMode: "prod",
             driversOrderMessage: DEFAULT_DRIVERS_ORDER_MESSAGE,
+            driversCustomerMessage: DEFAULT_DRIVERS_CUSTOMER_MESSAGE,
+            driversDriverMessage: DEFAULT_DRIVERS_DRIVER_MESSAGE,
             createdAt: now(),
             updatedAt: now(),
           };
@@ -7439,11 +7485,23 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
           preferences.driversOrderMessage = readDriversOrderMessage(
             req.body.driversOrderMessage,
           );
+        if ("driversCustomerMessage" in req.body)
+          preferences.driversCustomerMessage = readDriversTemplateMessage(
+            req.body.driversCustomerMessage,
+            DEFAULT_DRIVERS_CUSTOMER_MESSAGE,
+          );
+        if ("driversDriverMessage" in req.body)
+          preferences.driversDriverMessage = readDriversTemplateMessage(
+            req.body.driversDriverMessage,
+            DEFAULT_DRIVERS_DRIVER_MESSAGE,
+          );
         preferences.updatedAt = now();
         return {
           ...preferences,
           driversGroupMode: driversGroupModeOf(preferences),
           driversOrderMessage: driversOrderMessageOf(preferences),
+          driversCustomerMessage: driversCustomerMessageOf(preferences),
+          driversDriverMessage: driversDriverMessageOf(preferences),
         } as Preferences;
       });
       ok(res, {
