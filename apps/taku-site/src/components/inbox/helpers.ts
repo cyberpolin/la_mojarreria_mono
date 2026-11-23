@@ -135,7 +135,7 @@ export function accountMatchesSlug(
   return account.id === slug || accountPhoneSlug(account) === wanted;
 }
 
-export const MOJARRERIA_WHATSAPP_PHONE = "5219931204488";
+export const MOJARRERIA_WHATSAPP_PHONE = "5219937040071";
 
 export function pickMojarreriaAccount(
   accounts: InboxWhatsAppAccount[],
@@ -183,6 +183,14 @@ export function mobileThreadPath(
   return account
     ? `/conversation-mobile/${accountPhoneSlug(account)}/${phone}`
     : `/conversation-mobile/${phone}`;
+}
+
+export function withTabletQuery(path: string) {
+  if (typeof window === "undefined" || !isFromMojarreriaApp()) return path;
+  const [pathname, query = ""] = path.split("?");
+  const params = new URLSearchParams(query);
+  params.set("from", "app");
+  return `${pathname}?${params.toString()}`;
 }
 
 export const INBOX_TAB_PARAM = "tab";

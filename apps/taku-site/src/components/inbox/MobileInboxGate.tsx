@@ -141,19 +141,20 @@ export function MobileInboxApp() {
   }
 
   const mojarreriaAccount = fromApp ? pickMojarreriaAccount(accounts) : null;
-  const selectedAccount = first
-    ? (accounts.find((account) => accountMatchesSlug(account, first)) ??
-      mojarreriaAccount)
-    : mojarreriaAccount;
+  const accountFromPath = first
+    ? (accounts.find((account) => accountMatchesSlug(account, first)) ?? null)
+    : null;
+  const selectedAccount =
+    accountFromPath ?? (fromApp ? mojarreriaAccount : null);
   const singleAccount = accounts.length === 1 ? accounts[0] : null;
-  const listAccount =
-    selectedAccount ?? (second ? null : (singleAccount ?? mojarreriaAccount));
+  const listAccount = selectedAccount ?? (second ? null : singleAccount);
   const threadPhone = second
     ? digitsPhone(second)
-    : selectedAccount || !first
-      ? ""
-      : digitsPhone(first);
+    : first && !accountFromPath
+      ? digitsPhone(first)
+      : "";
   const showThread = Boolean(threadPhone);
+  const multipleAccounts = accounts.length > 1 && !fromApp;
 
   return (
     <MobilePhoneFrame>
@@ -170,7 +171,7 @@ export function MobileInboxApp() {
         listAccount ? (
           <MobileConversationList
             account={listAccount}
-            showAccountPicker={accounts.length > 1}
+            showAccountPicker={multipleAccounts}
             threadPhone={showThread ? threadPhone : ""}
             threadSlot={
               showThread ? (
@@ -178,7 +179,7 @@ export function MobileInboxApp() {
                   hideHeader
                   phone={threadPhone}
                   account={listAccount}
-                  scoped={accounts.length > 1}
+                  scoped={multipleAccounts}
                 />
               ) : null
             }
@@ -187,7 +188,7 @@ export function MobileInboxApp() {
           <MobileConversation
             phone={threadPhone}
             account={singleAccount}
-            scoped={false}
+            scoped={multipleAccounts}
           />
         ) : (
           <MobileAccountPicker accounts={accounts} />

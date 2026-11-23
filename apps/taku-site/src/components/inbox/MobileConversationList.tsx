@@ -43,11 +43,13 @@ import {
   formatTime,
   isDriversGroupConversation,
   isFullConversation,
+  isFromMojarreriaApp,
   isGroupConversation,
   isVisibleInboxConversation,
   lastMessagePreview,
   mobileListPath,
   mobileThreadPath,
+  withTabletQuery,
   readConversationId,
   readMessageFromEvent,
   sortConversationsUnreadFirst,
@@ -354,7 +356,11 @@ export function MobileConversationList({
       setNewName("");
       setQuery("");
       setConversations((current) => upsertConversation(current, conversation));
-      router.push(mobileThreadPath(phone, showAccountPicker ? account : null));
+      router.push(
+        withTabletQuery(
+          mobileThreadPath(phone, showAccountPicker ? account : null),
+        ),
+      );
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -469,9 +475,11 @@ export function MobileConversationList({
     unlockIncomingSound();
     clearReturnOrder();
     router.push(
-      mobileThreadPath(
-        conversation.contact?.phoneNumber ?? "",
-        showAccountPicker ? account : null,
+      withTabletQuery(
+        mobileThreadPath(
+          conversation.contact?.phoneNumber ?? "",
+          isFromMojarreriaApp() || !showAccountPicker ? null : account,
+        ),
       ),
     );
   }
@@ -479,11 +487,16 @@ export function MobileConversationList({
   function handleHeaderBack() {
     if (threadSlot) {
       router.push(
-        inboxListReturnPath(showAccountPicker ? account : null, searchParams),
+        withTabletQuery(
+          inboxListReturnPath(
+            isFromMojarreriaApp() || !showAccountPicker ? null : account,
+            searchParams,
+          ),
+        ),
       );
       return;
     }
-    if (showAccountPicker) router.push("/conversation-mobile");
+    if (showAccountPicker) router.push(withTabletQuery("/conversation-mobile"));
   }
 
   if (needsAuth) {

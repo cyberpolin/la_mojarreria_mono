@@ -200,6 +200,7 @@ export function MobileConversation({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [onTablet, setOnTablet] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [messageMenu, setMessageMenu] = useState<InboxMessage | null>(null);
   const [assignedOrder, setAssignedOrder] = useState<DeliveryOrder | null>(
@@ -220,6 +221,10 @@ export function MobileConversation({
   const driverPhones = useKnownDriverPhones();
   conversationRef.current = conversation;
   useArmIncomingSound();
+
+  useEffect(() => {
+    setOnTablet(isFromMojarreriaApp());
+  }, []);
 
   const loadThread = useCallback(async () => {
     if (!getWorkspaceSession() && !isFromMojarreriaApp()) {
@@ -646,12 +651,17 @@ export function MobileConversation({
             Boolean(conversation?.pinned) &&
             isGroupConversation(conversation) &&
             message.direction === "inbound";
+          const showCustomerMenu =
+            !onTablet &&
+            !showDriverMenu &&
+            !isGroupConversation(conversation) &&
+            message.direction === "inbound";
           return (
             <div
               key={message.id}
               className={cx(
                 "flex items-end gap-1",
-                showDriverMenu ? "self-start" : "",
+                showDriverMenu || showCustomerMenu ? "self-start" : "",
               )}
             >
               <FaqIntentLight
@@ -669,12 +679,20 @@ export function MobileConversation({
                 clickable={showDriverMenu}
                 onOpen={() => setMessageMenu(message)}
               />
-              {showDriverMenu ? (
+              {showDriverMenu || showCustomerMenu ? (
                 <button
                   type="button"
-                  onClick={() => setMessageMenu(message)}
+                  onClick={() =>
+                    showDriverMenu
+                      ? setMessageMenu(message)
+                      : setHeaderMenuOpen(true)
+                  }
                   className="mb-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-slate-500 shadow-sm"
-                  aria-label="Opciones del repartidor"
+                  aria-label={
+                    showDriverMenu
+                      ? "Opciones del repartidor"
+                      : "Opciones del cliente"
+                  }
                 >
                   <KebabIcon className="h-5 w-5" />
                 </button>

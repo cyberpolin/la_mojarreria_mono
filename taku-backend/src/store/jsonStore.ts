@@ -602,7 +602,7 @@ function createTestSeed(): Database {
     id: "wa_account_sales",
     workspaceId: workspace.id,
     externalInstanceId: "wa_demo_sales",
-    phoneNumber: "5219931204488",
+    phoneNumber: "5219937040071",
     displayName: "Ventas",
     description: "Numero principal para pedidos y cotizaciones",
     timezone: workspace.timezone,
