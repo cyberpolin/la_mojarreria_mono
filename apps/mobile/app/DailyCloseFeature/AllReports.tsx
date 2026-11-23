@@ -284,7 +284,7 @@ export default ({
 
       <Footer>
         <PrimaryButton
-          onPress={() => navigation.navigate(Screens.LandingScreen)}
+          onPress={() => navigation.navigate(Screens.PortraitLandingScreen)}
         >
           Ok
         </PrimaryButton>

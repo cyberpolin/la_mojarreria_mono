@@ -6,7 +6,23 @@ on:
       ref:
         description: "Branch, tag, or commit SHA to deploy"
         required: true
-        default: "main"
+        default: "taku-deployment"
+  push:
+    branches:
+      - taku-deployment
+    paths:
+      - "apps/bot-service/**"
+      - "apps/service-ports.conf"
+      - "apps/TAKU_BOT_SERVICE_SITE.conf"
+      - "scripts/taku-service-helpers.sh"
+      - "scripts/list-taku-services.sh"
+      - "scripts/check-taku-service-config.sh"
+      - "scripts/ensure-taku-service-certs.sh"
+      - "scripts/enable-taku-nginx-sites.sh"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - ".github/workflows/deploy-bot-service-cloudcluster.yml"
 
 concurrency:
   group: bot-service-cloudcluster
@@ -20,17 +36,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 9.15.5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20.19.4
 
@@ -71,6 +87,42 @@ jobs:
           DEPLOY_PATH="$(read_push_value CLOUDCLUSTER_BOT_SERVICE_DEPLOY_PATH)"
           DEPLOY_PATH="${DEPLOY_PATH:-/var/www/bot-service}"
           PORT="${PORT:-22}"
+          PORT="$(printf '%s' "$PORT" | tr -d '\r' | xargs)"
+
+          print_debug_value() {
+            label="$1"
+            value="$2"
+            printf '%s debug chars: ' "$label"
+            printf '%s' "$value" | sed 's/./& /g'
+            printf '\n'
+          }
+
+          echo "Resolved CloudCluster connection source:"
+          if [ -n "${CLOUDCLUSTER_HOST:-}" ]; then echo "HOST source: direct secret"; else echo "HOST source: BOT_PUSH_ENV_FILE"; fi
+          if [ -n "${CLOUDCLUSTER_USER:-}" ]; then echo "USER source: direct secret"; else echo "USER source: BOT_PUSH_ENV_FILE"; fi
+          if [ -n "${CLOUDCLUSTER_SSH_PORT:-}" ]; then echo "PORT source: direct secret"; else echo "PORT source: BOT_PUSH_ENV_FILE/default"; fi
+          if [ -n "${CLOUDCLUSTER_SSH_KEY:-}" ]; then echo "SSH_KEY source: direct secret"; else echo "SSH_KEY source: BOT_PUSH_ENV_FILE"; fi
+          echo "HOST resolved: $HOST"
+          echo "USER resolved: $USER"
+          echo "PORT resolved: $PORT"
+          echo "DEPLOY_PATH resolved: $DEPLOY_PATH"
+          print_debug_value "HOST" "$HOST"
+          print_debug_value "USER" "$USER"
+          print_debug_value "PORT" "$PORT"
+          print_debug_value "DEPLOY_PATH" "$DEPLOY_PATH"
+          echo "SSH_KEY length: ${#SSH_KEY}"
+          if [ -n "$SSH_KEY" ]; then
+            SSH_KEY_FILE="$RUNNER_TEMP/cloudcluster-key-check"
+            printf '%s\n' "$SSH_KEY" > "$SSH_KEY_FILE"
+            chmod 600 "$SSH_KEY_FILE"
+            if ssh-keygen -y -f "$SSH_KEY_FILE" >/dev/null 2>&1; then
+              echo "SSH_KEY parse: ok"
+              ssh-keygen -y -f "$SSH_KEY_FILE" | ssh-keygen -lf - | sed 's/^/SSH_KEY public fingerprint: /'
+            else
+              echo "::error::SSH_KEY parse failed; CLOUDCLUSTER_SSH_KEY is not a valid private key or is malformed"
+              exit 1
+            fi
+          fi
 
           missing=0
           for name in BOT_SERVICE_ENV_FILE HOST USER SSH_KEY DEPLOY_PATH; do
@@ -82,6 +134,14 @@ jobs:
               echo "$name is configured (length: ${#value})"
             fi
           done
+
+          case "$PORT" in
+            ''|*[!0-9]*)
+              echo "::error::CLOUDCLUSTER_SSH_PORT must be numeric. Check the direct secret first, then BOT_PUSH_ENV_FILE fallback."
+              echo "Resolved port length: ${#PORT}"
+              exit 1
+              ;;
+          esac
 
           echo "PORT is configured: $PORT"
 
@@ -109,6 +169,60 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: SSH preflight
+        id: ssh_preflight
+        env:
+          SSH_HOST: ${{ steps.cloudcluster.outputs.host }}
+          SSH_USER: ${{ steps.cloudcluster.outputs.user }}
+          SSH_PORT: ${{ steps.cloudcluster.outputs.port }}
+          SSH_KEY: ${{ steps.cloudcluster.outputs.ssh_key }}
+        run: |
+          set -eu
+
+          KEY_FILE="$RUNNER_TEMP/cloudcluster-preflight-key"
+          printf '%s\n' "$SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+
+          print_debug_value() {
+            label="$1"
+            value="$2"
+            printf '%s debug chars: ' "$label"
+            printf '%s' "$value" | sed 's/./& /g'
+            printf '\n'
+          }
+
+          echo "SSH preflight target: $SSH_USER@$SSH_HOST:$SSH_PORT"
+          print_debug_value "SSH_HOST" "$SSH_HOST"
+          print_debug_value "SSH_USER" "$SSH_USER"
+          print_debug_value "SSH_PORT" "$SSH_PORT"
+          echo "SSH preflight key length: ${#SSH_KEY}"
+          ssh-keygen -y -f "$KEY_FILE" | ssh-keygen -lf - | sed 's/^/SSH preflight public fingerprint: /'
+
+          SSH_OUTPUT="$RUNNER_TEMP/ssh-preflight-output.log"
+          set +e
+          ssh -vvv \
+            -i "$KEY_FILE" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            "$SSH_USER@$SSH_HOST" \
+            "echo ssh-preflight-ok" 2>&1 | tee "$SSH_OUTPUT"
+          SSH_STATUS="${PIPESTATUS[0]}"
+          set -e
+
+          if [ "$SSH_STATUS" -ne 0 ]; then
+            if grep -qi "Connection timed out" "$SSH_OUTPUT"; then
+              echo "::error::SSH preflight failed: connection timed out. Host/port is unreachable from GitHub Actions."
+            elif grep -qi "Permission denied" "$SSH_OUTPUT"; then
+              echo "::error::SSH preflight failed: permission denied. The server rejected the key for this user."
+            else
+              echo "::error::SSH preflight failed. Check the ssh -vvv output above."
+            fi
+            exit "$SSH_STATUS"
+          fi
 
       - name: Typecheck
         run: pnpm --filter @mojarreria/bot-service typecheck
@@ -158,6 +272,22 @@ jobs:
           tar -czf mojarreria-bot-service.tar.gz -C /tmp mojarreria-bot-service
           ls -lh mojarreria-bot-service.tar.gz
 
+      - name: Prepare nginx bundle
+        run: |
+          set -eux
+          mkdir -p /tmp/taku-bot-service-infra/apps /tmp/taku-bot-service-infra/scripts
+          cp apps/service-ports.conf /tmp/taku-bot-service-infra/apps/service-ports.conf
+          cp apps/TAKU_BOT_SERVICE_SITE.conf /tmp/taku-bot-service-infra/apps/TAKU_BOT_SERVICE_SITE.conf
+          cp scripts/taku-service-helpers.sh /tmp/taku-bot-service-infra/scripts/taku-service-helpers.sh
+          cp scripts/list-taku-services.sh /tmp/taku-bot-service-infra/scripts/list-taku-services.sh
+          cp scripts/check-taku-service-config.sh /tmp/taku-bot-service-infra/scripts/check-taku-service-config.sh
+          cp scripts/ensure-taku-service-certs.sh /tmp/taku-bot-service-infra/scripts/ensure-taku-service-certs.sh
+          cp scripts/enable-taku-nginx-sites.sh /tmp/taku-bot-service-infra/scripts/enable-taku-nginx-sites.sh
+          cp scripts/taku-flow-logs.sh /tmp/taku-bot-service-infra/scripts/taku-flow-logs.sh
+          chmod +x /tmp/taku-bot-service-infra/scripts/*.sh
+          tar -czf taku-bot-service-infra.tar.gz -C /tmp taku-bot-service-infra
+          ls -lh taku-bot-service-infra.tar.gz
+
       - name: Upload release bundle
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -166,6 +296,17 @@ jobs:
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
           source: mojarreria-bot-service.tar.gz
+          target: /tmp
+          debug: true
+
+      - name: Upload nginx bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.cloudcluster.outputs.host }}
+          username: ${{ steps.cloudcluster.outputs.user }}
+          key: ${{ steps.cloudcluster.outputs.ssh_key }}
+          port: ${{ steps.cloudcluster.outputs.port }}
+          source: taku-bot-service-infra.tar.gz
           target: /tmp
           debug: true
 
@@ -193,12 +334,14 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
+          SUDO_PASSWORD: ${{ secrets.CLOUDCLUSTER_SUDO_PASSWORD }}
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,CERTBOT_EMAIL,SUDO_PASSWORD
           timeout: 60s
           command_timeout: 15m
           request_pty: true
@@ -212,6 +355,34 @@ jobs:
             run_deploy() {
             : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
 
+            run_sudo() {
+              if [ "$(id -u)" -eq 0 ]; then
+                "$@"
+              elif [ -n "${SUDO_PASSWORD:-}" ]; then
+                printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+              else
+                sudo "$@"
+              fi
+            }
+
+            wait_for_apt_locks() {
+              if ! command -v fuser >/dev/null 2>&1; then
+                return 0
+              fi
+
+              attempts=0
+              while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; do
+                attempts=$((attempts + 1))
+                if [ "$attempts" -gt 60 ]; then
+                  echo "Timed out waiting for apt/dpkg locks"
+                  run_sudo fuser -v /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true
+                  return 1
+                fi
+                echo "Waiting for apt/dpkg lock to be released ($attempts/60)"
+                sleep 5
+              done
+            }
+
             echo "Remote user: $(whoami)"
             echo "Remote host: $(hostname)"
             echo "Deploy path: configured"
@@ -219,6 +390,29 @@ jobs:
             df -h .
             free -h || true
             ls -lh /tmp/mojarreria-bot-service.tar.gz
+            ls -lh /tmp/taku-bot-service-infra.tar.gz
+
+            echo "Installing nginx/certbot dependencies if needed"
+            if command -v apt-get >/dev/null 2>&1; then
+              wait_for_apt_locks
+              run_sudo apt-get update
+              wait_for_apt_locks
+              run_sudo apt-get install -y nginx certbot python3-certbot-nginx
+            fi
+
+            rm -rf /tmp/taku-bot-service-infra
+            tar -xzf /tmp/taku-bot-service-infra.tar.gz -C /tmp
+            (
+              cd /tmp/taku-bot-service-infra
+              run_sudo install -m 0755 scripts/taku-flow-logs.sh /usr/local/bin/taku-flow-logs
+              echo "Checking standalone bot-service nginx config"
+              TAKU_SERVICES="TAKU_BOT_SERVICE" TAKU_CREATE_MISSING_SERVICE_PATHS=true scripts/check-taku-service-config.sh
+              TAKU_SERVICES="TAKU_BOT_SERVICE" scripts/list-taku-services.sh
+              echo "Ensuring standalone bot-service certificate"
+              run_sudo env TAKU_SERVICES="TAKU_BOT_SERVICE" CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+              echo "Enabling standalone bot-service nginx site"
+              run_sudo env TAKU_SERVICES="TAKU_BOT_SERVICE" DEBUG=true scripts/enable-taku-nginx-sites.sh
+            )
 
             export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
             echo "NVM_DIR: $NVM_DIR"
@@ -298,7 +492,11 @@ jobs:
               echo "Using existing pnpm"
             elif command -v corepack >/dev/null 2>&1; then
               echo "Preparing pnpm with corepack without global enable"
-              corepack prepare pnpm@9.15.5 --activate || PNPM_CMD="npx pnpm@9.15.5"
+              if corepack prepare pnpm@9.15.5 --activate && corepack pnpm --version >/dev/null 2>&1; then
+                PNPM_CMD="corepack pnpm"
+              else
+                PNPM_CMD="npx pnpm@9.15.5"
+              fi
             else
               echo "corepack not found; using npx pnpm"
               PNPM_CMD="npx pnpm@9.15.5"
@@ -314,9 +512,10 @@ jobs:
             $PNPM_CMD build
             find dist -maxdepth 2 -type f -print
             mkdir -p data
-            $PNPM_CMD exec pm2 startOrReload ecosystem.config.cjs --env production
-            $PNPM_CMD exec pm2 save
-            $PNPM_CMD exec pm2 status
+            PM2_CMD="$PNPM_CMD dlx pm2@5.4.3"
+            PORT=3140 $PM2_CMD startOrReload ecosystem.config.cjs --env production --update-env
+            $PM2_CMD save
+            $PM2_CMD status
             }
 
             set +e
@@ -329,14 +528,15 @@ jobs:
             exit "$DEPLOY_STATUS"
 
       - name: Fetch remote deploy log
-        if: always()
+        if: always() && steps.ssh_preflight.outcome == 'success'
+        continue-on-error: true
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          timeout: 60s
+          timeout: 120s
           command_timeout: 2m
           request_pty: true
           debug: true

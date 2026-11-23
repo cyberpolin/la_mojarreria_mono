@@ -33,7 +33,10 @@ import Loading from "./components/Loading";
 import { useInternetStatus } from "./hooks/UseInternetStatus";
 import useToast from "./hooks/useToast";
 import { useIntervalTasks } from "./hooks/UseInterval";
-import { syncDailyCloses } from "./hooks/UseDailyClose";
+import {
+  refreshRestaurantProducts,
+  syncDailyCloses,
+} from "./hooks/UseDailyClose";
 import { useHealth } from "./hooks/UseHealth";
 import dayjs from "dayjs";
 import { client } from "./apollo/client";
@@ -327,6 +330,9 @@ const RootComponent = () => {
     };
 
     bootstrapOperators();
+    void refreshRestaurantProducts().catch((error) => {
+      reportError(error, { tags: { scope: "refresh_restaurant_products" } });
+    });
     return () => {
       cancelled = true;
     };

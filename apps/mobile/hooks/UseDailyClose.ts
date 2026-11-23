@@ -1,31 +1,21 @@
-// /src/api/syncDailyCloses.ts
-// (comment) full path: src/api/syncDailyCloses.ts
 import dayjs from "dayjs";
-import { gql } from "@apollo/client";
-import { client } from "../apollo/client";
 import { useDailyCloseStore } from "../app/DailyCloseFeature/useDailyCloseStore";
-import { DailyClose } from "../app/DailyCloseFeature/Types";
+import { CloseEvidencePhoto, DailyClose } from "../app/DailyCloseFeature/Types";
+import { restaurantApi } from "../app/DailyCloseFeature/restaurantApi";
 import { APP_CONFIG } from "@/constants/config";
 import { reportError } from "@/utils/errorLogger";
 
 export type SyncDailyClosesResponse = {
   ok: boolean;
-  syncedAt: string; // ISO
+  syncedAt: string;
 };
 
-const UPSERT_DAILY_CLOSE_RAW = gql`
-  mutation upsertDailyCloseRaw(
-    $deviceId: String!
-    $date: String!
-    $payload: JSON!
-  ) {
-    upsertDailyCloseRaw(deviceId: $deviceId, date: $date, payload: $payload) {
-      success
-      date
-      syncedAt
-    }
-  }
-`;
+type RemoteProduct = {
+  clientId: string;
+  name: string;
+  priceCents: number;
+  active?: boolean;
+};
 
 const getUnsyncedCloses = (
   closesByDate: Record<string, DailyClose>,
@@ -81,27 +71,124 @@ const normalizeCloseForSync = (close: DailyClose): DailyClose | null => {
       close?.closedByRaw && typeof close.closedByRaw === "object"
         ? (close.closedByRaw as Record<string, unknown>)
         : undefined,
+    evidence: Array.isArray(close?.evidence)
+      ? close.evidence.map((item) => ({
+          kind: item.kind,
+          localUri: item.localUri || "",
+          takenAt: String(item.takenAt || ""),
+          remoteUrl: item.remoteUrl,
+          remotePublicId: item.remotePublicId,
+        }))
+      : undefined,
     expectedTotal,
     createdAt,
   };
 };
 
-const hasToISOStringError = (error: unknown) => {
-  const message =
-    (error as { message?: string })?.message ||
-    (error as { graphQLErrors?: Array<{ message?: string }> })?.graphQLErrors
-      ?.map((item) => item?.message || "")
-      .join(" | ") ||
-    "";
-  return message.includes("toISOString");
+type UploadedEvidence = {
+  kind: CloseEvidencePhoto["kind"];
+  takenAt: string;
+  url: string;
+  publicId: string;
+};
+
+async function localImageToDataUrl(uri: string) {
+  if (uri.startsWith("data:")) return uri;
+  const response = await fetch(uri);
+  const buffer = await response.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  const mime = response.headers.get("content-type") || "image/jpeg";
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
+async function uploadCloseEvidence(
+  close: DailyClose,
+  deviceId: string,
+): Promise<UploadedEvidence[]> {
+  const photos = close.evidence ?? [];
+  const uploaded: UploadedEvidence[] = [];
+
+  for (const photo of photos) {
+    if (photo.remoteUrl) {
+      uploaded.push({
+        kind: photo.kind,
+        takenAt: photo.takenAt,
+        url: photo.remoteUrl,
+        publicId: photo.remotePublicId ?? "",
+      });
+      continue;
+    }
+    if (!photo.localUri) {
+      uploaded.push({
+        kind: photo.kind,
+        takenAt: photo.takenAt,
+        url: "",
+        publicId: "",
+      });
+      continue;
+    }
+    const dataUrl = await localImageToDataUrl(photo.localUri);
+    const remote = await restaurantApi<UploadedEvidence>(
+      "/daily-closes/evidence",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          date: close.date,
+          kind: photo.kind,
+          takenAt: photo.takenAt,
+          deviceId,
+          dataUrl,
+        }),
+      },
+    );
+    uploaded.push(remote);
+  }
+
+  useDailyCloseStore.getState().upsertClose({
+    ...close,
+    evidence: photos.map((photo, index) => ({
+      ...photo,
+      remoteUrl: uploaded[index]?.url || photo.remoteUrl,
+      remotePublicId: uploaded[index]?.publicId || photo.remotePublicId,
+    })),
+  });
+
+  return uploaded;
+}
+
+export const refreshRestaurantProducts = async () => {
+  const products = await restaurantApi<RemoteProduct[]>("/products");
+  const next = products
+    .filter((item) => item.active !== false && item.clientId && item.name)
+    .map((item) => ({
+      productId: item.clientId,
+      name: item.name,
+      price: Number(item.priceCents || 0),
+    }));
+  if (next.length > 0) {
+    useDailyCloseStore.getState().setAvailableProducts(next);
+  }
+  return next;
 };
 
 export const syncDailyCloses = async (): Promise<SyncDailyClosesResponse> => {
   const { closesByDate, lastSyncedDate } = useDailyCloseStore.getState();
   const closesToSync = getUnsyncedCloses(closesByDate, lastSyncedDate);
 
+  try {
+    await refreshRestaurantProducts();
+  } catch (error) {
+    reportError(error, {
+      tags: { scope: "refresh_restaurant_products" },
+    });
+  }
+
   if (closesToSync.length === 0) {
-    console.log("[LOG]:", lastSyncedDate);
     return {
       ok: true,
       syncedAt: lastSyncedDate
@@ -130,99 +217,52 @@ export const syncDailyCloses = async (): Promise<SyncDailyClosesResponse> => {
         continue;
       }
 
-      const variables = {
-        deviceId,
-        date: normalizedClose.date,
-        payload: {
-          ...normalizedClose,
-          // Defensive field for backends that normalize receivedAt from payload.
-          receivedAt: normalizedClose.createdAt,
-        },
-      };
-
-      console.log("[syncDailyCloses][sending]", {
-        deviceId: variables.deviceId,
-        date: variables.date,
-        payloadDate: variables.payload.date,
-        createdAt: variables.payload.createdAt,
-      });
-      console.log("[syncDailyCloses][variables]", JSON.stringify(variables));
-
       try {
-        await client.mutate({
-          mutation: UPSERT_DAILY_CLOSE_RAW,
-          variables,
+        const evidence = await uploadCloseEvidence(
+          {
+            ...normalizedClose,
+            evidence: close.evidence,
+          },
+          deviceId,
+        );
+        await restaurantApi("/daily-closes", {
+          method: "PUT",
+          body: JSON.stringify({
+            deviceId,
+            date: normalizedClose.date,
+            items: normalizedClose.items.map((item) => ({
+              productId: item.productId,
+              name: item.name,
+              priceCents: item.price,
+              qty: item.qty,
+            })),
+            cashReceived: normalizedClose.cashReceived,
+            bankTransfersReceived: normalizedClose.bankTransfersReceived,
+            deliveryCashPaid: normalizedClose.deliveryCashPaid,
+            otherCashExpenses: normalizedClose.otherCashExpenses,
+            notes: normalizedClose.notes,
+            closedByUserId: normalizedClose.closedByUserId,
+            closedByName: normalizedClose.closedByName,
+            closedByPhone: normalizedClose.closedByPhone,
+            evidence: evidence.map((item) => ({
+              kind: item.kind,
+              takenAt: item.takenAt,
+              url: item.url,
+              publicId: item.publicId,
+            })),
+            expectedTotal: normalizedClose.expectedTotal,
+            createdAt: normalizedClose.createdAt,
+          }),
         });
       } catch (error) {
-        const apolloError = error as {
-          graphQLErrors?: Array<{ message?: string; extensions?: unknown }>;
-          networkError?: unknown;
-          message?: string;
-        };
-
-        // Retry once with forced ISO dates when backend complains about toISOString.
-        if (hasToISOStringError(error)) {
-          const fallbackCreatedAt = dayjs().toISOString();
-          const retryVariables = {
-            ...variables,
-            payload: {
-              ...variables.payload,
-              createdAt: fallbackCreatedAt,
-              receivedAt: fallbackCreatedAt,
-            },
-          };
-
-          try {
-            await client.mutate({
-              mutation: UPSERT_DAILY_CLOSE_RAW,
-              variables: retryVariables,
-            });
-
-            reportError(
-              new Error(
-                "syncDailyCloses recovered from toISOString payload error",
-              ),
-              {
-                tags: { scope: "sync_daily_closes_recovered" },
-                extra: {
-                  deviceId,
-                  failingDate: normalizedClose.date,
-                  originalCreatedAt: normalizedClose.createdAt,
-                  fallbackCreatedAt,
-                },
-              },
-            );
-          } catch (retryError) {
-            reportError(retryError, {
-              tags: { scope: "sync_daily_closes_single_mutation_retry_failed" },
-              extra: {
-                deviceId,
-                failingDate: normalizedClose.date,
-                variables: retryVariables,
-              },
-            });
-            continue;
-          }
-        } else {
-          reportError(error, {
-            tags: {
-              scope: "sync_daily_closes_single_mutation",
-            },
-            extra: {
-              deviceId,
-              failingDate: normalizedClose.date,
-              failingCreatedAt: normalizedClose.createdAt,
-              variables,
-              graphQLErrors: apolloError.graphQLErrors?.map((item) => ({
-                message: item?.message,
-                extensions: item?.extensions,
-              })),
-              networkError: apolloError.networkError,
-              apolloMessage: apolloError.message,
-            },
-          });
-          continue;
-        }
+        reportError(error, {
+          tags: { scope: "sync_daily_closes_single_mutation" },
+          extra: {
+            deviceId,
+            failingDate: normalizedClose.date,
+          },
+        });
+        continue;
       }
 
       syncedCount += 1;
@@ -244,16 +284,11 @@ export const syncDailyCloses = async (): Promise<SyncDailyClosesResponse> => {
     };
   } catch (error) {
     reportError(error, {
-      tags: {
-        scope: "sync_daily_closes",
-      },
+      tags: { scope: "sync_daily_closes" },
       extra: {
         deviceId,
         closesPendingCount: closesToSync.length,
-        firstPendingDate: closesToSync[0]?.date,
-        lastPendingDate: closesToSync[closesToSync.length - 1]?.date,
         lastSyncedDate: lastSyncedDate ?? null,
-        attemptedDates: closesToSync.map((close) => close.date),
       },
     });
     return {

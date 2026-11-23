@@ -1,7 +1,8 @@
 import { createServer } from "./server.js";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import { WhatsAppClient } from "./baileys/client.js";
+import { WhatsAppClient, type WaServiceStatus } from "./baileys/client.js";
+import { ConnectionManager } from "./connections/connectionManager.js";
 import { notifyWaServiceStatusChanged } from "./services/backendWebhook.js";
 import { recordDebugLog } from "./services/debugLogStore.js";
 import { getAuthHealth, isAuthSessionMissing } from "./services/authHealth.js";
@@ -9,6 +10,7 @@ import {
   isSessionIssueMessage,
   recordSessionIssue,
 } from "./services/sessionIssueStore.js";
+import { ensureStandaloneSuperownerAccount } from "./services/standaloneAccountStore.js";
 
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
@@ -34,7 +36,40 @@ console.error = (...args: unknown[]) => {
   originalConsoleError(...args);
 };
 
-const whatsAppClient = new WhatsAppClient(config, logger);
+const createStatusChangeHandler =
+  (connectionId: string, businessId: string | null) =>
+  (status: WaServiceStatus, reason: string) =>
+    notifyWaServiceStatusChanged(config, logger, {
+      service: "wa-service",
+      instanceId: connectionId,
+      connectionId,
+      businessId,
+      active: status.active,
+      connected: status.connected,
+      connection: status.connection,
+      hasQr: status.hasQr,
+      state: status.state,
+      reason,
+      changedAt: status.lastChangedAt,
+    });
+
+const whatsAppClient = new WhatsAppClient(config, logger, {
+  connectionId: "default",
+  businessId: null,
+});
+const connectionManager = new ConnectionManager({
+  baseConfig: config,
+  logger,
+  defaultConnectionId: "default",
+  createStatusChangeHandler,
+});
+connectionManager.register({
+  connectionId: "default",
+  businessId: null,
+  label: "Default WhatsApp connection",
+  autoStart: config.waServiceAutoStart,
+  client: whatsAppClient,
+});
 logger.info(
   {
     whatsappAuthDir: config.whatsappAuthDir,
@@ -43,18 +78,25 @@ logger.info(
   },
   "resolved wa-service runtime paths",
 );
-whatsAppClient.setStatusChangeHandler((status, reason) =>
-  notifyWaServiceStatusChanged(config, logger, {
-    service: "wa-service",
-    instanceId: "default",
-    active: status.active,
-    connected: status.connected,
-    connection: status.connection,
-    hasQr: status.hasQr,
-    state: status.state,
-    reason,
-    changedAt: status.lastChangedAt,
-  }),
+if (config.takuSuperownerEmail && config.takuSuperownerPassword) {
+  await ensureStandaloneSuperownerAccount({
+    filePath: config.standaloneAccountsFile,
+    email: config.takuSuperownerEmail,
+    password: config.takuSuperownerPassword,
+  });
+  logger.info(
+    { email: config.takuSuperownerEmail },
+    "ensured TAKU WA standalone superowner account",
+  );
+}
+
+whatsAppClient.setStatusChangeHandler(
+  createStatusChangeHandler("default", null),
+);
+const restoredConnections = await connectionManager.loadPersistedConnections();
+logger.info(
+  { total: restoredConnections.length },
+  "restored persisted WhatsApp connections",
 );
 
 await whatsAppClient.connect("startup");
@@ -67,7 +109,12 @@ if (config.waServiceAutoStart) {
   );
 }
 
-const app = createServer({ config, logger, whatsAppClient });
+const app = createServer({
+  config,
+  logger,
+  whatsAppClient,
+  connectionManager,
+});
 const server = app.listen(config.port, () => {
   logger.info({ port: config.port }, "WhatsApp adapter service listening");
   recordDebugLog({

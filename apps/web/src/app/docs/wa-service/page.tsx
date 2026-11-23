@@ -25,14 +25,7 @@ const legacyEndpoints = [
   ["POST", "/v1/conversations/:phone/messages"],
 ];
 
-const events = [
-  "wa.connection.status_changed",
-  "wa.session.qr_updated",
-  "wa.session.logged_out",
-  "wa.message.received",
-  "wa.message.sent",
-  "wa.message.failed",
-];
+const events = ["message.received"];
 
 const errors = [
   ["401", "Invalid or missing service credential."],
@@ -83,7 +76,9 @@ export default function WaServiceDocsPage() {
           `wa-service` manages WhatsApp runtime connections. It should be used
           by trusted backend services, not directly from public browser clients.
           Business accounts, user permissions, billing, bot decisions, and
-          long-term customer data belong in `apps/api`.
+          long-term customer data belong in `apps/api`. The service currently
+          supports the legacy `default` connection and additional transport-only
+          WhatsApp connections.
         </p>
       </header>
 
@@ -119,8 +114,10 @@ content-type: application/json`}</CodeBlock>
       <Section title="Compatibility Mode">
         <p>
           Existing single-connection clients continue to use the legacy
-          endpoints. Internally these endpoints should map to the default
-          connection with `connectionId` set to `default`.
+          endpoints. Internally these endpoints map to the default connection
+          with `connectionId` set to `default`. The `default` connection keeps
+          the old La Mojarreria behavior, including autoresponse, bot-service,
+          and promo handling.
         </p>
         <div className="overflow-hidden rounded-lg border border-slate-800">
           <table className="w-full border-collapse text-left text-sm">
@@ -149,8 +146,11 @@ content-type: application/json`}</CodeBlock>
       <Section title="Connection Lifecycle">
         <p>
           A connection represents one WhatsApp phone/session. Multi-connection
-          support should isolate auth files, status, QR, reconnect timers,
-          locks, and message cache per connection.
+          support isolates auth files, status, QR, reconnect timers, process
+          locks, message cache, and local message traces per connection.
+          Non-default connections are transport-only: inbound messages are
+          recorded locally and dispatched to webhook subscribers without
+          bot-service, promo, or autoresponse logic.
         </p>
         <CodeBlock>{`1. Create or load a connection config.
 2. Start the connection.
@@ -158,6 +158,21 @@ content-type: application/json`}</CodeBlock>
 4. Poll or receive status updates.
 5. Send outbound messages through the connection.
 6. Receive inbound events through the API webhook.`}</CodeBlock>
+      </Section>
+
+      <Section title="Runtime Storage">
+        <p>
+          The default connection keeps using the existing `WHATSAPP_AUTH_DIR`
+          for backward compatibility. New connections use isolated paths derived
+          from `WHATSAPP_AUTH_ROOT` and `CONNECTION_DATA_ROOT`.
+        </p>
+        <CodeBlock>{`default:
+  auth: WHATSAPP_AUTH_DIR
+  local traces: CONVERSATION_STORE_FILE
+
+non-default:
+  auth: WHATSAPP_AUTH_ROOT/{connectionId}
+  local traces: CONNECTION_DATA_ROOT/{connectionId}/conversations.json`}</CodeBlock>
       </Section>
 
       <Section title="Connection Endpoints">
@@ -194,7 +209,6 @@ content-type: application/json`}</CodeBlock>
   "connectionId": "wa_acc_123",
   "businessId": "bus_456",
   "label": "Main store phone",
-  "webhookUrl": "https://api.example.com/internal/wa/events",
   "autoStart": false
 }`}</CodeBlock>
         <CodeBlock>{`{
@@ -202,22 +216,53 @@ content-type: application/json`}</CodeBlock>
   "connection": {
     "connectionId": "wa_acc_123",
     "businessId": "bus_456",
-    "state": "inactive",
+    "label": "Main store phone",
+    "autoStart": false,
+    "state": "INACTIVE",
     "connected": false,
     "hasQr": false
   }
 }`}</CodeBlock>
       </Section>
 
+      <Section title="Add A Phone">
+        <p>
+          Use this sequence from a trusted backend or local admin terminal. The
+          returned QR is scanned by the WhatsApp account that should become this
+          connection.
+        </p>
+        <CodeBlock>{`curl -X POST http://localhost:3001/v1/connections \\
+  -H "content-type: application/json" \\
+  -H "x-api-key: SERVICE_API_KEY" \\
+  -H "x-client-domain: localhost" \\
+  -d '{
+    "connectionId": "client_001",
+    "businessId": "business_001",
+    "label": "Main phone"
+  }'
+
+curl -X POST http://localhost:3001/v1/connections/client_001/start \\
+  -H "x-api-key: SERVICE_API_KEY" \\
+  -H "x-client-domain: localhost"
+
+curl http://localhost:3001/v1/connections/client_001/qr \\
+  -H "x-api-key: SERVICE_API_KEY" \\
+  -H "x-client-domain: localhost"`}</CodeBlock>
+      </Section>
+
       <Section title="Read QR">
         <CodeBlock>{`GET /v1/connections/wa_acc_123/qr`}</CodeBlock>
         <CodeBlock>{`{
   "ok": true,
-  "connectionId": "wa_acc_123",
+  "connection": {
+    "connectionId": "wa_acc_123",
+    "businessId": "bus_456",
+    "state": "STARTING",
+    "connected": false,
+    "hasQr": true
+  },
   "qr": "2@...",
-  "qrImage": "data:image/png;base64,...",
-  "connected": false,
-  "state": "qr_pending"
+  "qrImage": "data:image/png;base64,..."
 }`}</CodeBlock>
       </Section>
 
@@ -231,15 +276,18 @@ content-type: application/json`}</CodeBlock>
         <CodeBlock>{`{
   "ok": true,
   "connectionId": "wa_acc_123",
+  "to": "5219931234567",
   "messageId": "ABC123"
 }`}</CodeBlock>
       </Section>
 
       <Section title="Webhook Events">
         <p>
-          `wa-service` should emit events to `apps/api`. Every event should
-          include `eventId`, `event`, `connectionId`, `businessId`, and
-          `occurredAt` so the API can store and deduplicate it.
+          Webhook subscriptions are currently global. A single `apps/api`
+          subscription can receive inbound events for every non-default
+          connection. Every transport-only inbound event includes `eventId`,
+          `event`, `connectionId`, `businessId`, and `occurredAt` so the API can
+          store and deduplicate it.
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
           {events.map((event) => (
@@ -253,17 +301,32 @@ content-type: application/json`}</CodeBlock>
         </div>
         <CodeBlock>{`{
   "eventId": "evt_123",
-  "event": "wa.message.received",
+  "event": "message.received",
+  "provider": "baileys",
   "connectionId": "wa_acc_123",
   "businessId": "bus_456",
   "occurredAt": "2026-06-15T18:00:00.000Z",
   "message": {
     "id": "wamid.example",
-    "from": "5219931234567",
+    "phone": "5219931234567",
     "text": "Hola",
+    "direction": "inbound",
     "timestamp": "2026-06-15T18:00:00.000Z",
-    "type": "text"
   }
+}`}</CodeBlock>
+      </Section>
+
+      <Section title="Register Webhook">
+        <p>
+          Register one global webhook subscription for the API service. The
+          webhook secret is sent as `x-wa-service-secret` on delivery.
+        </p>
+        <CodeBlock>{`POST /v1/webhooks/subscriptions
+
+{
+  "url": "https://api.example.com/internal/wa/events",
+  "events": ["message.received"],
+  "secret": "replace-with-shared-secret"
 }`}</CodeBlock>
       </Section>
 

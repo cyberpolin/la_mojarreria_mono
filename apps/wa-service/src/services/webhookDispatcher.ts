@@ -7,7 +7,11 @@ import {
 
 type WebhookPayload = {
   event: WebhookEventName;
+  eventId?: string;
   provider: "baileys";
+  connectionId?: string;
+  businessId?: string | null;
+  occurredAt?: string;
   message: ConversationMessage;
 };
 
@@ -20,7 +24,13 @@ export async function dispatchWebhookEvent(params: {
   const subscriptions = await listWebhookSubscriptions(params.filePath);
   const targets = subscriptions.filter(
     (subscription) =>
-      subscription.active && subscription.events.includes(params.event),
+      subscription.active &&
+      subscription.events.includes(params.event) &&
+      (subscription.accountId === null ||
+        subscription.accountId === params.payload.businessId) &&
+      (subscription.connectionIds === null ||
+        (params.payload.connectionId !== undefined &&
+          subscription.connectionIds.includes(params.payload.connectionId))),
   );
 
   await Promise.all(

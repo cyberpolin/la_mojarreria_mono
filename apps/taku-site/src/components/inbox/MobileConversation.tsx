@@ -1,0 +1,847 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getWorkspaceSession } from "@/lib/taku-api";
+import {
+  createAutomationBlock,
+  createConversation,
+  fetchConversationByPhone,
+  fetchNewestMessages,
+  markConversationRead,
+  sendConversationMessage,
+  sendWeAreOpenNotice,
+} from "./api";
+import { inboxViewMenuItems, weAreOpenMenuItems } from "./inboxView";
+import {
+  WeAreOpenResultSheet,
+  type WeAreOpenResult,
+} from "./WeAreOpenResultSheet";
+import {
+  accountStatusLabel,
+  cx,
+  digitsPhone,
+  formatTime,
+  isAccountConnected,
+  isDriversGroupConversation,
+  isFullConversation,
+  isGroupConversation,
+  messageBodyText,
+  messageStatusLabel,
+  mobileListPath,
+  mobileThreadPath,
+  readConversationId,
+  readMessageFromEvent,
+  upsertMessage,
+} from "./helpers";
+import { openChecador } from "./attendance";
+import { inboxListReturnPath } from "./inboxReturn";
+import type {
+  InboxConversation,
+  InboxMessage,
+  InboxWhatsAppAccount,
+} from "./types";
+import { FaqIntentLight } from "./FaqIntentLight";
+import { shouldShowFaqSemaforo } from "./faqSemaforo";
+import { LinkedMessageText } from "./LinkedMessageText";
+import { isLocationMessage, LocationMessageCard } from "./LocationMessageCard";
+import { AssignOrderSheet } from "./AssignOrderSheet";
+import {
+  KebabIcon,
+  MobileAuthGate,
+  MobileContextMenu,
+  PullToRefresh,
+} from "./mobile-shell";
+import { ConversationAvatar, MotoIcon } from "./ConversationAvatar";
+import { DailyOrdersPanel } from "./DailyOrdersPanel";
+import { EditContactModal } from "./EditContactModal";
+import {
+  forgetDriverPhone,
+  isDriverInList,
+  rememberDriverPhone,
+  useKnownDriverPhones,
+} from "./drivers";
+import { completeOrderAssignment } from "./assignDeliveryOrder";
+import type { DeliveryOrder } from "./pendingOrders";
+import {
+  playIncomingSound,
+  unlockIncomingSound,
+  useArmIncomingSound,
+} from "./playIncomingSound";
+import { readThreadCache, writeThreadCache } from "./threadCache";
+import { useInboxRealtime } from "./useInboxRealtime";
+
+const POLL_INTERVAL_MS = 6000;
+
+function normalizePhoneParam(value: string) {
+  return digitsPhone(decodeURIComponent(value));
+}
+
+function MobileBubble({
+  message,
+  clickable,
+  onOpen,
+  account,
+  conversation,
+  fallbackPhone,
+  isDriverSender = false,
+}: {
+  message: InboxMessage;
+  clickable?: boolean;
+  onOpen?: () => void;
+  account?: InboxWhatsAppAccount | null;
+  conversation?: InboxConversation | null;
+  fallbackPhone?: string | null;
+  isDriverSender?: boolean;
+}) {
+  const isInbound = message.direction === "inbound";
+  const isSystem = message.direction === "system";
+  const isBot = message.direction === "bot";
+  const failed = message.status === "failed";
+  const senderLabel = message.senderName?.trim() || message.senderPhone;
+
+  if (isSystem) {
+    return (
+      <div className="mx-auto max-w-[90%] rounded-full bg-slate-200/80 px-3 py-1 text-center text-[11px] text-slate-600">
+        {message.body}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={(event) => {
+        if (!clickable || !onOpen) return;
+        if ((event.target as HTMLElement).closest("a, button")) return;
+        onOpen();
+      }}
+      className={cx(
+        isLocationMessage(message)
+          ? "w-[92%] max-w-[92%] rounded-2xl px-3 py-3 shadow-sm"
+          : "max-w-[82%] rounded-2xl px-3 py-2 shadow-sm",
+        clickable && "cursor-pointer",
+        isInbound && "self-start rounded-tl-md bg-white text-slate-900",
+        isBot && "self-start rounded-tl-md bg-slate-200 text-slate-900",
+        !isInbound &&
+          !isBot &&
+          (failed
+            ? "self-end rounded-tr-md bg-slate-300 text-slate-900"
+            : "self-end rounded-tr-md bg-slate-800 text-white"),
+      )}
+    >
+      {isBot ? (
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          Bot
+        </p>
+      ) : null}
+      {senderLabel && isInbound ? (
+        <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-slate-500">
+          {isDriverSender ? <MotoIcon className="h-3.5 w-3.5" /> : null}
+          {senderLabel}
+        </p>
+      ) : null}
+      {isLocationMessage(message) ? (
+        <LocationMessageCard
+          message={message}
+          inverted={!isInbound && !isBot && !failed}
+          account={account}
+          conversation={conversation}
+          fallbackPhone={fallbackPhone}
+        />
+      ) : (
+        <LinkedMessageText
+          text={messageBodyText(message)}
+          className="whitespace-pre-wrap break-words text-sm leading-5"
+          linkClassName={
+            isInbound || isBot || failed
+              ? "break-all underline"
+              : "break-all underline text-white"
+          }
+        />
+      )}
+      <p
+        className={cx(
+          "mt-1 text-right text-[10px]",
+          isInbound || isBot || failed ? "text-slate-500" : "text-slate-300",
+        )}
+      >
+        {formatTime(message.createdAt)}
+        {messageStatusLabel(message.status)
+          ? ` · ${messageStatusLabel(message.status)}`
+          : ""}
+      </p>
+    </div>
+  );
+}
+
+export function MobileConversation({
+  phone,
+  account = null,
+  scoped = false,
+  hideHeader = false,
+}: {
+  phone: string;
+  account?: InboxWhatsAppAccount | null;
+  scoped?: boolean;
+  hideHeader?: boolean;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const lockedPhone = normalizePhoneParam(phone);
+  const [conversation, setConversation] = useState<InboxConversation | null>(
+    null,
+  );
+  const [messages, setMessages] = useState<InboxMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [messageMenu, setMessageMenu] = useState<InboxMessage | null>(null);
+  const [assignedOrder, setAssignedOrder] = useState<DeliveryOrder | null>(
+    null,
+  );
+  const [customerNotified, setCustomerNotified] = useState(false);
+  const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
+  const [editContactOpen, setEditContactOpen] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [sendingOpenNotice, setSendingOpenNotice] = useState(false);
+  const [openNoticeResult, setOpenNoticeResult] =
+    useState<WeAreOpenResult | null>(null);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  const conversationRef = useRef<InboxConversation | null>(null);
+  const seenMessageIdsRef = useRef<Set<string>>(new Set());
+  const threadReadyRef = useRef(false);
+  const driverPhones = useKnownDriverPhones();
+  conversationRef.current = conversation;
+  useArmIncomingSound();
+
+  const loadThread = useCallback(async () => {
+    if (!getWorkspaceSession()) {
+      setNeedsAuth(true);
+      setLoading(false);
+      return;
+    }
+    setNeedsAuth(false);
+    const cached = readThreadCache(lockedPhone, account?.id);
+    if (cached) {
+      conversationIdRef.current = cached.conversation.id;
+      setConversation(cached.conversation);
+      setMessages(cached.messages);
+      setLoading(false);
+      setError(null);
+    }
+    try {
+      const next = await fetchConversationByPhone(lockedPhone, account?.id);
+      if (!next) {
+        setConversation(null);
+        setMessages([]);
+        conversationIdRef.current = null;
+        setError("No hay conversacion para este numero.");
+        return;
+      }
+      conversationIdRef.current = next.id;
+      setConversation(next);
+      const history = await fetchNewestMessages(next.id);
+      if (threadReadyRef.current) {
+        const heardNewInbound = history.items.some(
+          (item) =>
+            item.direction === "inbound" &&
+            !seenMessageIdsRef.current.has(item.id),
+        );
+        if (heardNewInbound && !isDriversGroupConversation(next)) {
+          playIncomingSound();
+        }
+      }
+      for (const item of history.items) {
+        seenMessageIdsRef.current.add(item.id);
+      }
+      threadReadyRef.current = true;
+      setMessages(history.items);
+      writeThreadCache({
+        conversation: next,
+        messages: history.items,
+        hasMore: history.hasMore,
+      });
+      setError(null);
+      if (next.unreadCount > 0) {
+        void markConversationRead(next.id).catch(() => undefined);
+      }
+    } catch (caught) {
+      if (!readThreadCache(lockedPhone, account?.id)) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "No se pudo cargar la conversacion.",
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [account?.id, lockedPhone]);
+
+  useEffect(() => {
+    const cached = readThreadCache(lockedPhone, account?.id);
+    if (cached) {
+      conversationIdRef.current = cached.conversation.id;
+      setConversation(cached.conversation);
+      setMessages(cached.messages);
+      setLoading(false);
+      setError(null);
+    } else {
+      setConversation(null);
+      setMessages([]);
+      conversationIdRef.current = null;
+      setLoading(true);
+    }
+    void loadThread();
+  }, [account?.id, loadThread, lockedPhone]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.length]);
+
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<InboxConversation>).detail;
+      if (!isFullConversation(detail)) return;
+      if (digitsPhone(detail.contact?.phoneNumber ?? "") !== lockedPhone) {
+        return;
+      }
+      conversationIdRef.current = detail.id;
+      setConversation(detail);
+    };
+    window.addEventListener("mojarreria-conversation-updated", onUpdated);
+    return () => {
+      window.removeEventListener("mojarreria-conversation-updated", onUpdated);
+    };
+  }, [lockedPhone]);
+
+  const handleMessageCreated = useCallback((payload: unknown) => {
+    const message = readMessageFromEvent(payload);
+    const conversationId = readConversationId(payload);
+    if (
+      !message ||
+      !conversationId ||
+      conversationId !== conversationIdRef.current
+    ) {
+      return;
+    }
+    const incoming =
+      payload &&
+      typeof payload === "object" &&
+      "conversation" in payload &&
+      isFullConversation((payload as { conversation: unknown }).conversation)
+        ? (payload as { conversation: InboxConversation }).conversation
+        : conversationRef.current;
+    if (
+      message.direction === "inbound" &&
+      !isDriversGroupConversation(incoming)
+    ) {
+      playIncomingSound();
+    }
+    setMessages((current) => upsertMessage(current, message));
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "conversation" in payload &&
+      isFullConversation((payload as { conversation: unknown }).conversation)
+    ) {
+      setConversation(
+        (payload as { conversation: InboxConversation }).conversation,
+      );
+    }
+  }, []);
+
+  const socketStatus = useInboxRealtime({
+    enabled: Boolean(conversation) && !needsAuth,
+    onMessageCreated: handleMessageCreated,
+    onConversationUpdated: (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      const record = payload as InboxConversation;
+      if (record.id && record.id === conversationIdRef.current) {
+        setConversation((current) =>
+          current ? { ...current, ...record } : current,
+        );
+      }
+    },
+    onReconnect: () => {
+      void loadThread();
+    },
+  });
+
+  useEffect(() => {
+    if (socketStatus !== "disconnected" || needsAuth) return;
+    const intervalId = window.setInterval(() => {
+      void loadThread();
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, [loadThread, needsAuth, socketStatus]);
+
+  async function handleSend() {
+    if (!conversation || !draft.trim()) return;
+    if (!isAccountConnected(conversation.whatsappAccount?.status)) return;
+    const body = draft.trim();
+    const clientKey =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : String(Date.now());
+    const optimistic: InboxMessage = {
+      id: `optimistic:${clientKey}`,
+      clientKey,
+      direction: "outbound",
+      body,
+      status: "sending",
+      createdAt: new Date().toISOString(),
+    };
+    setDraft("");
+    setSending(true);
+    setMessages((current) => upsertMessage(current, optimistic));
+    try {
+      const persisted = await sendConversationMessage(conversation.id, body);
+      setMessages((current) => {
+        const withoutOptimistic = current.filter(
+          (item) => item.clientKey !== clientKey && item.id !== optimistic.id,
+        );
+        return upsertMessage(withoutOptimistic, persisted);
+      });
+    } catch (caught) {
+      setMessages((current) =>
+        current.map((item) =>
+          item.clientKey === clientKey || item.id === optimistic.id
+            ? { ...item, status: "failed" }
+            : item,
+        ),
+      );
+      setError(caught instanceof Error ? caught.message : "No se pudo enviar.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleWeAreOpen() {
+    if (sendingOpenNotice) return;
+    const confirmed = window.confirm(
+      "Enviar 'ya estamos en servicio' a quienes escribieron cuando estaba cerrado?",
+    );
+    if (!confirmed) return;
+    setSendingOpenNotice(true);
+    setError(null);
+    try {
+      const result = await sendWeAreOpenNotice(
+        account?.id ?? conversation?.whatsappAccount?.id,
+      );
+      setOpenNoticeResult({
+        ...result,
+        recipients: result.recipients ?? [],
+      });
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo enviar el aviso de apertura.",
+      );
+    } finally {
+      setSendingOpenNotice(false);
+    }
+  }
+
+  async function handleBlockPhone() {
+    if (!conversation || isGroupConversation(conversation) || blocking) return;
+    const phone = digitsPhone(conversation.contact?.phoneNumber ?? lockedPhone);
+    if (!phone) return;
+    setBlocking(true);
+    setError(null);
+    try {
+      await createAutomationBlock({
+        phoneNumber: phone,
+        label:
+          conversation.contact?.name ??
+          conversation.contact?.phoneNumber ??
+          lockedPhone,
+        enabled: true,
+      });
+      router.push(scoped ? mobileListPath(account) : "/conversation-mobile");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo bloquear el telefono.",
+      );
+      setBlocking(false);
+    }
+  }
+
+  async function handleAssignOrder(message: InboxMessage) {
+    const phone = digitsPhone(message.senderPhone ?? "");
+    if (!phone) {
+      setError(
+        "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
+      );
+      return;
+    }
+    const result = await completeOrderAssignment({
+      driverPhone: phone,
+      driverName: message.senderName,
+    });
+    if (!result.ok) {
+      setError(result.error);
+      setCustomerNotified(false);
+      if (result.order) setAssignedOrder(result.order);
+      return;
+    }
+    setError(null);
+    setCustomerNotified(true);
+    setAssignedOrder(result.order);
+  }
+
+  async function handleStartPrivateChat(message: InboxMessage) {
+    const phone = digitsPhone(message.senderPhone ?? "");
+    if (!phone) {
+      setError(
+        "Este mensaje no trae el telefono del remitente. Espera un mensaje nuevo.",
+      );
+      return;
+    }
+    setError(null);
+    try {
+      await createConversation({
+        phoneNumber: phone,
+        name: message.senderName?.trim() || undefined,
+        whatsappAccountId: conversation?.whatsappAccount?.id ?? account?.id,
+      });
+      router.push(mobileThreadPath(phone, scoped ? account : null));
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo iniciar el chat privado.",
+      );
+    }
+  }
+
+  if (needsAuth) {
+    return (
+      <MobileAuthGate
+        next={
+          scoped
+            ? mobileThreadPath(lockedPhone, account)
+            : `/conversation-mobile/${lockedPhone}`
+        }
+      />
+    );
+  }
+
+  const canSend = Boolean(
+    conversation && isAccountConnected(conversation.whatsappAccount?.status),
+  );
+  const title =
+    conversation?.contact?.name ??
+    conversation?.contact?.phoneNumber ??
+    lockedPhone;
+
+  return (
+    <div className="relative flex h-full min-h-0 flex-1 flex-col">
+      {hideHeader ? (
+        <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+          <ConversationAvatar
+            label={title}
+            size="sm"
+            isDriver={
+              !isGroupConversation(conversation) &&
+              isDriverInList(driverPhones, lockedPhone)
+            }
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-950">
+              {conversation?.pinned ? "📌 " : ""}
+              {title}
+            </p>
+            <p className="truncate text-[11px] text-slate-500">{lockedPhone}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHeaderMenuOpen(true)}
+            className="grid h-10 w-10 shrink-0 place-items-center text-slate-500"
+            aria-label="Mas opciones"
+          >
+            <KebabIcon className="h-5 w-5" />
+          </button>
+        </div>
+      ) : (
+        <header
+          id="taku-mobile-thread-header"
+          className="flex items-center gap-2 bg-slate-900 px-2 py-2 text-white"
+        >
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                scoped
+                  ? inboxListReturnPath(account, searchParams)
+                  : inboxListReturnPath(null, searchParams),
+              )
+            }
+            className="grid h-10 w-10 place-items-center text-lg"
+            aria-label="Volver"
+          >
+            ←
+          </button>
+          <ConversationAvatar
+            label={title}
+            size="sm"
+            tone="dark"
+            isDriver={
+              !isGroupConversation(conversation) &&
+              isDriverInList(driverPhones, lockedPhone)
+            }
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">
+              {conversation?.pinned ? "📌 " : ""}
+              {title}
+            </p>
+            <p className="truncate text-[11px] text-slate-300">
+              {lockedPhone}
+              {conversation?.whatsappAccount
+                ? ` · via ${conversation.whatsappAccount.displayName}`
+                : ""}
+              {conversation?.whatsappAccount
+                ? ` · ${accountStatusLabel(conversation.whatsappAccount.status)}`
+                : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHeaderMenuOpen(true)}
+            className="grid h-10 w-10 shrink-0 place-items-center text-white"
+            aria-label="Mas opciones"
+          >
+            <KebabIcon className="h-5 w-5" />
+          </button>
+        </header>
+      )}
+
+      <PullToRefresh
+        id="taku-mobile-thread-content"
+        onRefresh={loadThread}
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-slate-200 px-3 py-3"
+        onClick={unlockIncomingSound}
+      >
+        {loading ? (
+          <p className="text-center text-sm text-slate-600">Cargando...</p>
+        ) : null}
+        {error ? (
+          <p className="rounded-lg bg-white/80 px-3 py-2 text-center text-sm text-slate-700">
+            {error}
+          </p>
+        ) : null}
+        {messages.map((message) => {
+          const showDriverMenu =
+            Boolean(conversation?.pinned) &&
+            isGroupConversation(conversation) &&
+            message.direction === "inbound";
+          return (
+            <div
+              key={message.id}
+              className={cx(
+                "flex items-end gap-1",
+                showDriverMenu ? "self-start" : "",
+              )}
+            >
+              <FaqIntentLight
+                visible={shouldShowFaqSemaforo(messages, message.id)}
+              />
+              <MobileBubble
+                message={message}
+                account={conversation?.whatsappAccount ?? account}
+                conversation={conversation}
+                fallbackPhone={lockedPhone}
+                isDriverSender={isDriverInList(
+                  driverPhones,
+                  message.senderPhone,
+                )}
+                clickable={showDriverMenu}
+                onOpen={() => setMessageMenu(message)}
+              />
+              {showDriverMenu ? (
+                <button
+                  type="button"
+                  onClick={() => setMessageMenu(message)}
+                  className="mb-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-slate-500 shadow-sm"
+                  aria-label="Opciones del repartidor"
+                >
+                  <KebabIcon className="h-5 w-5" />
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </PullToRefresh>
+
+      {!canSend && conversation ? (
+        <p className="bg-slate-200 px-3 py-2 text-center text-xs text-slate-600">
+          Numero de negocio desconectado. No se puede enviar.
+        </p>
+      ) : null}
+
+      <form
+        className="flex items-end gap-2 bg-slate-100 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleSend();
+        }}
+      >
+        <textarea
+          rows={1}
+          value={draft}
+          disabled={!canSend}
+          placeholder={canSend ? "Mensaje" : "No disponible"}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void handleSend();
+            }
+          }}
+          className="max-h-28 min-h-11 flex-1 resize-none rounded-3xl border-0 bg-white px-4 py-2.5 text-sm outline-none disabled:bg-slate-200"
+        />
+        <button
+          type="submit"
+          disabled={!canSend || !draft.trim() || sending}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-slate-900 text-white disabled:opacity-40"
+          aria-label="Enviar"
+        >
+          {sending ? "..." : "➤"}
+        </button>
+      </form>
+      {headerMenuOpen ? (
+        <MobileContextMenu
+          title={title}
+          items={[
+            ...weAreOpenMenuItems(() => {
+              void handleWeAreOpen();
+            }),
+            ...inboxViewMenuItems(),
+            ...(!isGroupConversation(conversation) && lockedPhone
+              ? [
+                  {
+                    label: "Editar contacto",
+                    onSelect: () => setEditContactOpen(true),
+                  },
+                  {
+                    label: isDriverInList(driverPhones, lockedPhone)
+                      ? "Quitar como repartidor"
+                      : "Marcar como repartidor",
+                    onSelect: () => {
+                      if (isDriverInList(driverPhones, lockedPhone)) {
+                        forgetDriverPhone(lockedPhone);
+                      } else {
+                        rememberDriverPhone(lockedPhone);
+                      }
+                    },
+                  },
+                ]
+              : []),
+            {
+              label: "Pedidos del dia",
+              onSelect: () => setDailyOrdersOpen(true),
+            },
+            ...(account
+              ? [
+                  {
+                    label: "Checador",
+                    onSelect: () => openChecador(account),
+                  },
+                ]
+              : []),
+            ...(conversation && !isGroupConversation(conversation)
+              ? [
+                  {
+                    label: "Bloquear",
+                    danger: true,
+                    onSelect: () => {
+                      void handleBlockPhone();
+                    },
+                  },
+                ]
+              : []),
+          ]}
+          onClose={() => setHeaderMenuOpen(false)}
+        />
+      ) : null}
+      {messageMenu ? (
+        <MobileContextMenu
+          title={
+            messageMenu.senderName?.trim() ||
+            messageMenu.senderPhone ||
+            "Mensaje"
+          }
+          items={[
+            ...(conversation?.pinned
+              ? [
+                  {
+                    label: "Asignar pedido",
+                    onSelect: () => {
+                      void handleAssignOrder(messageMenu);
+                    },
+                  },
+                ]
+              : []),
+            {
+              label: "Iniciar chat privado",
+              onSelect: () => {
+                void handleStartPrivateChat(messageMenu);
+              },
+            },
+          ]}
+          onClose={() => setMessageMenu(null)}
+        />
+      ) : null}
+      {assignedOrder ? (
+        <AssignOrderSheet
+          order={assignedOrder}
+          customerNotified={customerNotified}
+          onClose={() => setAssignedOrder(null)}
+        />
+      ) : null}
+      {dailyOrdersOpen ? (
+        <DailyOrdersPanel onClose={() => setDailyOrdersOpen(false)} />
+      ) : null}
+      {openNoticeResult ? (
+        <WeAreOpenResultSheet
+          result={openNoticeResult}
+          onClose={() => setOpenNoticeResult(null)}
+        />
+      ) : null}
+      {editContactOpen ? (
+        <EditContactModal
+          conversation={conversation}
+          phone={lockedPhone}
+          account={account}
+          onClose={() => setEditContactOpen(false)}
+          onSaved={(next) => {
+            conversationIdRef.current = next.id;
+            setConversation(next);
+            const cached = readThreadCache(lockedPhone, account?.id);
+            writeThreadCache({
+              conversation: next,
+              messages: cached?.messages ?? messages,
+              hasMore: cached?.hasMore ?? false,
+            });
+            window.dispatchEvent(
+              new CustomEvent("mojarreria-conversation-updated", {
+                detail: next,
+              }),
+            );
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}

@@ -1,0 +1,7800 @@
+import { Router } from "express";
+import type { Request } from "express";
+import { randomUUID, createHmac, timingSafeEqual } from "node:crypto";
+import { config } from "./config.js";
+import {
+  canonicalDirectPhone,
+  directPhonesMatch,
+} from "./services/contactPhones.js";
+import {
+  createOpaqueToken,
+  hashPassword,
+  hashToken,
+  signToken,
+  verifyPassword,
+  verifyToken,
+} from "./auth.js";
+import {
+  ApiError,
+  empty,
+  ok,
+  paginated,
+  parsePagination,
+  readOptionalNumber,
+  readOptionalString,
+  requireString,
+  slicePage,
+} from "./http.js";
+import {
+  asyncHandler,
+  rateLimit,
+  requireAuth,
+  requireAdminAuth,
+  requireAdminRole,
+  requireRole,
+  requireWorkspace,
+} from "./middleware.js";
+import {
+  contactView,
+  conversationView,
+  messageView,
+  publicAdminUser,
+  publicUser,
+  whatsappAccountView,
+  workspaceWithRole,
+} from "./serializers.js";
+import { botClient } from "./services/botClient.js";
+import {
+  evaluateDayPunch,
+  findEmployee,
+  punchDayKey,
+} from "./services/attendance.js";
+import {
+  FAQ_AUTO_REPLY_DEFAULTS,
+  FAQ_AUTO_REPLY_INTENTS,
+  findMatchingFaqAutoReply,
+  isFaqAutoReplyIntent,
+  parsePhrases,
+  parseThreshold,
+  unansweredInboundWindow,
+  wasFaqAutoReplySentToday,
+} from "./services/faqAutoReplies.js";
+import {
+  conversationWroteWhileClosed,
+  hoursForAccount,
+  isBusinessOpenAt,
+  WE_ARE_OPEN_MESSAGE,
+  WE_ARE_OPEN_REASON,
+} from "./services/weAreOpen.js";
+import {
+  canCloseCashDay,
+  computeDayCloseDiferencia,
+  computeWeekCloseTotals,
+  isDateKey,
+  isMondayDateKey,
+  isPastWeek,
+  todayDateKey,
+  weekEndFromStart,
+} from "./services/weekClose.js";
+import {
+  dailyExpenseView,
+  parseAmountCents,
+  sortDailyExpenses,
+} from "./services/dailyExpenses.js";
+import {
+  analyzeBotResponderProbability,
+  isBotResponderConfirmation,
+  isBotResponderDenial,
+} from "./services/botResponderDetector.js";
+import {
+  createMercadoPagoCardPayment,
+  MercadoPagoRequestError,
+} from "./services/mercadoPagoClient.js";
+import { whatsappClient } from "./services/whatsappClient.js";
+import { id, now, type JsonStore } from "./store/jsonStore.js";
+import type {
+  AutomationRule,
+  AutomationBlockedContact,
+  AdminRole,
+  BotAssignmentMode,
+  BotSettings,
+  BusinessHour,
+  Conversation,
+  ConversationStatus,
+  Database,
+  MatchType,
+  Message,
+  MessageType,
+  PaymentIntent,
+  Preferences,
+  Role,
+  TakuBotStatus,
+  WhatsAppAccount,
+  WhatsAppStatus,
+  AttendancePunch,
+  DailyExpense,
+  DayClose,
+  DriversGroupMode,
+  FaqAutoReply,
+  WeekClose,
+  WorkspacePlan,
+} from "./types.js";
+import type { Realtime } from "./realtime.js";
+
+const ownerAdmin: Role[] = ["owner", "admin"];
+const allRoles: Role[] = ["owner", "admin", "agent"];
+const adminSuperRoles: AdminRole[] = ["super_owner", "super_admin"];
+const adminManageUsersRoles: AdminRole[] = ["super_owner"];
+
+function slugValid(slug: string) {
+  return /^[a-z0-9-]+$/.test(slug);
+}
+
+function isEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function roleValid(value: unknown): value is Role {
+  return value === "owner" || value === "admin" || value === "agent";
+}
+
+function statusValid(value: unknown): value is ConversationStatus {
+  return (
+    value === "open" ||
+    value === "pending" ||
+    value === "closed" ||
+    value === "archived"
+  );
+}
+
+function workspacePlanValid(value: unknown): value is WorkspacePlan {
+  return (
+    value === "free" ||
+    value === "starter" ||
+    value === "business" ||
+    value === "enterprise"
+  );
+}
+
+function isAlreadyExistsServiceError(error: unknown) {
+  if (!(error instanceof ApiError)) return false;
+  const details = error.details;
+  const status = details?.status;
+  const payload = details?.payload;
+  const payloadText = JSON.stringify(payload ?? "").toLowerCase();
+  return (
+    status === 409 ||
+    payloadText.includes("already") ||
+    payloadText.includes("exists") ||
+    payloadText.includes("ya existe")
+  );
+}
+
+function logWhatsAppConnectEvent(
+  event: string,
+  details: Record<string, unknown>,
+) {
+  console.log(JSON.stringify({ event, ...details }));
+}
+
+function errorLogDetails(error: unknown) {
+  if (error instanceof ApiError) {
+    return {
+      name: error.name,
+      code: error.code,
+      status: error.status,
+      message: error.message,
+      details: error.details ?? null,
+    };
+  }
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+  return { message: String(error) };
+}
+
+function logBotProvisioningEvent(
+  event: string,
+  details: Record<string, unknown>,
+) {
+  console.log(JSON.stringify({ event, ...details }));
+}
+
+function matchTypeValid(value: unknown): value is MatchType {
+  return value === "exact" || value === "contains" || value === "starts_with";
+}
+
+function pageResponse<T>(items: T[], query: Record<string, unknown>) {
+  const pagination = parsePagination(query);
+  return {
+    items: slicePage(items, pagination),
+    pagination,
+    total: items.length,
+  };
+}
+
+function requireNonNegativeNumber(
+  value: unknown,
+  name: string,
+  integer = false,
+) {
+  const parsed = readOptionalNumber(value);
+  if (parsed == null || parsed < 0 || (integer && !Number.isInteger(parsed))) {
+    throw new ApiError({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: `El campo ${name} es invalido.`,
+      details: { field: name },
+    });
+  }
+  return integer ? parsed : Math.round(parsed * 100) / 100;
+}
+
+function createTokens(userId: string) {
+  const accessToken = signToken({ sub: userId }, config.jwtSecret, 60 * 15);
+  const refreshToken = createOpaqueToken();
+  return { accessToken, refreshToken };
+}
+
+function createAdminTokens(adminUserId: string) {
+  const accessToken = signToken(
+    { sub: adminUserId, scope: "admin" },
+    config.adminJwtSecret,
+    60 * 15,
+  );
+  const refreshToken = createOpaqueToken();
+  return { accessToken, refreshToken };
+}
+
+function assertAdmin(req: Request) {
+  if (!req.adminAuth) {
+    throw new ApiError({
+      status: 401,
+      code: "ADMIN_UNAUTHORIZED",
+      message: "Admin no autenticado.",
+    });
+  }
+  return req.adminAuth.adminUser;
+}
+
+function createAdminLoginResult(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  email: string,
+  password: string,
+  totpCode: string | null,
+) {
+  const adminUser = database.adminUsers.find(
+    (item) => item.email.toLowerCase() === email,
+  );
+  if (!adminUser || !verifyPassword(password, adminUser.passwordHash))
+    return null;
+  if (adminUser.status !== "active") {
+    throw new ApiError({
+      status: 403,
+      code: "ADMIN_FORBIDDEN",
+      message: "Credenciales invalidas.",
+    });
+  }
+  if (adminUser.requires2fa && adminUser.twoFactorEnabled && !totpCode) {
+    throw new ApiError({
+      status: 401,
+      code: "ADMIN_2FA_REQUIRED",
+      message: "Codigo 2FA requerido.",
+    });
+  }
+  const tokens = createAdminTokens(adminUser.id);
+  database.adminRefreshTokens.push({
+    id: id("admin_refresh"),
+    adminUserId: adminUser.id,
+    tokenHash: hashToken(tokens.refreshToken, config.adminRefreshSecret),
+    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+    revokedAt: null,
+    createdAt: now(),
+  });
+  adminUser.lastLoginAt = now();
+  adminUser.updatedAt = now();
+  return {
+    sessionType: "admin" as const,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    adminUser: publicAdminUser(adminUser),
+    requiresPasswordChange:
+      adminUser.role === "super_owner" &&
+      verifyPassword("changeme", adminUser.passwordHash),
+  };
+}
+
+function createClientLoginResult(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  email: string,
+  password: string,
+) {
+  const user = database.users.find(
+    (item) => item.email.toLowerCase() === email,
+  );
+  if (!user || !verifyPassword(password, user.passwordHash)) return null;
+  if (user.status === "disabled") {
+    throw new ApiError({
+      status: 403,
+      code: "USER_DISABLED",
+      message: "Usuario deshabilitado.",
+    });
+  }
+  const tokens = createTokens(user.id);
+  database.refreshTokens.push({
+    id: id("refresh"),
+    userId: user.id,
+    tokenHash: hashToken(tokens.refreshToken, config.refreshSecret),
+    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+    revokedAt: null,
+    createdAt: now(),
+  });
+  user.lastLoginAt = now();
+  user.updatedAt = now();
+  const memberships = database.memberships.filter(
+    (item) => item.userId === user.id && item.status === "active",
+  );
+  const workspaces = memberships
+    .map((membership) => {
+      const found = database.workspaces.find(
+        (item) => item.id === membership.workspaceId,
+      );
+      return found ? workspaceWithRole(found, membership.role) : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const currentWorkspace = workspaces[0] ?? null;
+  if (!currentWorkspace) {
+    throw new ApiError({
+      status: 403,
+      code: "WORKSPACE_FORBIDDEN",
+      message: "Usuario sin workspace activo.",
+    });
+  }
+  return {
+    sessionType: "client" as const,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: publicUser(user),
+    role: currentWorkspace.role,
+    currentWorkspace,
+    workspaces,
+  };
+}
+
+function createClientSessionForUser(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  userId: string,
+  workspaceId: string,
+) {
+  const user = database.users.find((item) => item.id === userId);
+  if (!user || user.status !== "active") {
+    throw new ApiError({
+      status: 404,
+      code: "USER_NOT_FOUND",
+      message: "Usuario no encontrado.",
+    });
+  }
+  const memberships = database.memberships.filter(
+    (item) => item.userId === user.id && item.status === "active",
+  );
+  const workspaces = memberships
+    .map((membership) => {
+      const found = database.workspaces.find(
+        (item) => item.id === membership.workspaceId,
+      );
+      return found ? workspaceWithRole(found, membership.role) : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const currentWorkspace =
+    workspaces.find((item) => item.id === workspaceId) ?? null;
+  if (!currentWorkspace) {
+    throw new ApiError({
+      status: 403,
+      code: "WORKSPACE_FORBIDDEN",
+      message: "Usuario sin acceso al workspace.",
+    });
+  }
+  const tokens = createTokens(user.id);
+  database.refreshTokens.push({
+    id: id("refresh"),
+    userId: user.id,
+    tokenHash: hashToken(tokens.refreshToken, config.refreshSecret),
+    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(),
+    revokedAt: null,
+    createdAt: now(),
+  });
+  user.lastLoginAt = now();
+  user.updatedAt = now();
+  return {
+    sessionType: "client" as const,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: publicUser(user),
+    role: currentWorkspace.role,
+    currentWorkspace,
+    workspaces,
+  };
+}
+
+type CardPaymentPayload = {
+  plan: Exclude<WorkspacePlan, "free">;
+  token: string;
+  paymentMethodId: string;
+  issuerId: string | number | null;
+  installments: number;
+  payer: { email: string };
+};
+
+function planAmountUsd(plan: WorkspacePlan) {
+  if (plan === "starter") return config.planStarterAmountUsd;
+  if (plan === "business") return config.planBusinessAmountUsd;
+  if (plan === "enterprise") return config.planEnterpriseAmountUsd;
+  return 0;
+}
+
+function planLabel(plan: WorkspacePlan) {
+  if (plan === "starter") return "Starter";
+  if (plan === "business") return "Business";
+  if (plan === "enterprise") return "Enterprise";
+  return "Free";
+}
+
+function paidWorkspacePlanValid(
+  value: unknown,
+): value is Exclude<WorkspacePlan, "free"> {
+  return value === "starter" || value === "business" || value === "enterprise";
+}
+
+function slugFromName(name: string) {
+  const slug = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return slug || `workspace-${randomUUID().slice(0, 8)}`;
+}
+
+function uniqueWorkspaceSlug(database: Database, name: string) {
+  const base = slugFromName(name);
+  let slug = base;
+  let index = 2;
+  while (database.workspaces.some((workspace) => workspace.slug === slug)) {
+    slug = `${base}-${index}`;
+    index += 1;
+  }
+  return slug;
+}
+
+function readCardPaymentPayload(body: unknown): CardPaymentPayload | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const plan = record.plan;
+  const token = readOptionalString(record.token);
+  const paymentMethodId =
+    readOptionalString(record.paymentMethodId) ??
+    readOptionalString(record.payment_method_id);
+  const rawIssuerId = record.issuerId ?? record.issuer_id;
+  const issuerId =
+    typeof rawIssuerId === "string" || typeof rawIssuerId === "number"
+      ? rawIssuerId
+      : null;
+  const installmentsRaw = Number(record.installments ?? 1);
+  const payer = record.payer;
+  const payerEmail =
+    payer && typeof payer === "object"
+      ? readOptionalString((payer as Record<string, unknown>).email)
+      : null;
+  if (
+    !paidWorkspacePlanValid(plan) ||
+    !token ||
+    !paymentMethodId ||
+    !Number.isFinite(installmentsRaw) ||
+    installmentsRaw < 1 ||
+    !payerEmail ||
+    !isEmail(payerEmail)
+  ) {
+    return null;
+  }
+  return {
+    plan,
+    token,
+    paymentMethodId,
+    issuerId,
+    installments: Math.trunc(installmentsRaw),
+    payer: { email: payerEmail.toLowerCase() },
+  };
+}
+
+function createPaymentIntent(params: {
+  database: Database;
+  plan: Exclude<WorkspacePlan, "free">;
+  email: string;
+}) {
+  const timestamp = now();
+  const intent: PaymentIntent = {
+    id: id("payint"),
+    workspaceId: null,
+    email: params.email,
+    plan: params.plan,
+    status: "pending",
+    amountUsd: planAmountUsd(params.plan),
+    provider: "mercadopago",
+    providerPaymentId: null,
+    paidAt: null,
+    attachedAt: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  params.database.paymentIntents.push(intent);
+  return intent;
+}
+
+function ensureAdminOwnerUser(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  adminUser: ReturnType<typeof assertAdmin>,
+  workspaceId: string,
+) {
+  const shadowUserId = `admin_owner_${adminUser.id}`;
+  let user = database.users.find((item) => item.id === shadowUserId);
+  if (!user) {
+    user = {
+      id: shadowUserId,
+      name: `${adminUser.name} (Superowner)`,
+      email: `superowner+${adminUser.id}@taku.internal`,
+      passwordHash: hashPassword(createOpaqueToken()),
+      status: "active",
+      lastLoginAt: null,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    database.users.push(user);
+  } else {
+    user.name = `${adminUser.name} (Superowner)`;
+    user.status = "active";
+    user.updatedAt = now();
+  }
+
+  let membership = database.memberships.find(
+    (item) => item.workspaceId === workspaceId && item.userId === user.id,
+  );
+  if (!membership) {
+    membership = {
+      id: id("membership"),
+      workspaceId,
+      userId: user.id,
+      role: "owner",
+      status: "active",
+      invitationSentAt: null,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    database.memberships.push(membership);
+  } else {
+    membership.role = "owner";
+    membership.status = "active";
+    membership.updatedAt = now();
+  }
+
+  return user;
+}
+
+function ensureWorkspaceDefaults(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  workspaceId: string,
+) {
+  if (!database.preferences.some((item) => item.workspaceId === workspaceId)) {
+    database.preferences.push({
+      id: id("preferences"),
+      workspaceId,
+      defaultConversationStatus: "open",
+      autoCloseEnabled: false,
+      autoCloseAfterHours: null,
+      showBotMessages: true,
+      agentsCanCloseConversations: true,
+      agentsCanReassignConversations: false,
+      driversGroupMode: "prod",
+      createdAt: now(),
+      updatedAt: now(),
+    });
+  }
+  if (
+    !database.botSettings.some(
+      (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+    )
+  ) {
+    database.botSettings.push({
+      id: id("bot_settings"),
+      workspaceId,
+      whatsappAccountId: null,
+      enabled: false,
+      afterHoursEnabled: false,
+      afterHoursResponder: "static_message",
+      afterHoursMessage: null,
+      rulesEnabled: false,
+      aiEnabled: false,
+      externalBotId: null,
+      createdAt: now(),
+      updatedAt: now(),
+    });
+  }
+}
+
+function assertWorkspace(req: Request) {
+  if (!req.auth || !req.workspaceContext) {
+    throw new ApiError({
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "No autenticado.",
+    });
+  }
+  return { user: req.auth.user, ...req.workspaceContext };
+}
+
+function findAccount(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  workspaceId: string,
+  accountId: string,
+) {
+  const account = database.whatsappAccounts.find(
+    (item) => item.id === accountId && item.workspaceId === workspaceId,
+  );
+  if (!account) {
+    throw new ApiError({
+      status: 404,
+      code: "WHATSAPP_ACCOUNT_NOT_FOUND",
+      message: "Numero de WhatsApp no encontrado.",
+    });
+  }
+  return account;
+}
+
+function findConversation(
+  database: Awaited<ReturnType<JsonStore["read"]>>,
+  workspaceId: string,
+  conversationId: string,
+) {
+  const conversation = database.conversations.find(
+    (item) => item.id === conversationId && item.workspaceId === workspaceId,
+  );
+  if (!conversation) {
+    throw new ApiError({
+      status: 404,
+      code: "CONVERSATION_NOT_FOUND",
+      message: "Conversacion no encontrada.",
+    });
+  }
+  return conversation;
+}
+
+function botStatusValid(value: unknown): value is TakuBotStatus {
+  return value === "draft" || value === "active" || value === "paused";
+}
+
+function botAssignmentModeValid(value: unknown): value is BotAssignmentMode {
+  return (
+    value === "disabled" ||
+    value === "always" ||
+    value === "business_hours" ||
+    value === "outside_business_hours"
+  );
+}
+
+function workspaceTimeZone(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId?: string,
+) {
+  const account = whatsappAccountId
+    ? database.whatsappAccounts.find(
+        (item) =>
+          item.id === whatsappAccountId && item.workspaceId === workspaceId,
+      )
+    : undefined;
+  const workspace = database.workspaces.find((item) => item.id === workspaceId);
+  return account?.timezone || workspace?.timezone || "America/Mexico_City";
+}
+
+function isBusinessOpen(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId: string,
+  date = new Date(),
+) {
+  return isBusinessOpenAt(
+    hoursForAccount(database.businessHours, workspaceId, whatsappAccountId),
+    date,
+    workspaceTimeZone(database, workspaceId, whatsappAccountId),
+  );
+}
+
+function ruleMatches(rule: AutomationRule, incomingText: string) {
+  const text = incomingText.toLowerCase();
+  const keyword = rule.keyword.toLowerCase();
+  if (rule.matchType === "exact") return text === keyword;
+  if (rule.matchType === "starts_with") return text.startsWith(keyword);
+  return text.includes(keyword);
+}
+
+function findEffectiveBotSettings(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId: string,
+) {
+  return (
+    database.botSettings.find(
+      (item) =>
+        item.workspaceId === workspaceId &&
+        item.whatsappAccountId === whatsappAccountId,
+    ) ??
+    database.botSettings.find(
+      (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+    ) ??
+    null
+  );
+}
+
+const botResponderProbeMessage =
+  "Para evitar una conversacion automatica entre bots: ¿eres un bot o sistema automatizado? Responde SI BOT o NO HUMANO.";
+
+function findRecentBotResponderProbe(
+  database: Database,
+  params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+  },
+) {
+  const inboundMessage = database.messages.find(
+    (message) => message.id === params.inboundMessageId,
+  );
+  if (!inboundMessage) return null;
+  const inboundTime = new Date(inboundMessage.createdAt).getTime();
+  const cooldownStartedAt = inboundTime - config.botResponderProbeCooldownMs;
+  const probe =
+    database.automationDecisionLogs
+      .filter(
+        (log) =>
+          log.workspaceId === params.workspaceId &&
+          log.whatsappAccountId === params.accountId &&
+          log.conversationId === params.conversationId &&
+          log.reason.startsWith("bot_responder_probe:"),
+      )
+      .filter((log) => {
+        const createdAt = new Date(log.createdAt).getTime();
+        return createdAt < inboundTime && createdAt >= cooldownStartedAt;
+      })
+      .sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt),
+      )[0] ?? null;
+  if (!probe) return null;
+  const probeTime = new Date(probe.createdAt).getTime();
+  const resolvedAfterProbe = database.automationDecisionLogs.some((log) => {
+    const createdAt = new Date(log.createdAt).getTime();
+    return (
+      log.workspaceId === params.workspaceId &&
+      log.whatsappAccountId === params.accountId &&
+      log.conversationId === params.conversationId &&
+      createdAt > probeTime &&
+      createdAt < inboundTime &&
+      (log.reason === "bot_responder_denied" ||
+        log.reason.startsWith("bot_responder_confirmed:"))
+    );
+  });
+  return resolvedAfterProbe ? null : probe;
+}
+
+function copyEffectiveSettingsForAccount(
+  effectiveSettings: BotSettings | null,
+  workspaceId: string,
+  whatsappAccountId: string,
+): BotSettings {
+  return {
+    id: id("bot_settings"),
+    workspaceId,
+    whatsappAccountId,
+    enabled: false,
+    afterHoursEnabled: effectiveSettings?.afterHoursEnabled ?? false,
+    afterHoursResponder:
+      effectiveSettings?.afterHoursResponder ?? "static_message",
+    afterHoursMessage: effectiveSettings?.afterHoursMessage ?? null,
+    rulesEnabled: effectiveSettings?.rulesEnabled ?? false,
+    aiEnabled: effectiveSettings?.aiEnabled ?? false,
+    externalBotId: effectiveSettings?.externalBotId ?? null,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+}
+
+function findMatchingAutomationRule(
+  database: Database,
+  workspaceId: string,
+  whatsappAccountId: string,
+  incomingText: string,
+) {
+  const scopedRules = database.automationRules.filter(
+    (item) =>
+      item.workspaceId === workspaceId &&
+      item.enabled &&
+      (item.whatsappAccountId === whatsappAccountId || !item.whatsappAccountId),
+  );
+  return scopedRules.find((rule) => ruleMatches(rule, incomingText)) ?? null;
+}
+
+function assignmentCanRespond(mode: BotAssignmentMode, isOpen: boolean) {
+  if (mode === "disabled") return false;
+  if (mode === "business_hours") return isOpen;
+  if (mode === "outside_business_hours") return !isOpen;
+  return true;
+}
+
+function normalizePhoneNumber(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function isGroupRecipient(phoneNumber: string) {
+  return phoneNumber.trim().toLowerCase().endsWith("@g.us");
+}
+
+function isGroupConversation(database: Database, conversation: Conversation) {
+  const contact = database.contacts.find(
+    (item) => item.id === conversation.contactId,
+  );
+  return Boolean(
+    contact &&
+      (contact.kind === "group" || isGroupRecipient(contact.phoneNumber)),
+  );
+}
+
+function isTestDriversGroupName(name: string | null | undefined) {
+  return /prueba|\btest\b/i.test((name ?? "").trim());
+}
+
+function isDriversGroupMode(value: unknown): value is DriversGroupMode {
+  return value === "prod" || value === "test";
+}
+
+function driversGroupModeOf(
+  preferences?: Preferences | null,
+): DriversGroupMode {
+  return preferences?.driversGroupMode === "test" ? "test" : "prod";
+}
+
+function driversGroupKind(
+  database: Database,
+  conversation: Conversation,
+): "test" | "prod" {
+  const contact = database.contacts.find(
+    (item) => item.id === conversation.contactId,
+  );
+  return isTestDriversGroupName(contact?.name) ? "test" : "prod";
+}
+
+function pinExclusiveGroup(
+  database: Database,
+  workspaceId: string,
+  conversation: Conversation,
+) {
+  const kind = driversGroupKind(database, conversation);
+  conversation.pinned = true;
+  conversation.updatedAt = now();
+  for (const item of database.conversations) {
+    if (item.workspaceId !== workspaceId || item.id === conversation.id) {
+      continue;
+    }
+    if (
+      isGroupConversation(database, item) &&
+      item.pinned &&
+      driversGroupKind(database, item) === kind
+    ) {
+      item.pinned = false;
+      item.updatedAt = now();
+    }
+  }
+}
+
+function normalizeBotName(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function findBlockedAutomationContact(
+  database: Database,
+  workspaceId: string,
+  phoneNumber: string,
+) {
+  const normalizedPhone =
+    canonicalDirectPhone(phoneNumber) ?? normalizePhoneNumber(phoneNumber);
+  if (!normalizedPhone) return null;
+  return (
+    database.automationBlockedContacts.find(
+      (item) =>
+        item.workspaceId === workspaceId &&
+        item.enabled &&
+        directPhonesMatch(item.phoneNumber, phoneNumber),
+    ) ?? null
+  );
+}
+
+function readWhatsAppAccountId(req: Request) {
+  return (
+    readOptionalString(req.query.whatsappAccountId) ??
+    readOptionalString(req.body?.whatsappAccountId)
+  );
+}
+
+function requireWhatsAppAccountId(req: Request) {
+  const value = readWhatsAppAccountId(req);
+  if (!value) {
+    throw new ApiError({
+      status: 400,
+      code: "WHATSAPP_ACCOUNT_REQUIRED",
+      message: "Numero de WhatsApp requerido.",
+    });
+  }
+  return value;
+}
+
+function listFaqAutoRepliesForAccount(
+  database: Database,
+  workspaceId: string,
+  accountId: string,
+) {
+  const createdAt = now();
+  const workspaceItems = database.faqAutoReplies.filter(
+    (item) => item.workspaceId === workspaceId && !item.whatsappAccountId,
+  );
+  const accountItems = database.faqAutoReplies.filter(
+    (item) =>
+      item.workspaceId === workspaceId && item.whatsappAccountId === accountId,
+  );
+
+  for (const intent of FAQ_AUTO_REPLY_INTENTS) {
+    if (accountItems.some((item) => item.intent === intent)) continue;
+    const source = workspaceItems.find((item) => item.intent === intent);
+    const defaults = FAQ_AUTO_REPLY_DEFAULTS[intent];
+    const item: FaqAutoReply = {
+      id: id("faq_auto_reply"),
+      workspaceId,
+      whatsappAccountId: accountId,
+      intent,
+      title: source?.title ?? defaults.title,
+      phrases: [...(source?.phrases ?? defaults.phrases)],
+      responseText: source?.responseText ?? defaults.responseText,
+      enabled: source?.enabled ?? true,
+      threshold: parseThreshold(source?.threshold),
+      createdAt,
+      updatedAt: createdAt,
+    };
+    database.faqAutoReplies.push(item);
+    accountItems.push(item);
+  }
+
+  if (accountItems.every((item) => isFaqAutoReplyIntent(item.intent))) {
+    for (const source of workspaceItems.filter(
+      (item) => !isFaqAutoReplyIntent(item.intent),
+    )) {
+      const item: FaqAutoReply = {
+        ...source,
+        id: id("faq_auto_reply"),
+        whatsappAccountId: accountId,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      database.faqAutoReplies.push(item);
+      accountItems.push(item);
+    }
+  }
+
+  const system = FAQ_AUTO_REPLY_INTENTS.flatMap((intent) => {
+    const item = accountItems.find((row) => row.intent === intent);
+    return item ? [item] : [];
+  });
+  const custom = accountItems
+    .filter((item) => !isFaqAutoReplyIntent(item.intent))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  return [...system, ...custom];
+}
+
+function afterHoursResponderValid(
+  value: unknown,
+): value is "static_message" | "assigned_bot" | "none" {
+  return (
+    value === "static_message" || value === "assigned_bot" || value === "none"
+  );
+}
+
+type RemoteWhatsAppConnectionStatus = Awaited<
+  ReturnType<typeof whatsappClient.getConnectionStatus>
+>;
+
+function applyRemoteWhatsAppStatus(
+  account: WhatsAppAccount,
+  remoteStatus: RemoteWhatsAppConnectionStatus,
+) {
+  if (!remoteStatus || account.status === "disabled") return;
+  if (remoteStatus.connected || remoteStatus.connection === "open") {
+    account.status = "connected";
+    account.lastConnectedAt = account.lastConnectedAt ?? now();
+    account.lastDisconnectedAt = null;
+    account.qrCode = null;
+  } else if (remoteStatus.hasQr) {
+    account.status = "qr_required";
+  } else if (remoteStatus.connection === "connecting") {
+    account.status = "connecting";
+  } else if (remoteStatus.connection === "close") {
+    account.status = "disconnected";
+    account.lastDisconnectedAt = account.lastDisconnectedAt ?? now();
+  }
+  account.phoneNumber = remoteStatus.phone ?? account.phoneNumber;
+  account.updatedAt = now();
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveAccountTimezone(
+  workspace: { timezone: string },
+  account: { timezone?: string | null },
+) {
+  return account.timezone || workspace.timezone || "America/Mexico_City";
+}
+
+function formatBusinessDateTime(timezone: string, date = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("es-MX", {
+      timeZone: timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("es-MX", {
+      timeZone: "America/Mexico_City",
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(date);
+  }
+}
+
+function businessTimeContextMessage(params: {
+  workspaceName: string;
+  accountName: string;
+  timezone: string;
+}) {
+  const currentDateTime = formatBusinessDateTime(params.timezone);
+  return {
+    role: "system" as const,
+    content:
+      `Contexto de tiempo del negocio: fecha y hora actual para ${params.workspaceName}, ` +
+      `numero ${params.accountName}: ${currentDateTime}. ` +
+      `Zona horaria efectiva: ${params.timezone}. Usa este contexto para interpretar hoy, manana, horarios y fuera de horario.`,
+  };
+}
+
+function calculateAutomationReplyDelayMs(
+  messages: Message[],
+  conversationId: string,
+  inboundMessageId: string,
+) {
+  const minDelay = Math.min(
+    config.automationReplyMinDelayMs,
+    config.automationReplyMaxDelayMs,
+  );
+  const maxDelay = Math.max(
+    config.automationReplyMinDelayMs,
+    config.automationReplyMaxDelayMs,
+  );
+  if (maxDelay <= 0) return 0;
+
+  const inboundMessages = messages
+    .filter(
+      (message) =>
+        message.conversationId === conversationId &&
+        message.direction === "inbound",
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const currentIndex = inboundMessages.findIndex(
+    (message) => message.id === inboundMessageId,
+  );
+  const current = inboundMessages[currentIndex];
+  const previous = currentIndex > 0 ? inboundMessages[currentIndex - 1] : null;
+  if (!current || !previous) return minDelay;
+
+  const responseWindowMs =
+    new Date(current.createdAt).getTime() -
+    new Date(previous.createdAt).getTime();
+  if (!Number.isFinite(responseWindowMs) || responseWindowMs < 0) {
+    return minDelay;
+  }
+
+  const fastWindow = Math.min(
+    config.automationReplyFastInboundWindowMs,
+    config.automationReplySlowInboundWindowMs,
+  );
+  const slowWindow = Math.max(
+    config.automationReplyFastInboundWindowMs,
+    config.automationReplySlowInboundWindowMs,
+  );
+  if (slowWindow <= fastWindow) {
+    return responseWindowMs <= fastWindow ? maxDelay : minDelay;
+  }
+  if (responseWindowMs <= fastWindow) return maxDelay;
+  if (responseWindowMs >= slowWindow) return minDelay;
+
+  const ratio = (responseWindowMs - fastWindow) / (slowWindow - fastWindow);
+  return Math.round(maxDelay - ratio * (maxDelay - minDelay));
+}
+
+async function logAutomationDelayCancellation(
+  store: JsonStore,
+  params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+    reason: string;
+  },
+) {
+  await store.update((database) => {
+    database.automationDecisionLogs.push({
+      id: id("automation_decision"),
+      workspaceId: params.workspaceId,
+      whatsappAccountId: params.accountId,
+      conversationId: params.conversationId,
+      messageId: params.inboundMessageId,
+      botId: null,
+      assignmentId: null,
+      decision: "ignored",
+      reason: params.reason,
+      responseText: null,
+      createdAt: now(),
+    });
+  });
+}
+
+async function waitForAutomationReplyWindow(
+  store: JsonStore,
+  params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+  },
+) {
+  const snapshot = await store.read();
+  const delayMs = calculateAutomationReplyDelayMs(
+    snapshot.messages,
+    params.conversationId,
+    params.inboundMessageId,
+  );
+  if (delayMs > 0) await wait(delayMs);
+
+  const latest = await store.read();
+  const latestInbound = latest.messages
+    .filter(
+      (message) =>
+        message.conversationId === params.conversationId &&
+        message.direction === "inbound",
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  if (latestInbound?.id !== params.inboundMessageId) {
+    await logAutomationDelayCancellation(store, {
+      ...params,
+      reason: "reply_delay_cancelled:newer_inbound",
+    });
+    return null;
+  }
+
+  const inboundMessage = latest.messages.find(
+    (message) => message.id === params.inboundMessageId,
+  );
+  const humanReply = latest.messages.some(
+    (message) =>
+      message.conversationId === params.conversationId &&
+      message.direction === "outbound" &&
+      (!inboundMessage ||
+        message.createdAt.localeCompare(inboundMessage.createdAt) > 0),
+  );
+  if (humanReply) {
+    await logAutomationDelayCancellation(store, {
+      ...params,
+      reason: "reply_delay_cancelled:human_reply",
+    });
+    return null;
+  }
+
+  return latest;
+}
+
+function signWebhookBody(body: unknown, secret: string, timestamp: string) {
+  return createHmac("sha256", secret)
+    .update(`${timestamp}.${JSON.stringify(body)}`)
+    .digest("hex");
+}
+
+function validateWebhook(req: Request, secret: string) {
+  const waServiceSecret = req.header("x-wa-service-secret");
+  if (waServiceSecret && waServiceSecret === secret) {
+    return;
+  }
+
+  const signature = req.header("X-Signature");
+  const timestamp = req.header("X-Timestamp");
+  if (!signature || !timestamp) {
+    throw new ApiError({
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "Firma requerida.",
+    });
+  }
+  const timestampNumber = Number(timestamp);
+  const timestampMs =
+    timestampNumber > 10_000_000_000 ? timestampNumber : timestampNumber * 1000;
+  if (
+    !Number.isFinite(timestampMs) ||
+    Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000
+  ) {
+    throw new ApiError({
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "Timestamp invalido.",
+    });
+  }
+  const expected = signWebhookBody(req.body, secret, timestamp);
+  const left = Buffer.from(expected);
+  const right = Buffer.from(signature);
+  if (left.length !== right.length || !timingSafeEqual(left, right)) {
+    throw new ApiError({
+      status: 401,
+      code: "UNAUTHORIZED",
+      message: "Firma invalida.",
+    });
+  }
+}
+
+export function createApiRouter(store: JsonStore, realtime: Realtime) {
+  const router = Router();
+  const auth = requireAuth(store);
+  const workspace = requireWorkspace(store);
+  const adminAuth = requireAdminAuth(store);
+
+  const faqSendInFlight = new Set<string>();
+  const FAQ_SWEEP_DEBOUNCE_MS = 15_000;
+  const faqSweepAt = new Map<string, number>();
+
+  async function claimFaqAutoReply(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    inboundMessageId: string;
+    reason: string;
+    text: string;
+    timeZone: string;
+    intent: string;
+  }) {
+    const key = `${params.workspaceId}:${params.conversationId}:${params.intent}`;
+    if (faqSendInFlight.has(key)) return false;
+    faqSendInFlight.add(key);
+    try {
+      const claimed = await store.update((database) => {
+        if (
+          wasFaqAutoReplySentToday(
+            database.automationDecisionLogs,
+            params.conversationId,
+            params.intent,
+            params.timeZone,
+          )
+        ) {
+          return false;
+        }
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "static_reply",
+          reason: params.reason,
+          responseText: params.text,
+          createdAt: now(),
+        });
+        return true;
+      });
+      if (!claimed) {
+        faqSendInFlight.delete(key);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      faqSendInFlight.delete(key);
+      throw error;
+    }
+  }
+
+  function releaseFaqAutoReply(
+    workspaceId: string,
+    conversationId: string,
+    intent: string,
+  ) {
+    faqSendInFlight.delete(`${workspaceId}:${conversationId}:${intent}`);
+  }
+
+  async function sendAutomationReply(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    inboundMessageId: string;
+    to: string;
+    text: string;
+    botId: string | null;
+    assignmentId: string | null;
+    reason: string;
+    skipDecisionLog?: boolean;
+  }) {
+    const snapshot = await store.read();
+    const account = findAccount(snapshot, params.workspaceId, params.accountId);
+    let externalMessageId: string | null = null;
+    let status: Message["status"] = "queued";
+    try {
+      const sent = await whatsappClient.sendTextMessage(
+        account.externalInstanceId,
+        params.to,
+        params.text,
+      );
+      externalMessageId = sent.messageId ?? null;
+      status = sent.status === "failed" ? "failed" : "sent";
+    } catch {
+      status = "failed";
+    }
+
+    const result = await store.update((database) => {
+      const conversation = findConversation(
+        database,
+        params.workspaceId,
+        params.conversationId,
+      );
+      const message: Message = {
+        id: id("message"),
+        workspaceId: params.workspaceId,
+        conversationId: params.conversationId,
+        whatsappAccountId: params.accountId,
+        contactId: params.contactId,
+        externalMessageId,
+        direction: "bot",
+        type: "text",
+        body: params.text,
+        mediaUrl: null,
+        mediaMimeType: null,
+        mediaFilename: null,
+        status,
+        sentByUserId: null,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      database.messages.push(message);
+      if (!params.skipDecisionLog) {
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: params.botId,
+          assignmentId: params.assignmentId,
+          decision: params.botId ? "bot_reply" : "static_reply",
+          reason: params.reason,
+          responseText: params.text,
+          createdAt: now(),
+        });
+      }
+      conversation.lastMessageBody = params.text;
+      conversation.lastMessageAt = message.createdAt;
+      if (status !== "failed") conversation.unreadCount = 0;
+      conversation.updatedAt = now();
+      return {
+        message: messageView(message, database),
+        conversation: conversationView(conversation, database),
+      };
+    });
+    realtime.emitToWorkspace(params.workspaceId, "message.created", {
+      conversationId: params.conversationId,
+      message: result.message,
+      conversation: result.conversation,
+    });
+    realtime.emitToWorkspace(
+      params.workspaceId,
+      "conversation.updated",
+      result.conversation,
+    );
+    return status;
+  }
+
+  const faqSweepInFlight = new Map<string, Promise<number>>();
+
+  async function sweepUnansweredFaqAutoReplies(workspaceId: string) {
+    const pending = faqSweepInFlight.get(workspaceId);
+    if (pending) return pending;
+    const lastSweep = faqSweepAt.get(workspaceId) ?? 0;
+    if (Date.now() - lastSweep < FAQ_SWEEP_DEBOUNCE_MS) return 0;
+    faqSweepAt.set(workspaceId, Date.now());
+    const task = (async () => {
+      const database = await store.read();
+      const workspace = database.workspaces.find(
+        (item) => item.id === workspaceId,
+      );
+      if (!workspace || workspace.status === "suspended") return 0;
+
+      const replies = (database.faqAutoReplies ?? []).filter(
+        (item) =>
+          item.workspaceId === workspaceId &&
+          item.enabled &&
+          Boolean(item.responseText.trim()),
+      );
+      if (replies.length === 0) return 0;
+
+      const unanswered = database.conversations
+        .filter(
+          (item) =>
+            item.workspaceId === workspaceId &&
+            item.unreadCount > 0 &&
+            item.status !== "archived" &&
+            !isGroupConversation(database, item),
+        )
+        .sort((left, right) =>
+          (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+        )
+        .slice(0, 25);
+
+      let sent = 0;
+      for (const conversation of unanswered) {
+        const account = database.whatsappAccounts.find(
+          (item) => item.id === conversation.whatsappAccountId,
+        );
+        if (!account?.enabled) continue;
+        const contact = database.contacts.find(
+          (item) => item.id === conversation.contactId,
+        );
+        if (
+          !contact ||
+          findBlockedAutomationContact(
+            database,
+            workspaceId,
+            contact.phoneNumber,
+          )
+        ) {
+          continue;
+        }
+
+        const window = unansweredInboundWindow(
+          database.messages.filter(
+            (item) => item.conversationId === conversation.id,
+          ),
+        );
+        const lastInbound = window[window.length - 1];
+        if (!lastInbound) continue;
+        const timeZone = workspace.timezone || "America/Mexico_City";
+        const text = lastInbound.body?.trim() ?? "";
+        const faqReply = findMatchingFaqAutoReply(
+          replies,
+          workspaceId,
+          text,
+          account.id,
+        );
+        if (!faqReply) continue;
+
+        const reason = `faq_auto_reply:${faqReply.intent}`;
+        const claimed = await claimFaqAutoReply({
+          workspaceId,
+          accountId: account.id,
+          conversationId: conversation.id,
+          inboundMessageId: lastInbound.id,
+          reason,
+          text: faqReply.responseText,
+          timeZone,
+          intent: faqReply.intent,
+        });
+        if (!claimed) continue;
+        try {
+          await sendAutomationReply({
+            workspaceId,
+            accountId: account.id,
+            conversationId: conversation.id,
+            contactId: contact.id,
+            inboundMessageId: lastInbound.id,
+            to: contact.phoneNumber,
+            text: faqReply.responseText,
+            botId: null,
+            assignmentId: null,
+            reason,
+            skipDecisionLog: true,
+          });
+          sent += 1;
+        } finally {
+          releaseFaqAutoReply(workspaceId, conversation.id, faqReply.intent);
+        }
+      }
+      return sent;
+    })().finally(() => {
+      faqSweepInFlight.delete(workspaceId);
+    });
+    faqSweepInFlight.set(workspaceId, task);
+    return task;
+  }
+
+  async function handleBotResponderDetection(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    inboundMessageId: string;
+    from: string;
+    text: string;
+    database: Database;
+  }) {
+    if (!config.botResponderDetectionEnabled) return "continue" as const;
+
+    const recentProbe = findRecentBotResponderProbe(params.database, params);
+    if (recentProbe && isBotResponderConfirmation(params.text)) {
+      await store.update((database) => {
+        const effectiveSettings = findEffectiveBotSettings(
+          database,
+          params.workspaceId,
+          params.accountId,
+        );
+        let accountSettings = database.botSettings.find(
+          (setting) =>
+            setting.workspaceId === params.workspaceId &&
+            setting.whatsappAccountId === params.accountId,
+        );
+        if (!accountSettings) {
+          accountSettings = copyEffectiveSettingsForAccount(
+            effectiveSettings,
+            params.workspaceId,
+            params.accountId,
+          );
+          database.botSettings.push(accountSettings);
+        }
+        accountSettings.enabled = false;
+        accountSettings.updatedAt = now();
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "blocked",
+          reason: "bot_responder_confirmed:auto_disabled_account",
+          responseText: null,
+          createdAt: now(),
+        });
+        database.auditLogs.push({
+          id: id("audit"),
+          workspaceId: params.workspaceId,
+          userId: null,
+          action: "automation.disabled_bot_responder",
+          entityType: "whatsapp_account",
+          entityId: params.accountId,
+          metadata: {
+            conversationId: params.conversationId,
+            inboundMessageId: params.inboundMessageId,
+            probeLogId: recentProbe.id,
+          },
+          createdAt: now(),
+        });
+      });
+      return "stop" as const;
+    }
+
+    if (recentProbe) {
+      await store.update((database) => {
+        database.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "ignored",
+          reason: isBotResponderDenial(params.text)
+            ? "bot_responder_denied"
+            : "bot_responder_probe_pending",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+      return isBotResponderDenial(params.text)
+        ? ("continue" as const)
+        : ("stop" as const);
+    }
+
+    const result = analyzeBotResponderProbability({
+      messages: params.database.messages,
+      conversationId: params.conversationId,
+      inboundMessageId: params.inboundMessageId,
+      text: params.text,
+    });
+    const threshold = Math.min(
+      100,
+      Math.max(0, config.botResponderScoreThresholdPercent),
+    );
+    if (result.scorePercent < threshold) return "continue" as const;
+
+    await sendAutomationReply({
+      workspaceId: params.workspaceId,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      contactId: params.contactId,
+      inboundMessageId: params.inboundMessageId,
+      to: params.from,
+      text: botResponderProbeMessage,
+      botId: null,
+      assignmentId: null,
+      reason: `bot_responder_probe:score=${result.scorePercent};reasons=${result.reasons.join("|")}`,
+    });
+    return "stop" as const;
+  }
+
+  async function runAutomationDecision(params: {
+    workspaceId: string;
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    inboundMessageId: string;
+    from: string;
+    text: string;
+  }) {
+    let database = await store.read();
+    let workspaceRecord = database.workspaces.find(
+      (item) => item.id === params.workspaceId,
+    );
+    let account = findAccount(database, params.workspaceId, params.accountId);
+    let settings = findEffectiveBotSettings(
+      database,
+      params.workspaceId,
+      params.accountId,
+    );
+    if (!workspaceRecord || workspaceRecord.status === "suspended") {
+      await store.update((current) => {
+        current.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "blocked",
+          reason: "workspace_not_active",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+      return;
+    }
+    const blockedContact = findBlockedAutomationContact(
+      database,
+      params.workspaceId,
+      params.from,
+    );
+    if (blockedContact) {
+      await store.update((current) => {
+        current.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: null,
+          assignmentId: null,
+          decision: "ignored",
+          reason: `blocked_contact:${blockedContact.id}`,
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+      return;
+    }
+    if (!account.enabled) return;
+
+    const faqReply = findMatchingFaqAutoReply(
+      database.faqAutoReplies ?? [],
+      params.workspaceId,
+      params.text,
+      params.accountId,
+    );
+    const timeZone = workspaceRecord?.timezone ?? "America/Mexico_City";
+    const faqAlreadySentToday = faqReply
+      ? wasFaqAutoReplySentToday(
+          database.automationDecisionLogs,
+          params.conversationId,
+          faqReply.intent,
+          timeZone,
+        )
+      : false;
+    if (faqReply && !faqAlreadySentToday) {
+      const reason = `faq_auto_reply:${faqReply.intent}`;
+      const claimed = await claimFaqAutoReply({
+        workspaceId: params.workspaceId,
+        accountId: params.accountId,
+        conversationId: params.conversationId,
+        inboundMessageId: params.inboundMessageId,
+        reason,
+        text: faqReply.responseText,
+        timeZone,
+        intent: faqReply.intent,
+      });
+      if (claimed) {
+        try {
+          await sendAutomationReply({
+            ...params,
+            to: params.from,
+            text: faqReply.responseText,
+            botId: null,
+            assignmentId: null,
+            reason,
+            skipDecisionLog: true,
+          });
+        } finally {
+          releaseFaqAutoReply(
+            params.workspaceId,
+            params.conversationId,
+            faqReply.intent,
+          );
+        }
+      }
+      return;
+    }
+
+    if (!settings?.enabled) return;
+
+    const initialBotResponderDecision = await handleBotResponderDetection({
+      ...params,
+      database,
+    });
+    if (initialBotResponderDecision === "stop") return;
+
+    const delayedDatabase = await waitForAutomationReplyWindow(store, {
+      workspaceId: params.workspaceId,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      inboundMessageId: params.inboundMessageId,
+    });
+    if (!delayedDatabase) return;
+    database = delayedDatabase;
+    workspaceRecord =
+      database.workspaces.find((item) => item.id === params.workspaceId) ??
+      undefined;
+    account = findAccount(database, params.workspaceId, params.accountId);
+    settings = findEffectiveBotSettings(
+      database,
+      params.workspaceId,
+      params.accountId,
+    );
+    if (!workspaceRecord || workspaceRecord.status === "suspended") return;
+    if (!account.enabled || !settings?.enabled) return;
+
+    const isOpen = isBusinessOpen(
+      database,
+      params.workspaceId,
+      params.accountId,
+    );
+
+    const rule = settings.rulesEnabled
+      ? findMatchingAutomationRule(
+          database,
+          params.workspaceId,
+          params.accountId,
+          params.text,
+        )
+      : null;
+    if (rule) {
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: rule.responseText,
+        botId: null,
+        assignmentId: null,
+        reason: `automation_rule:${rule.id}`,
+      });
+      return;
+    }
+
+    const afterHoursResponder =
+      settings.afterHoursResponder ?? "static_message";
+    if (
+      settings.afterHoursEnabled &&
+      !isOpen &&
+      afterHoursResponder === "none"
+    ) {
+      return;
+    }
+    if (
+      settings.afterHoursEnabled &&
+      !isOpen &&
+      afterHoursResponder === "static_message" &&
+      settings.afterHoursMessage
+    ) {
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: settings.afterHoursMessage,
+        botId: null,
+        assignmentId: null,
+        reason: "after_hours",
+      });
+      return;
+    }
+
+    const assignment = database.botAssignments.find(
+      (item) =>
+        item.workspaceId === params.workspaceId &&
+        item.whatsappAccountId === params.accountId &&
+        item.enabled &&
+        assignmentCanRespond(item.mode, isOpen),
+    );
+    const bot = assignment
+      ? database.bots.find(
+          (item) =>
+            item.id === assignment.botId &&
+            item.workspaceId === params.workspaceId &&
+            item.status === "active",
+        )
+      : null;
+    if (
+      !settings.aiEnabled ||
+      !assignment ||
+      !bot?.clientId ||
+      !bot.clientToken
+    ) {
+      return;
+    }
+
+    try {
+      const history = database.messages
+        .filter((item) => item.conversationId === params.conversationId)
+        .filter((item) => item.body)
+        .filter((item) => item.id !== params.inboundMessageId)
+        .slice(-10)
+        .map((item) => ({
+          role:
+            item.direction === "inbound"
+              ? ("user" as const)
+              : ("assistant" as const),
+          content: item.body ?? "",
+        }));
+      const timezone = resolveAccountTimezone(workspaceRecord, account);
+      const completion = await botClient.createCompletion({
+        clientId: bot.clientId,
+        clientToken: bot.clientToken,
+        assistantId: bot.externalAssistantId,
+        history: [
+          businessTimeContextMessage({
+            workspaceName: workspaceRecord.name,
+            accountName: account.displayName,
+            timezone,
+          }),
+          ...history,
+        ],
+        messages: [{ role: "user", content: params.text }],
+      });
+      const reply = completion.choices?.[0]?.message?.content?.trim();
+      if (!reply) throw new Error("Bot completion did not include reply text");
+      await sendAutomationReply({
+        ...params,
+        to: params.from,
+        text: reply,
+        botId: bot.id,
+        assignmentId: assignment.id,
+        reason: "bot_assignment",
+      });
+    } catch (error) {
+      await store.update((current) => {
+        current.automationDecisionLogs.push({
+          id: id("automation_decision"),
+          workspaceId: params.workspaceId,
+          whatsappAccountId: params.accountId,
+          conversationId: params.conversationId,
+          messageId: params.inboundMessageId,
+          botId: bot?.id ?? null,
+          assignmentId: assignment.id,
+          decision: "error",
+          reason: error instanceof Error ? error.message : "bot_error",
+          responseText: null,
+          createdAt: now(),
+        });
+      });
+    }
+  }
+
+  router.get("/health", (_req, res) => {
+    ok(res, { status: "ok", timestamp: now() });
+  });
+
+  router.get(
+    "/health/ready",
+    asyncHandler(async (_req, res) => {
+      await store.read();
+      let botServiceStatus = config.botServiceApiKey
+        ? "configured"
+        : "missing_api_key";
+      if (config.botServiceApiKey) {
+        try {
+          await botClient.getHealth();
+          botServiceStatus = "reachable";
+        } catch (error) {
+          botServiceStatus =
+            error instanceof ApiError
+              ? `${error.code}:${error.message}`
+              : "unreachable";
+        }
+      }
+      ok(res, {
+        status: "ready",
+        services: {
+          postgres: "json-store",
+          whatsappService: config.takuWaApiKey
+            ? "configured"
+            : "missing_api_key",
+          botService: botServiceStatus,
+          realtime: "ok",
+        },
+      });
+    }),
+  );
+
+  router.post(
+    "/webhooks/whatsapp",
+    asyncHandler(async (req, res) => {
+      validateWebhook(req, config.takuWaWebhookSecret);
+      const event = requireString(req.body?.event, "event");
+      const connectionId = requireString(
+        req.body?.connectionId,
+        "connectionId",
+      );
+      const rawPayload =
+        req.body?.data && typeof req.body.data === "object"
+          ? (req.body.data as Record<string, unknown>)
+          : req.body?.message && typeof req.body.message === "object"
+            ? (req.body.message as Record<string, unknown>)
+            : {};
+      const payload =
+        "phone" in rawPayload || "id" in rawPayload
+          ? {
+              ...rawPayload,
+              from: rawPayload.phone,
+              messageId: rawPayload.id,
+              type: readOptionalString(rawPayload.type) ?? "text",
+            }
+          : rawPayload;
+      const result = await store.update((database) => {
+        const account = database.whatsappAccounts.find(
+          (item) => item.externalInstanceId === connectionId,
+        );
+        if (!account)
+          throw new ApiError({
+            status: 404,
+            code: "WHATSAPP_ACCOUNT_NOT_FOUND",
+            message: "Conexion no encontrada.",
+          });
+
+        if (event === "message.received") {
+          account.status = "connected";
+          account.lastConnectedAt = account.lastConnectedAt ?? now();
+          account.lastDisconnectedAt = null;
+          account.qrCode = null;
+          account.updatedAt = now();
+          const rawFrom = requireString(payload.from, "from");
+          const incomingIsGroup = isGroupRecipient(rawFrom);
+          const from = incomingIsGroup
+            ? rawFrom
+            : (canonicalDirectPhone(rawFrom) ?? rawFrom.replace(/\D/g, ""));
+          const latitude = readOptionalNumber(payload.latitude);
+          const longitude = readOptionalNumber(payload.longitude);
+          const incomingType =
+            readOptionalString(payload.type) ??
+            (latitude != null && longitude != null ? "location" : "text");
+          const text =
+            readOptionalString(payload.text) ??
+            (incomingType === "location" ? "Ubicacion" : "");
+          const externalMessageId = readOptionalString(payload.messageId);
+          const mapsUrl =
+            latitude != null && longitude != null
+              ? `https://maps.google.com/?q=${latitude},${longitude}`
+              : null;
+          if (
+            externalMessageId &&
+            database.messages.some(
+              (item) =>
+                item.workspaceId === account.workspaceId &&
+                item.externalMessageId === externalMessageId &&
+                item.direction === "inbound",
+            )
+          ) {
+            return {
+              workspaceId: account.workspaceId,
+              duplicate: true,
+            };
+          }
+          let contact = database.contacts.find(
+            (item) =>
+              item.workspaceId === account.workspaceId &&
+              (incomingIsGroup
+                ? item.phoneNumber === from
+                : item.kind !== "group" &&
+                  !isGroupRecipient(item.phoneNumber) &&
+                  directPhonesMatch(item.phoneNumber, from)),
+          );
+          if (!contact && incomingIsGroup) {
+            return {
+              workspaceId: account.workspaceId,
+              skipped: true,
+            };
+          }
+          if (!contact) {
+            contact = {
+              id: id("contact"),
+              workspaceId: account.workspaceId,
+              phoneNumber: from,
+              name: readOptionalString(payload.profileName) ?? null,
+              profilePictureUrl: null,
+              notes: null,
+              createdAt: now(),
+              updatedAt: now(),
+            };
+            database.contacts.push(contact);
+          }
+          let conversation = database.conversations.find(
+            (item) =>
+              item.workspaceId === account.workspaceId &&
+              item.whatsappAccountId === account.id &&
+              item.contactId === contact?.id,
+          );
+          if (!conversation && incomingIsGroup) {
+            return {
+              workspaceId: account.workspaceId,
+              skipped: true,
+            };
+          }
+          if (!conversation) {
+            conversation = {
+              id: id("conversation"),
+              workspaceId: account.workspaceId,
+              whatsappAccountId: account.id,
+              contactId: contact.id,
+              status: "open",
+              lastMessageBody: text,
+              lastMessageAt: now(),
+              assignedUserId: null,
+              unreadCount: 0,
+              createdAt: now(),
+              updatedAt: now(),
+            };
+            database.conversations.push(conversation);
+          }
+          const senderPhone = incomingIsGroup
+            ? (readOptionalString(payload.senderPhone)?.replace(/\D/g, "") ??
+              null)
+            : null;
+          const senderName = incomingIsGroup
+            ? (readOptionalString(payload.senderName) ??
+              readOptionalString(payload.profileName) ??
+              null)
+            : null;
+          const message: Message = {
+            id: id("message"),
+            workspaceId: account.workspaceId,
+            conversationId: conversation.id,
+            whatsappAccountId: account.id,
+            contactId: contact.id,
+            externalMessageId: externalMessageId ?? null,
+            direction: "inbound",
+            type: incomingType as MessageType,
+            body: text,
+            mediaUrl: mapsUrl,
+            mediaMimeType:
+              incomingType === "location" ? "application/geo" : null,
+            mediaFilename: null,
+            latitude: latitude ?? null,
+            longitude: longitude ?? null,
+            status: "received",
+            sentByUserId: null,
+            senderPhone,
+            senderName,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.messages.push(message);
+          conversation.lastMessageBody = text;
+          conversation.lastMessageAt = message.createdAt;
+          if (
+            !findBlockedAutomationContact(database, account.workspaceId, from)
+          ) {
+            conversation.unreadCount += 1;
+          }
+          conversation.updatedAt = now();
+          return {
+            workspaceId: account.workspaceId,
+            accountId: account.id,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            from,
+            text,
+            inboundMessageId: message.id,
+            type: incomingType,
+            message: messageView(message, database),
+            conversation: conversationView(conversation, database),
+          };
+        }
+
+        if (event.startsWith("message.")) {
+          const messageId = readOptionalString(payload.messageId);
+          if (messageId) {
+            const message = database.messages.find(
+              (item) =>
+                item.externalMessageId === messageId &&
+                item.workspaceId === account.workspaceId,
+            );
+            if (message) {
+              message.status = (readOptionalString(payload.status) ??
+                event.replace("message.", "")) as Message["status"];
+              message.updatedAt = now();
+              return {
+                workspaceId: account.workspaceId,
+                message: messageView(message, database),
+              };
+            }
+          }
+        }
+
+        if (event.startsWith("connection.")) {
+          const statusMap: Record<string, WhatsAppStatus> = {
+            open: "connected",
+            connected: "connected",
+            close: "disconnected",
+            disconnected: "disconnected",
+            connecting: "connecting",
+            qr: "qr_required",
+            failed: "failed",
+          };
+          const rawStatus =
+            readOptionalString(payload.status) ??
+            event.replace("connection.", "");
+          account.status = statusMap[rawStatus] ?? account.status;
+          account.phoneNumber =
+            readOptionalString(payload.phoneNumber) ?? account.phoneNumber;
+          if (account.status === "connected") account.lastConnectedAt = now();
+          if (account.status === "disconnected")
+            account.lastDisconnectedAt = now();
+          account.updatedAt = now();
+          return {
+            workspaceId: account.workspaceId,
+            account: whatsappAccountView(account, database),
+          };
+        }
+        return { workspaceId: account.workspaceId };
+      });
+
+      if ("message" in result)
+        realtime.emitToWorkspace(result.workspaceId, "message.created", result);
+      if ("conversation" in result)
+        realtime.emitToWorkspace(
+          result.workspaceId,
+          "conversation.updated",
+          result.conversation,
+        );
+      if ("account" in result)
+        realtime.emitToWorkspace(
+          result.workspaceId,
+          "whatsapp.status.updated",
+          result.account,
+        );
+      if (
+        "inboundMessageId" in result &&
+        "accountId" in result &&
+        "conversationId" in result &&
+        "contactId" in result &&
+        typeof result.workspaceId === "string" &&
+        typeof result.accountId === "string" &&
+        typeof result.conversationId === "string" &&
+        typeof result.contactId === "string" &&
+        typeof result.inboundMessageId === "string" &&
+        typeof result.from === "string" &&
+        typeof result.text === "string" &&
+        result.type !== "location" &&
+        !isGroupRecipient(result.from)
+      ) {
+        void runAutomationDecision({
+          workspaceId: result.workspaceId,
+          accountId: result.accountId,
+          conversationId: result.conversationId,
+          contactId: result.contactId,
+          inboundMessageId: result.inboundMessageId,
+          from: result.from,
+          text: result.text,
+        });
+      }
+      ok(res, { received: true, duplicate: "duplicate" in result });
+    }),
+  );
+
+  router.get("/runtime/status", (req, res) => {
+    const statusPassword = req.header("x-taku-status-password") ?? "";
+    if (statusPassword !== config.superAdminPassword) {
+      throw new ApiError({
+        status: 403,
+        code: "STATUS_PASSWORD_REQUIRED",
+        message: "TAKU superadmin password required.",
+      });
+    }
+
+    const configured = (value: string | null | undefined) => Boolean(value);
+
+    ok(res, {
+      service: "taku-backend",
+      checkedAt: now(),
+      runtime: {
+        environment: config.environment,
+        host: config.host,
+        port: config.port,
+        dataFile: config.dataFile,
+        allowedOrigins: config.allowedOrigins,
+        publicBaseUrl: config.publicBaseUrl,
+        takuWaBaseUrl: config.takuWaBaseUrl,
+        takuWaClientDomain: config.takuWaClientDomain,
+        botServiceBaseUrl: config.botServiceBaseUrl,
+        mercadoPagoCurrencyId: config.mercadoPagoCurrencyId,
+        planAmountsUsd: {
+          starter: config.planStarterAmountUsd,
+          business: config.planBusinessAmountUsd,
+          enterprise: config.planEnterpriseAmountUsd,
+        },
+        automationReplyDelay: {
+          minMs: config.automationReplyMinDelayMs,
+          maxMs: config.automationReplyMaxDelayMs,
+          fastInboundWindowMs: config.automationReplyFastInboundWindowMs,
+          slowInboundWindowMs: config.automationReplySlowInboundWindowMs,
+        },
+        botResponderDetection: {
+          enabled: config.botResponderDetectionEnabled,
+          scoreThresholdPercent: config.botResponderScoreThresholdPercent,
+          probeCooldownMs: config.botResponderProbeCooldownMs,
+        },
+      },
+      variables: [
+        {
+          name: "TAKU_BACKEND_ENV",
+          configured: configured(config.environment),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_DATA_FILE",
+          configured: configured(config.dataFile),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_JWT_SECRET",
+          configured: configured(config.jwtSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_ADMIN_JWT_SECRET",
+          configured: configured(config.adminJwtSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_REFRESH_SECRET",
+          configured: configured(config.refreshSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_ADMIN_REFRESH_SECRET",
+          configured: configured(config.adminRefreshSecret),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_ALLOWED_ORIGINS",
+          configured: config.allowedOrigins.length > 0,
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_PUBLIC_BASE_URL",
+          configured: configured(config.publicBaseUrl),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_SUPERADMIN_EMAIL or SUPERADMIN_EMAIL",
+          configured: configured(config.superAdminEmail),
+          required: true,
+        },
+        {
+          name: "TAKU_BACKEND_SUPERADMIN_PASSWORD or SUPERADMIN_PASSWORD",
+          configured: configured(config.superAdminPassword),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_BASE_URL",
+          configured: configured(config.takuWaBaseUrl),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_API_KEY",
+          configured: configured(config.takuWaApiKey),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_CLIENT_DOMAIN",
+          configured: configured(config.takuWaClientDomain),
+          required: true,
+        },
+        {
+          name: "TAKU_WA_WEBHOOK_SECRET",
+          configured: configured(config.takuWaWebhookSecret),
+          required: true,
+        },
+        {
+          name: "BOT_SERVICE_BASE_URL",
+          configured: configured(config.botServiceBaseUrl),
+          required: true,
+        },
+        {
+          name: "BOT_SERVICE_API_KEY",
+          configured: configured(config.botServiceApiKey),
+          required: true,
+        },
+        {
+          name: "BOT_SERVICE_WEBHOOK_SECRET",
+          configured: configured(config.botServiceWebhookSecret),
+          required: true,
+        },
+        {
+          name: "MERCADOPAGO_ACCESS_TOKEN",
+          configured: configured(config.mercadoPagoAccessToken),
+          required: true,
+        },
+        {
+          name: "MERCADOPAGO_CURRENCY_ID",
+          configured: configured(config.mercadoPagoCurrencyId),
+          required: true,
+        },
+        {
+          name: "TAKU_PLAN_STARTER_USD",
+          configured: Number.isFinite(config.planStarterAmountUsd),
+          required: false,
+        },
+        {
+          name: "TAKU_PLAN_BUSINESS_USD",
+          configured: Number.isFinite(config.planBusinessAmountUsd),
+          required: false,
+        },
+        {
+          name: "TAKU_PLAN_ENTERPRISE_USD",
+          configured: Number.isFinite(config.planEnterpriseAmountUsd),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_MIN_DELAY_MS",
+          configured: Number.isFinite(config.automationReplyMinDelayMs),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_MAX_DELAY_MS",
+          configured: Number.isFinite(config.automationReplyMaxDelayMs),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_FAST_INBOUND_WINDOW_MS",
+          configured: Number.isFinite(
+            config.automationReplyFastInboundWindowMs,
+          ),
+          required: false,
+        },
+        {
+          name: "TAKU_AUTOMATION_REPLY_SLOW_INBOUND_WINDOW_MS",
+          configured: Number.isFinite(
+            config.automationReplySlowInboundWindowMs,
+          ),
+          required: false,
+        },
+        {
+          name: "TAKU_BOT_RESPONDER_DETECTION_ENABLED",
+          configured: typeof config.botResponderDetectionEnabled === "boolean",
+          required: false,
+        },
+        {
+          name: "TAKU_BOT_RESPONDER_SCORE_THRESHOLD_PERCENT",
+          configured: Number.isFinite(config.botResponderScoreThresholdPercent),
+          required: false,
+        },
+        {
+          name: "TAKU_BOT_RESPONDER_PROBE_COOLDOWN_MS",
+          configured: Number.isFinite(config.botResponderProbeCooldownMs),
+          required: false,
+        },
+      ],
+    });
+  });
+
+  router.post(
+    "/session/login",
+    rateLimit({
+      key: (req) => `session-login:${req.ip}:${String(req.body?.email ?? "")}`,
+      limit: 8,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const password = requireString(req.body?.password, "password");
+      const totpCode = readOptionalString(req.body?.totpCode) ?? null;
+      const result = await store.update((database) => {
+        const adminResult = createAdminLoginResult(
+          database,
+          email,
+          password,
+          totpCode,
+        );
+        if (adminResult) return adminResult;
+        const clientResult = createClientLoginResult(database, email, password);
+        if (clientResult) return clientResult;
+        throw new ApiError({
+          status: 401,
+          code: "INVALID_CREDENTIALS",
+          message: "Credenciales invalidas.",
+        });
+      });
+      if (result.sessionType === "admin") {
+        await store.adminAudit({
+          adminUserId: result.adminUser.id,
+          action: "super_admin.auth.login",
+          targetType: "admin_user",
+          targetId: result.adminUser.id,
+          workspaceId: null,
+          reason: null,
+          metadata: { unified: true },
+          ip: req.ip ?? null,
+          userAgent: req.header("user-agent") ?? null,
+        });
+      } else {
+        await store.audit({
+          workspaceId: result.currentWorkspace.id,
+          userId: result.user.id,
+          action: "auth.login",
+          entityType: "user",
+          entityId: result.user.id,
+          metadata: { unified: true },
+        });
+      }
+      ok(res, result);
+    }),
+  );
+
+  router.post(
+    "/admin/auth/login",
+    rateLimit({
+      key: (req) => `admin-login:${req.ip}:${String(req.body?.email ?? "")}`,
+      limit: 5,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const password = requireString(req.body?.password, "password");
+      const totpCode = readOptionalString(req.body?.totpCode) ?? null;
+      const result = await store.update((database) => {
+        const adminResult = createAdminLoginResult(
+          database,
+          email,
+          password,
+          totpCode,
+        );
+        if (!adminResult) {
+          throw new ApiError({
+            status: 401,
+            code: "ADMIN_UNAUTHORIZED",
+            message: "Credenciales invalidas.",
+          });
+        }
+        return adminResult;
+      });
+      await store.adminAudit({
+        adminUserId: result.adminUser.id,
+        action: "super_admin.auth.login",
+        targetType: "admin_user",
+        targetId: result.adminUser.id,
+        workspaceId: null,
+        reason: null,
+        metadata: null,
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, {
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        adminUser: result.adminUser,
+        requiresPasswordChange: result.requiresPasswordChange,
+      });
+    }),
+  );
+
+  router.post(
+    "/admin/auth/refresh",
+    asyncHandler(async (req, res) => {
+      const refreshToken = requireString(
+        req.body?.refreshToken,
+        "refreshToken",
+      );
+      const tokenHash = hashToken(refreshToken, config.adminRefreshSecret);
+      const result = await store.update((database) => {
+        const stored = database.adminRefreshTokens.find(
+          (item) => item.tokenHash === tokenHash && !item.revokedAt,
+        );
+        if (!stored || stored.expiresAt < now()) {
+          throw new ApiError({
+            status: 401,
+            code: "ADMIN_UNAUTHORIZED",
+            message: "Refresh token admin invalido.",
+          });
+        }
+        stored.revokedAt = now();
+        const adminUser = database.adminUsers.find(
+          (item) => item.id === stored.adminUserId,
+        );
+        if (!adminUser || adminUser.status !== "active") {
+          throw new ApiError({
+            status: 401,
+            code: "ADMIN_UNAUTHORIZED",
+            message: "Admin no autenticado.",
+          });
+        }
+        const tokens = createAdminTokens(adminUser.id);
+        database.adminRefreshTokens.push({
+          id: id("admin_refresh"),
+          adminUserId: adminUser.id,
+          tokenHash: hashToken(tokens.refreshToken, config.adminRefreshSecret),
+          expiresAt: new Date(
+            Date.now() + 1000 * 60 * 60 * 24 * 30,
+          ).toISOString(),
+          revokedAt: null,
+          createdAt: now(),
+        });
+        return tokens;
+      });
+      ok(res, result);
+    }),
+  );
+
+  router.post(
+    "/admin/auth/logout",
+    adminAuth,
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const refreshToken = readOptionalString(req.body?.refreshToken);
+      if (refreshToken) {
+        const tokenHash = hashToken(refreshToken, config.adminRefreshSecret);
+        await store.update((database) => {
+          const stored = database.adminRefreshTokens.find(
+            (item) => item.tokenHash === tokenHash,
+          );
+          if (stored) stored.revokedAt = now();
+        });
+      }
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.auth.logout",
+        targetType: "admin_user",
+        targetId: adminUser.id,
+        workspaceId: null,
+        reason: null,
+        metadata: null,
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      empty(res);
+    }),
+  );
+
+  router.get("/admin/auth/me", adminAuth, (req, res) => {
+    ok(res, { adminUser: publicAdminUser(assertAdmin(req)) });
+  });
+
+  router.post(
+    "/admin/auth/change-password",
+    adminAuth,
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const currentPassword = requireString(
+        req.body?.currentPassword,
+        "currentPassword",
+      );
+      const newPassword = requireString(req.body?.newPassword, "newPassword");
+      const confirmation = requireString(
+        req.body?.passwordConfirmation,
+        "passwordConfirmation",
+      );
+      if (newPassword.length < 8 || newPassword !== confirmation) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message:
+            "El nuevo password debe tener al menos 8 caracteres y coincidir.",
+        });
+      }
+      if (newPassword === "changeme") {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "El nuevo password no puede ser changeme.",
+        });
+      }
+      const updated = await store.update((database) => {
+        const stored = database.adminUsers.find(
+          (item) => item.id === adminUser.id,
+        );
+        if (!stored || !verifyPassword(currentPassword, stored.passwordHash)) {
+          throw new ApiError({
+            status: 401,
+            code: "ADMIN_UNAUTHORIZED",
+            message: "Password actual invalido.",
+          });
+        }
+        stored.passwordHash = hashPassword(newPassword);
+        stored.updatedAt = now();
+        return stored;
+      });
+      await store.adminAudit({
+        adminUserId: updated.id,
+        action: "super_admin.auth.password_changed",
+        targetType: "admin_user",
+        targetId: updated.id,
+        workspaceId: null,
+        reason: "Password inicial actualizado.",
+        metadata: null,
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, {
+        adminUser: publicAdminUser(updated),
+        requiresPasswordChange: false,
+      });
+    }),
+  );
+
+  router.use("/admin", adminAuth);
+
+  router.get(
+    "/admin",
+    asyncHandler(async (_req, res) => {
+      const database = await store.read();
+      const today = new Date().toISOString().slice(0, 10);
+      ok(res, {
+        workspaces: {
+          total: database.workspaces.length,
+          active: database.workspaces.filter((item) => item.status === "active")
+            .length,
+          trial: database.workspaces.filter((item) => item.status === "trial")
+            .length,
+          suspended: database.workspaces.filter(
+            (item) => item.status === "suspended",
+          ).length,
+        },
+        users: { total: database.users.length },
+        whatsappAccounts: {
+          total: database.whatsappAccounts.length,
+          connected: database.whatsappAccounts.filter(
+            (item) => item.status === "connected",
+          ).length,
+          disconnected: database.whatsappAccounts.filter(
+            (item) => item.status === "disconnected",
+          ).length,
+        },
+        messages: {
+          sentToday: database.messages.filter(
+            (item) =>
+              item.direction === "outbound" && item.createdAt.startsWith(today),
+          ).length,
+          receivedToday: database.messages.filter(
+            (item) =>
+              item.direction === "inbound" && item.createdAt.startsWith(today),
+          ).length,
+          botToday: database.messages.filter(
+            (item) =>
+              item.direction === "bot" && item.createdAt.startsWith(today),
+          ).length,
+        },
+        services: {
+          postgres: "json-store",
+          whatsappService: config.takuWaApiKey
+            ? "configured"
+            : "missing_api_key",
+          botService: config.botServiceApiKey
+            ? "configured"
+            : "missing_api_key",
+          realtime: "ok",
+        },
+      });
+    }),
+  );
+
+  router.get(
+    "/admin/workspaces",
+    asyncHandler(async (req, res) => {
+      const database = await store.read();
+      const search = readOptionalString(req.query.search)?.toLowerCase();
+      const status = readOptionalString(req.query.status);
+      const plan = readOptionalString(req.query.plan);
+      const hasDisconnectedNumbers =
+        req.query.hasDisconnectedNumbers === "true";
+      const rows = database.workspaces
+        .filter((item) =>
+          search
+            ? `${item.name} ${item.slug}`.toLowerCase().includes(search)
+            : true,
+        )
+        .filter((item) => (status ? item.status === status : true))
+        .filter((item) => (plan ? item.plan === plan : true))
+        .filter((item) => {
+          if (!hasDisconnectedNumbers) return true;
+          return database.whatsappAccounts.some(
+            (account) =>
+              account.workspaceId === item.id && account.status !== "connected",
+          );
+        })
+        .map((workspaceItem) => {
+          const workspaceUsers = database.memberships.filter(
+            (membership) => membership.workspaceId === workspaceItem.id,
+          );
+          const accounts = database.whatsappAccounts.filter(
+            (account) => account.workspaceId === workspaceItem.id,
+          );
+          return {
+            ...workspaceItem,
+            users: workspaceUsers.length,
+            whatsappAccounts: accounts.length,
+            connectedWhatsappAccounts: accounts.filter(
+              (account) => account.status === "connected",
+            ).length,
+            messagesToday: database.messages.filter(
+              (message) =>
+                message.workspaceId === workspaceItem.id &&
+                message.createdAt.startsWith(
+                  new Date().toISOString().slice(0, 10),
+                ),
+            ).length,
+            lastActivityAt:
+              database.messages
+                .filter((message) => message.workspaceId === workspaceItem.id)
+                .sort((left, right) =>
+                  right.createdAt.localeCompare(left.createdAt),
+                )[0]?.createdAt ?? null,
+          };
+        });
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/admin/owner-session",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const result = await store.update((database) => {
+        let workspaceItem = database.workspaces[0] ?? null;
+        if (!workspaceItem) {
+          workspaceItem = {
+            id: id("workspace"),
+            name: "TAKU Internal",
+            slug: "taku-internal",
+            status: "active",
+            plan: "starter",
+            timezone: "America/Mexico_City",
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.workspaces.push(workspaceItem);
+        }
+        ensureWorkspaceDefaults(database, workspaceItem.id);
+        const user = ensureAdminOwnerUser(
+          database,
+          adminUser,
+          workspaceItem.id,
+        );
+        return createClientSessionForUser(database, user.id, workspaceItem.id);
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.owner_session_created",
+        targetType: "workspace",
+        targetId: result.currentWorkspace.id,
+        workspaceId: result.currentWorkspace.id,
+        reason: "Superowner requested owner UI access.",
+        metadata: {
+          impersonatedUserId: result.user.id,
+          ensuredWorkspace: true,
+        },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, result, 201);
+    }),
+  );
+
+  router.get(
+    "/admin/workspaces/:workspaceId",
+    asyncHandler(async (req, res) => {
+      const database = await store.read();
+      const workspaceItem = database.workspaces.find(
+        (item) => item.id === req.params.workspaceId,
+      );
+      if (!workspaceItem) {
+        throw new ApiError({
+          status: 404,
+          code: "WORKSPACE_NOT_FOUND",
+          message: "Workspace no encontrado.",
+        });
+      }
+      const accounts = database.whatsappAccounts.filter(
+        (account) => account.workspaceId === workspaceItem.id,
+      );
+      ok(res, {
+        ...workspaceItem,
+        users: database.memberships
+          .filter((membership) => membership.workspaceId === workspaceItem.id)
+          .map((membership) => {
+            const user = database.users.find(
+              (item) => item.id === membership.userId,
+            );
+            return user
+              ? {
+                  ...publicUser(user),
+                  role: membership.role,
+                  membershipStatus: membership.status,
+                }
+              : null;
+          })
+          .filter(Boolean),
+        whatsappAccounts: accounts.map((account) =>
+          whatsappAccountView(account, database),
+        ),
+        conversations: database.conversations.filter(
+          (conversation) => conversation.workspaceId === workspaceItem.id,
+        ).length,
+        automation: database.botSettings.filter(
+          (settings) => settings.workspaceId === workspaceItem.id,
+        ),
+      });
+    }),
+  );
+
+  router.post(
+    "/admin/workspaces/:workspaceId/owner-session",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const result = await store.update((database) => {
+        const workspaceItem = database.workspaces.find(
+          (item) => item.id === req.params.workspaceId,
+        );
+        if (!workspaceItem) {
+          throw new ApiError({
+            status: 404,
+            code: "WORKSPACE_NOT_FOUND",
+            message: "Workspace no encontrado.",
+          });
+        }
+        ensureWorkspaceDefaults(database, workspaceItem.id);
+        const user = ensureAdminOwnerUser(
+          database,
+          adminUser,
+          workspaceItem.id,
+        );
+        return createClientSessionForUser(database, user.id, workspaceItem.id);
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.workspace.owner_session_created",
+        targetType: "workspace",
+        targetId: req.params.workspaceId,
+        workspaceId: req.params.workspaceId,
+        reason: "Superowner requested owner UI access.",
+        metadata: { impersonatedUserId: result.user.id },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, result, 201);
+    }),
+  );
+
+  router.patch(
+    "/admin/workspaces/:workspaceId",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const updated = await store.update((database) => {
+        const workspaceItem = database.workspaces.find(
+          (item) => item.id === req.params.workspaceId,
+        );
+        if (!workspaceItem) {
+          throw new ApiError({
+            status: 404,
+            code: "WORKSPACE_NOT_FOUND",
+            message: "Workspace no encontrado.",
+          });
+        }
+        const name = readOptionalString(req.body?.name);
+        const slug = readOptionalString(req.body?.slug);
+        const status = readOptionalString(req.body?.status);
+        const plan = readOptionalString(req.body?.plan);
+        const timezone = readOptionalString(req.body?.timezone);
+        if (name) workspaceItem.name = name;
+        if (slug) {
+          if (!slugValid(slug))
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Slug invalido.",
+            });
+          const duplicate = database.workspaces.some(
+            (item) => item.slug === slug && item.id !== workspaceItem.id,
+          );
+          if (duplicate)
+            throw new ApiError({
+              status: 409,
+              code: "WORKSPACE_SLUG_EXISTS",
+              message: "Slug duplicado.",
+            });
+          workspaceItem.slug = slug;
+        }
+        if (
+          status === "trial" ||
+          status === "active" ||
+          status === "suspended" ||
+          status === "cancelled"
+        )
+          workspaceItem.status = status;
+        if (workspacePlanValid(plan)) workspaceItem.plan = plan;
+        if (timezone) workspaceItem.timezone = timezone;
+        workspaceItem.updatedAt = now();
+        return workspaceItem;
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.workspace.updated",
+        targetType: "workspace",
+        targetId: updated.id,
+        workspaceId: updated.id,
+        reason: readOptionalString(req.body?.reason) ?? null,
+        metadata: { patch: req.body },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, updated);
+    }),
+  );
+
+  router.post(
+    "/admin/workspaces/:workspaceId/suspend",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const reason = readOptionalString(req.body?.reason);
+      const comment = readOptionalString(req.body?.comment);
+      if (!reason || !comment)
+        throw new ApiError({
+          status: 400,
+          code: "SUPPORT_REASON_REQUIRED",
+          message: "Motivo y comentario requeridos.",
+        });
+      const updated = await store.update((database) => {
+        const workspaceItem = database.workspaces.find(
+          (item) => item.id === req.params.workspaceId,
+        );
+        if (!workspaceItem)
+          throw new ApiError({
+            status: 404,
+            code: "WORKSPACE_NOT_FOUND",
+            message: "Workspace no encontrado.",
+          });
+        if (workspaceItem.status === "suspended")
+          throw new ApiError({
+            status: 409,
+            code: "WORKSPACE_ALREADY_SUSPENDED",
+            message: "Workspace ya suspendido.",
+          });
+        workspaceItem.status = "suspended";
+        workspaceItem.updatedAt = now();
+        return workspaceItem;
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.workspace.suspended",
+        targetType: "workspace",
+        targetId: updated.id,
+        workspaceId: updated.id,
+        reason,
+        metadata: {
+          comment,
+          notifyCustomer: Boolean(req.body?.notifyCustomer),
+        },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, updated);
+    }),
+  );
+
+  router.post(
+    "/admin/workspaces/:workspaceId/reactivate",
+    requireAdminRole(adminSuperRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const updated = await store.update((database) => {
+        const workspaceItem = database.workspaces.find(
+          (item) => item.id === req.params.workspaceId,
+        );
+        if (!workspaceItem)
+          throw new ApiError({
+            status: 404,
+            code: "WORKSPACE_NOT_FOUND",
+            message: "Workspace no encontrado.",
+          });
+        if (workspaceItem.status !== "suspended")
+          throw new ApiError({
+            status: 409,
+            code: "WORKSPACE_NOT_SUSPENDED",
+            message: "Workspace no esta suspendido.",
+          });
+        workspaceItem.status = "active";
+        workspaceItem.updatedAt = now();
+        return workspaceItem;
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.workspace.reactivated",
+        targetType: "workspace",
+        targetId: updated.id,
+        workspaceId: updated.id,
+        reason:
+          readOptionalString(req.body?.comment) ??
+          "Reactivacion solicitada por admin.",
+        metadata: null,
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, updated);
+    }),
+  );
+
+  router.get(
+    "/admin/admin-users",
+    requireAdminRole(adminManageUsersRoles),
+    asyncHandler(async (_req, res) => {
+      const database = await store.read();
+      ok(res, database.adminUsers.map(publicAdminUser));
+    }),
+  );
+
+  router.post(
+    "/admin/admin-users",
+    requireAdminRole(adminManageUsersRoles),
+    asyncHandler(async (req, res) => {
+      const adminUser = assertAdmin(req);
+      const name = requireString(req.body?.name, "name");
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const role = requireString(req.body?.role, "role") as AdminRole;
+      const allowedRoles: AdminRole[] = [
+        "super_admin",
+        "support_admin",
+        "billing_admin",
+        "readonly_admin",
+      ];
+      if (!isEmail(email) || !allowedRoles.includes(role)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Admin user invalido.",
+        });
+      }
+      const created = await store.update((database) => {
+        const exists = database.adminUsers.some(
+          (item) => item.email.toLowerCase() === email,
+        );
+        if (exists)
+          throw new ApiError({
+            status: 409,
+            code: "ADMIN_USER_EXISTS",
+            message: "Admin user ya existe.",
+          });
+        const timestamp = now();
+        const item = {
+          id: id("admin_user"),
+          name,
+          email,
+          passwordHash: hashPassword(
+            readOptionalString(req.body?.password) ?? "changeme",
+          ),
+          role,
+          status: "invited" as const,
+          requires2fa: req.body?.requires2fa !== false,
+          twoFactorEnabled: false,
+          lastLoginAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        database.adminUsers.push(item);
+        return item;
+      });
+      await store.adminAudit({
+        adminUserId: adminUser.id,
+        action: "super_admin.admin_user.created",
+        targetType: "admin_user",
+        targetId: created.id,
+        workspaceId: null,
+        reason: readOptionalString(req.body?.reason) ?? null,
+        metadata: { role: created.role },
+        ip: req.ip ?? null,
+        userAgent: req.header("user-agent") ?? null,
+      });
+      ok(res, publicAdminUser(created), 201);
+    }),
+  );
+
+  router.post(
+    "/auth/login",
+    rateLimit({
+      key: (req) => `login:${req.ip}:${String(req.body?.email ?? "")}`,
+      limit: 5,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const password = requireString(req.body?.password, "password");
+      const result = await store.update((database) => {
+        const user = database.users.find(
+          (item) => item.email.toLowerCase() === email,
+        );
+        if (!user || !verifyPassword(password, user.passwordHash)) {
+          throw new ApiError({
+            status: 401,
+            code: "INVALID_CREDENTIALS",
+            message: "Email o contraseña incorrectos.",
+          });
+        }
+        if (user.status === "disabled") {
+          throw new ApiError({
+            status: 403,
+            code: "USER_DISABLED",
+            message: "Usuario deshabilitado.",
+          });
+        }
+        const tokens = createTokens(user.id);
+        const expiresAt = new Date(
+          Date.now() + 1000 * 60 * 60 * 24 * 30,
+        ).toISOString();
+        database.refreshTokens.push({
+          id: id("refresh"),
+          userId: user.id,
+          tokenHash: hashToken(tokens.refreshToken, config.refreshSecret),
+          expiresAt,
+          revokedAt: null,
+          createdAt: now(),
+        });
+        user.lastLoginAt = now();
+        user.updatedAt = now();
+        const memberships = database.memberships.filter(
+          (item) => item.userId === user.id && item.status === "active",
+        );
+        const workspaces = memberships
+          .map((membership) => {
+            const found = database.workspaces.find(
+              (item) => item.id === membership.workspaceId,
+            );
+            return found ? workspaceWithRole(found, membership.role) : null;
+          })
+          .filter((item): item is NonNullable<typeof item> => Boolean(item));
+        return {
+          user,
+          tokens,
+          workspaces,
+          defaultWorkspaceId: workspaces[0]?.id ?? null,
+        };
+      });
+      await store.audit({
+        workspaceId: result.defaultWorkspaceId,
+        userId: result.user.id,
+        action: "auth.login",
+        entityType: "user",
+        entityId: result.user.id,
+        metadata: null,
+      });
+      ok(res, {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        user: publicUser(result.user),
+        workspaces: result.workspaces,
+        defaultWorkspaceId: result.defaultWorkspaceId,
+      });
+    }),
+  );
+
+  router.post(
+    "/auth/refresh",
+    asyncHandler(async (req, res) => {
+      const refreshToken = requireString(
+        req.body?.refreshToken,
+        "refreshToken",
+      );
+      const tokenHash = hashToken(refreshToken, config.refreshSecret);
+      const result = await store.update((database) => {
+        const stored = database.refreshTokens.find(
+          (item) => item.tokenHash === tokenHash && !item.revokedAt,
+        );
+        if (!stored || stored.expiresAt < now()) {
+          throw new ApiError({
+            status: 401,
+            code: "UNAUTHORIZED",
+            message: "Refresh token invalido.",
+          });
+        }
+        stored.revokedAt = now();
+        const user = database.users.find((item) => item.id === stored.userId);
+        if (!user || user.status !== "active") {
+          throw new ApiError({
+            status: 401,
+            code: "UNAUTHORIZED",
+            message: "No autenticado.",
+          });
+        }
+        const tokens = createTokens(user.id);
+        database.refreshTokens.push({
+          id: id("refresh"),
+          userId: user.id,
+          tokenHash: hashToken(tokens.refreshToken, config.refreshSecret),
+          expiresAt: new Date(
+            Date.now() + 1000 * 60 * 60 * 24 * 30,
+          ).toISOString(),
+          revokedAt: null,
+          createdAt: now(),
+        });
+        return tokens;
+      });
+      ok(res, result);
+    }),
+  );
+
+  router.post(
+    "/auth/logout",
+    auth,
+    asyncHandler(async (req, res) => {
+      const refreshToken = readOptionalString(req.body?.refreshToken);
+      if (refreshToken) {
+        const tokenHash = hashToken(refreshToken, config.refreshSecret);
+        await store.update((database) => {
+          const stored = database.refreshTokens.find(
+            (item) => item.tokenHash === tokenHash,
+          );
+          if (stored) stored.revokedAt = now();
+        });
+      }
+      await store.audit({
+        workspaceId: null,
+        userId: req.auth?.user.id ?? null,
+        action: "auth.logout",
+        entityType: "user",
+        entityId: req.auth?.user.id ?? null,
+        metadata: null,
+      });
+      empty(res);
+    }),
+  );
+
+  router.get(
+    "/auth/me",
+    auth,
+    asyncHandler(async (req, res) => {
+      if (!req.auth)
+        throw new ApiError({
+          status: 401,
+          code: "UNAUTHORIZED",
+          message: "No autenticado.",
+        });
+      const database = await store.read();
+      const memberships = database.memberships.filter(
+        (item) => item.userId === req.auth?.user.id && item.status === "active",
+      );
+      const workspaces = memberships
+        .map((membership) => {
+          const found = database.workspaces.find(
+            (item) => item.id === membership.workspaceId,
+          );
+          return found ? workspaceWithRole(found, membership.role) : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      const requestedWorkspaceId = req.header("X-Workspace-Id");
+      const currentWorkspace =
+        workspaces.find((item) => item.id === requestedWorkspaceId) ??
+        workspaces[0] ??
+        null;
+      ok(res, {
+        user: publicUser(req.auth.user),
+        currentWorkspace,
+        workspaces,
+      });
+    }),
+  );
+
+  router.post("/auth/forgot-password", (_req, res) => {
+    ok(res, {
+      message:
+        "Si el correo existe, enviaremos instrucciones para restablecer la contraseña.",
+    });
+  });
+
+  router.post(
+    "/auth/reset-password",
+    asyncHandler(async (req, res) => {
+      requireString(req.body?.token, "token");
+      const password = requireString(req.body?.password, "password");
+      const confirmation = requireString(
+        req.body?.passwordConfirmation,
+        "passwordConfirmation",
+      );
+      if (password.length < 8 || password !== confirmation) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message:
+            "La contraseña debe tener al menos 8 caracteres y coincidir.",
+        });
+      }
+      ok(res, { message: "Contraseña actualizada correctamente." });
+    }),
+  );
+
+  router.post(
+    "/public/billing/card-payment",
+    rateLimit({
+      key: (req) => `public-card-payment:${req.ip}`,
+      limit: 10,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const payload = readCardPaymentPayload(req.body);
+      if (!payload) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_PAYMENT_PAYLOAD",
+          message: "Datos de pago invalidos.",
+        });
+      }
+      if (!config.mercadoPagoAccessToken) {
+        throw new ApiError({
+          status: 503,
+          code: "MERCADOPAGO_NOT_CONFIGURED",
+          message: "Mercado Pago no esta configurado.",
+        });
+      }
+
+      const intent = await store.update((database) =>
+        createPaymentIntent({
+          database,
+          plan: payload.plan,
+          email: payload.payer.email,
+        }),
+      );
+
+      try {
+        const payment = await createMercadoPagoCardPayment({
+          accessToken: config.mercadoPagoAccessToken,
+          token: payload.token,
+          transactionAmount: intent.amountUsd,
+          installments: payload.installments,
+          paymentMethodId: payload.paymentMethodId,
+          issuerId: payload.issuerId,
+          payer: payload.payer,
+          description: `TAKU ${planLabel(payload.plan)}`,
+          externalReference: intent.id,
+          idempotencyKey: randomUUID(),
+        });
+
+        const updatedIntent = await store.update((database) => {
+          const found = database.paymentIntents.find(
+            (item) => item.id === intent.id,
+          );
+          if (!found) return intent;
+          found.providerPaymentId = payment.id;
+          found.updatedAt = now();
+          if (payment.status === "approved") {
+            found.status = "paid";
+            found.paidAt = payment.dateApproved ?? now();
+          }
+          return found;
+        });
+
+        if (payment.status !== "approved") {
+          res.status(402).json({
+            ok: false,
+            error: `Payment is ${payment.status}`,
+            paymentStatus: payment.status,
+            paymentStatusDetail: payment.statusDetail,
+            paymentIntent: updatedIntent,
+          });
+          return;
+        }
+
+        res.status(201).json({
+          ok: true,
+          paymentIntent: updatedIntent,
+          paymentStatus: payment.status,
+        });
+      } catch (error) {
+        if (error instanceof MercadoPagoRequestError) {
+          res.status(402).json({
+            ok: false,
+            error: error.message,
+            providerStatus: error.status,
+            providerError: error.error,
+            providerCauses: error.causes,
+            paymentIntent: intent,
+          });
+          return;
+        }
+        throw error;
+      }
+    }),
+  );
+
+  router.get(
+    "/public/billing/intents/:id",
+    asyncHandler(async (req, res) => {
+      const database = await store.read();
+      const intent =
+        database.paymentIntents.find((item) => item.id === req.params.id) ??
+        null;
+      if (!intent) {
+        throw new ApiError({
+          status: 404,
+          code: "PAYMENT_INTENT_NOT_FOUND",
+          message: "Pago no encontrado.",
+        });
+      }
+      res.json({ ok: true, paymentIntent: intent });
+    }),
+  );
+
+  router.post(
+    "/public/signup",
+    rateLimit({
+      key: (req) => `public-signup:${req.ip}:${String(req.body?.email ?? "")}`,
+      limit: 8,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const workspaceName = requireString(
+        req.body?.workspaceName,
+        "workspaceName",
+      );
+      const name = requireString(req.body?.name, "name");
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const password = requireString(req.body?.password, "password");
+      const plan = workspacePlanValid(req.body?.plan) ? req.body.plan : "free";
+      const paidPaymentIntentId =
+        readOptionalString(req.body?.paidPaymentIntentId) ?? null;
+      if (!isEmail(email) || password.length < 8) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Email o password invalido.",
+        });
+      }
+
+      const session = await store.update((database) => {
+        if (database.users.some((user) => user.email.toLowerCase() === email)) {
+          throw new ApiError({
+            status: 409,
+            code: "USER_ALREADY_EXISTS",
+            message: "Ya existe una cuenta con ese email.",
+          });
+        }
+        let paidIntent: PaymentIntent | null = null;
+        if (plan !== "free") {
+          paidIntent =
+            database.paymentIntents.find(
+              (item) => item.id === paidPaymentIntentId,
+            ) ?? null;
+          if (
+            !paidIntent ||
+            paidIntent.status !== "paid" ||
+            paidIntent.plan !== plan ||
+            paidIntent.email.toLowerCase() !== email
+          ) {
+            throw new ApiError({
+              status: 402,
+              code: "PAYMENT_REQUIRED",
+              message: "Completa el pago antes de crear esta cuenta.",
+            });
+          }
+        }
+
+        const timestamp = now();
+        const workspace = {
+          id: id("workspace"),
+          name: workspaceName,
+          slug: uniqueWorkspaceSlug(database, workspaceName),
+          status: "active" as const,
+          plan,
+          timezone: "America/Mexico_City",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        const user = {
+          id: id("user"),
+          name,
+          email,
+          passwordHash: hashPassword(password),
+          status: "active" as const,
+          lastLoginAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        database.workspaces.push(workspace);
+        database.users.push(user);
+        database.memberships.push({
+          id: id("membership"),
+          workspaceId: workspace.id,
+          userId: user.id,
+          role: "owner",
+          status: "active",
+          invitationSentAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        ensureWorkspaceDefaults(database, workspace.id);
+        if (paidIntent) {
+          paidIntent.status = "attached";
+          paidIntent.workspaceId = workspace.id;
+          paidIntent.attachedAt = timestamp;
+          paidIntent.updatedAt = timestamp;
+        }
+        return createClientSessionForUser(database, user.id, workspace.id);
+      });
+      ok(res, session, 201);
+    }),
+  );
+
+  router.use(auth);
+
+  router.get(
+    "/workspaces",
+    asyncHandler(async (req, res) => {
+      if (!req.auth)
+        throw new ApiError({
+          status: 401,
+          code: "UNAUTHORIZED",
+          message: "No autenticado.",
+        });
+      const database = await store.read();
+      const data = database.memberships
+        .filter(
+          (item) =>
+            item.userId === req.auth?.user.id && item.status === "active",
+        )
+        .map((membership) => {
+          const found = database.workspaces.find(
+            (item) => item.id === membership.workspaceId,
+          );
+          return found ? workspaceWithRole(found, membership.role) : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      ok(res, data);
+    }),
+  );
+
+  router.use(workspace);
+
+  router.get("/workspaces/current", (req, res) => {
+    const context = assertWorkspace(req);
+    ok(res, context.workspace);
+  });
+
+  router.patch(
+    "/workspaces/current",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        const workspace = database.workspaces.find(
+          (item) => item.id === context.workspace.id,
+        );
+        if (!workspace)
+          throw new ApiError({
+            status: 404,
+            code: "WORKSPACE_NOT_FOUND",
+            message: "Workspace no encontrado.",
+          });
+        const name = readOptionalString(req.body?.name);
+        const slug = readOptionalString(req.body?.slug);
+        const timezone = readOptionalString(req.body?.timezone);
+        if (slug && !slugValid(slug)) {
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "Slug invalido.",
+          });
+        }
+        if (
+          slug &&
+          database.workspaces.some(
+            (item) => item.slug === slug && item.id !== workspace.id,
+          )
+        ) {
+          throw new ApiError({
+            status: 409,
+            code: "SLUG_ALREADY_EXISTS",
+            message: "El slug ya existe.",
+          });
+        }
+        if (name) workspace.name = name;
+        if (slug) workspace.slug = slug;
+        if (timezone) workspace.timezone = timezone;
+        workspace.updatedAt = now();
+        return workspace;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "workspace.updated",
+        entityType: "workspace",
+        entityId: data.id,
+        metadata: null,
+      });
+      ok(res, data);
+    }),
+  );
+
+  router.get(
+    "/users",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.memberships
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.role ? item.role === req.query.role : true,
+        )
+        .filter((item) =>
+          req.query.status ? item.status === req.query.status : true,
+        )
+        .map((membership) => {
+          const user = database.users.find(
+            (item) => item.id === membership.userId,
+          );
+          return user
+            ? {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                status: membership.status,
+                role: membership.role,
+                lastLoginAt: user.lastLoginAt,
+                createdAt: user.createdAt,
+              }
+            : null;
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+        .filter((user) => {
+          const search = readOptionalString(req.query.search);
+          return search
+            ? `${user.name} ${user.email}`
+                .toLowerCase()
+                .includes(search.toLowerCase())
+            : true;
+        });
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/users",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const name = requireString(req.body?.name, "name");
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const role = requireString(req.body?.role, "role");
+      const password = requireString(req.body?.password, "password");
+      const statusValue = readOptionalString(req.body?.status) ?? "active";
+      if (!isEmail(email) || !roleValid(role)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Email o rol invalido.",
+        });
+      }
+      if (context.role === "admin" && role === "owner") {
+        throw new ApiError({
+          status: 403,
+          code: "INSUFFICIENT_ROLE",
+          message: "Admin no puede crear owner.",
+        });
+      }
+      if (password.length < 8) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_PASSWORD",
+          message: "La contrasena debe tener al menos 8 caracteres.",
+        });
+      }
+      if (!["active", "disabled"].includes(statusValue)) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_STATUS",
+          message: "Estado invalido.",
+        });
+      }
+      const status = statusValue as "active" | "disabled";
+      const data = await store.update((database) => {
+        const existingUser = database.users.find(
+          (user) => user.email.toLowerCase() === email,
+        );
+        if (existingUser) {
+          const existingMembership = database.memberships.find(
+            (item) =>
+              item.userId === existingUser.id &&
+              item.workspaceId === context.workspace.id,
+          );
+          if (existingMembership) {
+            throw new ApiError({
+              status: 409,
+              code: "USER_ALREADY_EXISTS",
+              message: "El usuario ya pertenece al workspace.",
+            });
+          }
+          if (existingUser.status === "disabled")
+            existingUser.status = "active";
+          existingUser.name = name;
+          existingUser.passwordHash = hashPassword(password);
+          existingUser.updatedAt = now();
+          const membership = {
+            id: id("membership"),
+            workspaceId: context.workspace.id,
+            userId: existingUser.id,
+            role,
+            status,
+            invitationSentAt: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.memberships.push(membership);
+          return {
+            id: existingUser.id,
+            name: existingUser.name,
+            email: existingUser.email,
+            role,
+            status,
+            lastLoginAt: existingUser.lastLoginAt,
+            createdAt: existingUser.createdAt,
+          };
+        }
+        const user = {
+          id: id("user"),
+          name,
+          email,
+          passwordHash: hashPassword(password),
+          status: "active" as const,
+          lastLoginAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.users.push(user);
+        database.memberships.push({
+          id: id("membership"),
+          workspaceId: context.workspace.id,
+          userId: user.id,
+          role,
+          status,
+          invitationSentAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+        });
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role,
+          status,
+          lastLoginAt: null,
+          createdAt: user.createdAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "user.created",
+        entityType: "user",
+        entityId: data.id,
+        metadata: { role, status },
+      });
+      ok(res, data, 201);
+    }),
+  );
+
+  router.post(
+    "/users/invitations",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const name = requireString(req.body?.name, "name");
+      const email = requireString(req.body?.email, "email").toLowerCase();
+      const role = requireString(req.body?.role, "role");
+      if (!isEmail(email) || !roleValid(role) || role === "owner") {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Email o rol invalido.",
+        });
+      }
+      const data = await store.update((database) => {
+        const existingUser = database.users.find(
+          (user) => user.email.toLowerCase() === email,
+        );
+        if (existingUser) {
+          const existingMembership = database.memberships.find(
+            (item) =>
+              item.userId === existingUser.id &&
+              item.workspaceId === context.workspace.id,
+          );
+          if (existingMembership) {
+            throw new ApiError({
+              status: 409,
+              code: "USER_ALREADY_EXISTS",
+              message: "El usuario ya pertenece al workspace.",
+            });
+          }
+        }
+        const user = existingUser ?? {
+          id: id("user"),
+          name,
+          email,
+          passwordHash: hashPassword(randomUUID()),
+          status: "invited" as const,
+          lastLoginAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        if (!existingUser) database.users.push(user);
+        const membership = {
+          id: id("membership"),
+          workspaceId: context.workspace.id,
+          userId: user.id,
+          role,
+          status: "invited" as const,
+          invitationSentAt: now(),
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.memberships.push(membership);
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role,
+          status: membership.status,
+          invitationSentAt: membership.invitationSentAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "user.invited",
+        entityType: "user",
+        entityId: data.id,
+        metadata: { role },
+      });
+      ok(res, data, 201);
+    }),
+  );
+
+  router.get(
+    "/users/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const membership = database.memberships.find(
+        (item) =>
+          item.workspaceId === context.workspace.id &&
+          item.userId === req.params.id,
+      );
+      const user = database.users.find((item) => item.id === req.params.id);
+      if (!membership || !user)
+        throw new ApiError({
+          status: 404,
+          code: "USER_NOT_FOUND",
+          message: "Usuario no encontrado.",
+        });
+      ok(res, {
+        ...publicUser(user),
+        role: membership.role,
+        status: membership.status,
+      });
+    }),
+  );
+
+  router.patch(
+    "/users/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        const membership = database.memberships.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.userId === req.params.id,
+        );
+        const user = database.users.find((item) => item.id === req.params.id);
+        if (!membership || !user)
+          throw new ApiError({
+            status: 404,
+            code: "USER_NOT_FOUND",
+            message: "Usuario no encontrado.",
+          });
+        if (context.role === "admin" && membership.role === "owner") {
+          throw new ApiError({
+            status: 403,
+            code: "INSUFFICIENT_ROLE",
+            message: "Admin no puede editar owner.",
+          });
+        }
+        const name = readOptionalString(req.body?.name);
+        const role = readOptionalString(req.body?.role);
+        const status = readOptionalString(req.body?.status);
+        if (
+          role &&
+          (!roleValid(role) || (context.role === "admin" && role === "owner"))
+        ) {
+          throw new ApiError({
+            status: 400,
+            code: "INVALID_ROLE",
+            message: "Rol invalido.",
+          });
+        }
+        if (status && !["active", "disabled", "invited"].includes(status)) {
+          throw new ApiError({
+            status: 400,
+            code: "INVALID_STATUS",
+            message: "Estado invalido.",
+          });
+        }
+        if (status === "disabled" || role) {
+          const activeOwners = database.memberships.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.role === "owner" &&
+              item.status === "active",
+          );
+          if (
+            membership.role === "owner" &&
+            activeOwners.length <= 1 &&
+            (status === "disabled" || role !== "owner")
+          ) {
+            throw new ApiError({
+              status: 409,
+              code: "LAST_OWNER_CANNOT_BE_REMOVED",
+              message: "No se puede remover al ultimo owner.",
+            });
+          }
+        }
+        const password = readOptionalString(req.body?.password);
+        if (password && password.length < 8) {
+          throw new ApiError({
+            status: 400,
+            code: "INVALID_PASSWORD",
+            message: "La contrasena debe tener al menos 8 caracteres.",
+          });
+        }
+        if (name) user.name = name;
+        if (password) {
+          user.passwordHash = hashPassword(password);
+          if (user.status !== "active") user.status = "active";
+        }
+        if (role && roleValid(role)) membership.role = role;
+        if (
+          status === "active" ||
+          status === "disabled" ||
+          status === "invited"
+        )
+          membership.status = status;
+        user.updatedAt = now();
+        membership.updatedAt = now();
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: membership.role,
+          status: membership.status,
+          updatedAt: user.updatedAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "user.updated",
+        entityType: "user",
+        entityId: data.id,
+        metadata: null,
+      });
+      realtime.emitToWorkspace(context.workspace.id, "user.updated", data);
+      ok(res, data);
+    }),
+  );
+
+  router.post(
+    "/users/:id/resend-invitation",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      await store.update((database) => {
+        const membership = database.memberships.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.userId === req.params.id,
+        );
+        if (!membership)
+          throw new ApiError({
+            status: 404,
+            code: "USER_NOT_FOUND",
+            message: "Usuario no encontrado.",
+          });
+        membership.invitationSentAt = now();
+        membership.updatedAt = now();
+      });
+      ok(res, { message: "Invitación reenviada correctamente." });
+    }),
+  );
+
+  router.post(
+    "/users/:id/disable",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      req.body = { ...req.body, status: "disabled" };
+      const context = assertWorkspace(req);
+      await store.update((database) => {
+        const membership = database.memberships.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.userId === req.params.id,
+        );
+        if (!membership)
+          throw new ApiError({
+            status: 404,
+            code: "USER_NOT_FOUND",
+            message: "Usuario no encontrado.",
+          });
+        const activeOwners = database.memberships.filter(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.role === "owner" &&
+            item.status === "active",
+        );
+        if (membership.role === "owner" && activeOwners.length <= 1)
+          throw new ApiError({
+            status: 409,
+            code: "LAST_OWNER_CANNOT_BE_REMOVED",
+            message: "No se puede deshabilitar al ultimo owner.",
+          });
+        membership.status = "disabled";
+        membership.updatedAt = now();
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "user.disabled",
+        entityType: "user",
+        entityId: req.params.id,
+        metadata: null,
+      });
+      ok(res, { id: req.params.id, status: "disabled" });
+    }),
+  );
+
+  router.post(
+    "/users/:id/enable",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      await store.update((database) => {
+        const membership = database.memberships.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.userId === req.params.id,
+        );
+        if (!membership)
+          throw new ApiError({
+            status: 404,
+            code: "USER_NOT_FOUND",
+            message: "Usuario no encontrado.",
+          });
+        membership.status = "active";
+        membership.updatedAt = now();
+      });
+      ok(res, { id: req.params.id, status: "active" });
+    }),
+  );
+
+  router.get(
+    "/whatsapp-accounts",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const statusChecks = await Promise.all(
+        snapshot.whatsappAccounts
+          .filter((item) => item.workspaceId === context.workspace.id)
+          .filter((item) => item.status !== "disabled")
+          .map(async (account) => ({
+            accountId: account.id,
+            remoteStatus: await whatsappClient
+              .getConnectionStatus(account.externalInstanceId)
+              .catch(() => null),
+          })),
+      );
+      if (statusChecks.some((item) => item.remoteStatus)) {
+        await store.update((database) => {
+          for (const statusCheck of statusChecks) {
+            const account = database.whatsappAccounts.find(
+              (item) =>
+                item.id === statusCheck.accountId &&
+                item.workspaceId === context.workspace.id,
+            );
+            if (account) {
+              applyRemoteWhatsAppStatus(account, statusCheck.remoteStatus);
+            }
+          }
+        });
+      }
+      const database = await store.read();
+      const rows = database.whatsappAccounts
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.status ? item.status === req.query.status : true,
+        )
+        .filter((item) => {
+          const search = readOptionalString(req.query.search);
+          return search
+            ? `${item.displayName} ${item.phoneNumber ?? ""}`
+                .toLowerCase()
+                .includes(search.toLowerCase())
+            : true;
+        })
+        .map((item) => whatsappAccountView(item, database));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/whatsapp-accounts",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const displayName = requireString(req.body?.displayName, "displayName");
+      if (displayName.length > 80)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Nombre maximo 80 caracteres.",
+        });
+      const created = await store.update((database) => {
+        if (
+          database.whatsappAccounts.some(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.displayName.toLowerCase() === displayName.toLowerCase(),
+          )
+        ) {
+          throw new ApiError({
+            status: 409,
+            code: "CONFLICT",
+            message: "Ya existe un numero con ese nombre.",
+          });
+        }
+        const account = {
+          id: id("wa_account"),
+          workspaceId: context.workspace.id,
+          externalInstanceId: `wa_${context.workspace.id.slice(0, 8)}_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+          phoneNumber: null,
+          displayName,
+          description: readOptionalString(req.body?.description) ?? null,
+          timezone:
+            readOptionalString(req.body?.timezone) ??
+            context.workspace.timezone,
+          status: "pending" as WhatsAppStatus,
+          qrCode: null,
+          enabled: true,
+          timeClockEnabled: false,
+          useWorkspaceBusinessHours:
+            req.body?.useWorkspaceBusinessHours !== false,
+          useWorkspaceBotSettings: req.body?.useWorkspaceBotSettings !== false,
+          lastConnectedAt: null,
+          lastDisconnectedAt: null,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.whatsappAccounts.push(account);
+        return account;
+      });
+      let provisioningWarning: string | null = null;
+      try {
+        await whatsappClient.createConnection({
+          connectionId: created.externalInstanceId,
+          businessId: context.workspace.id,
+          label: created.displayName,
+          autoStart: false,
+        });
+      } catch (error) {
+        if (!isAlreadyExistsServiceError(error)) {
+          provisioningWarning =
+            error instanceof ApiError
+              ? error.message
+              : "No se pudo preparar la conexion en WhatsApp Service.";
+        }
+      }
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "whatsapp_account.created",
+        entityType: "whatsapp_account",
+        entityId: created.id,
+        metadata: provisioningWarning ? { provisioningWarning } : null,
+      });
+      ok(
+        res,
+        {
+          ...whatsappAccountView(created),
+          qrAvailable: false,
+          provisioningWarning,
+        },
+        201,
+      );
+    }),
+  );
+
+  router.get(
+    "/whatsapp-accounts/:id",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const account = findAccount(
+        database,
+        context.workspace.id,
+        req.params.id,
+      );
+      const recentConversations = database.conversations
+        .filter(
+          (conversation) =>
+            conversation.whatsappAccountId === account.id &&
+            conversation.workspaceId === context.workspace.id,
+        )
+        .sort((left, right) =>
+          (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+        )
+        .slice(0, 5)
+        .map((conversation) => {
+          const contact = database.contacts.find(
+            (item) => item.id === conversation.contactId,
+          );
+          return {
+            id: conversation.id,
+            contactName: contact?.name ?? contact?.phoneNumber ?? "Contacto",
+            lastMessageBody: conversation.lastMessageBody,
+            lastMessageAt: conversation.lastMessageAt,
+          };
+        });
+      ok(res, {
+        ...whatsappAccountView(account, database),
+        recentConversations,
+      });
+    }),
+  );
+
+  router.get(
+    "/whatsapp-accounts/:id/groups",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const account = findAccount(
+        database,
+        context.workspace.id,
+        req.params.id,
+      );
+      if (account.status !== "connected") {
+        throw new ApiError({
+          status: 409,
+          code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+          message: "El numero esta desconectado.",
+        });
+      }
+      const groups = await whatsappClient.listGroups(
+        account.externalInstanceId,
+      );
+      const accountConversations = database.conversations.filter(
+        (item) =>
+          item.workspaceId === context.workspace.id &&
+          item.whatsappAccountId === account.id,
+      );
+      const added = new Set(
+        accountConversations.map((item) => {
+          const contact = database.contacts.find(
+            (entry) => entry.id === item.contactId,
+          );
+          return contact?.phoneNumber ?? "";
+        }),
+      );
+      const pinned = new Set(
+        accountConversations
+          .filter((item) => item.pinned)
+          .map((item) => {
+            const contact = database.contacts.find(
+              (entry) => entry.id === item.contactId,
+            );
+            return contact?.phoneNumber ?? "";
+          }),
+      );
+      ok(
+        res,
+        groups.map((group) => ({
+          id: group.id,
+          subject: group.subject,
+          size: group.size ?? 0,
+          added: added.has(group.id),
+          pinned: pinned.has(group.id),
+        })),
+      );
+    }),
+  );
+
+  router.patch(
+    "/whatsapp-accounts/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const updated = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        const displayName = readOptionalString(req.body?.displayName);
+        if (displayName) account.displayName = displayName;
+        if ("description" in req.body)
+          account.description =
+            readOptionalString(req.body?.description) ?? null;
+        if (typeof req.body?.enabled === "boolean")
+          account.enabled = req.body.enabled;
+        if (typeof req.body?.timeClockEnabled === "boolean")
+          account.timeClockEnabled = req.body.timeClockEnabled;
+        if (readOptionalString(req.body?.timezone))
+          account.timezone = readOptionalString(req.body?.timezone)!;
+        if (typeof req.body?.useWorkspaceBusinessHours === "boolean")
+          account.useWorkspaceBusinessHours =
+            req.body.useWorkspaceBusinessHours;
+        if (typeof req.body?.useWorkspaceBotSettings === "boolean")
+          account.useWorkspaceBotSettings = req.body.useWorkspaceBotSettings;
+        account.updatedAt = now();
+        return account;
+      });
+      ok(res, whatsappAccountView(updated));
+    }),
+  );
+
+  async function qrForAccount(
+    accountId: string,
+    context: ReturnType<typeof assertWorkspace>,
+  ) {
+    const externalQr = await (async () => {
+      const database = await store.read();
+      const account = findAccount(database, context.workspace.id, accountId);
+      try {
+        let qr = await whatsappClient.getConnectionQr(
+          account.externalInstanceId,
+        );
+        for (
+          let attempt = 0;
+          attempt < 6 &&
+          !qr.qr &&
+          !qr.qrImage &&
+          !qr.payload &&
+          !qr.imageUrl &&
+          !qr.imageBase64;
+          attempt += 1
+        ) {
+          await wait(750);
+          qr = await whatsappClient.getConnectionQr(account.externalInstanceId);
+        }
+        return qr;
+      } catch (error) {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_qr_failed", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+          error: errorLogDetails(error),
+        });
+        return {
+          payload: `mock_qr_${account.externalInstanceId}`,
+          imageUrl: `data:text/plain;base64,${Buffer.from(`QR ${account.externalInstanceId}`).toString("base64")}`,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 5).toISOString(),
+        };
+      }
+    })();
+
+    return store.update((database) => {
+      const account = findAccount(database, context.workspace.id, accountId);
+      account.status = "qr_required";
+      account.qrCode =
+        externalQr.qr ??
+        externalQr.qrImage ??
+        externalQr.payload ??
+        externalQr.imageBase64 ??
+        externalQr.imageUrl ??
+        null;
+      account.updatedAt = now();
+      return {
+        id: account.id,
+        status: account.status,
+        qr: {
+          payload: externalQr.qr ?? externalQr.payload ?? account.qrCode,
+          imageUrl:
+            externalQr.qrImage ??
+            externalQr.imageUrl ??
+            (externalQr.imageBase64
+              ? `data:image/png;base64,${externalQr.imageBase64}`
+              : null),
+          expiresAt:
+            externalQr.expiresAt ??
+            new Date(Date.now() + 1000 * 60 * 5).toISOString(),
+        },
+      };
+    });
+  }
+
+  router.post(
+    "/whatsapp-accounts/:id/connect",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const account = findAccount(
+        snapshot,
+        context.workspace.id,
+        req.params.id,
+      );
+      logWhatsAppConnectEvent("taku_backend_wa_connect_started", {
+        workspaceId: context.workspace.id,
+        accountId: account.id,
+        connectionId: account.externalInstanceId,
+      });
+      try {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_create_attempt", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+        await whatsappClient.createConnection({
+          connectionId: account.externalInstanceId,
+          businessId: context.workspace.id,
+          label: account.displayName,
+          autoStart: false,
+        });
+        logWhatsAppConnectEvent("taku_backend_wa_connect_create_ok", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+      } catch (error) {
+        if (!isAlreadyExistsServiceError(error)) {
+          logWhatsAppConnectEvent("taku_backend_wa_connect_create_failed", {
+            workspaceId: context.workspace.id,
+            accountId: account.id,
+            connectionId: account.externalInstanceId,
+            error: errorLogDetails(error),
+          });
+          throw error;
+        }
+        logWhatsAppConnectEvent("taku_backend_wa_connect_create_exists", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+      }
+      try {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_start_attempt", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+        await whatsappClient.startConnection(account.externalInstanceId);
+        logWhatsAppConnectEvent("taku_backend_wa_connect_start_ok", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+      } catch (error) {
+        logWhatsAppConnectEvent("taku_backend_wa_connect_start_failed", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+          error: errorLogDetails(error),
+        });
+        throw error;
+      }
+      try {
+        await whatsappClient.createWebhookSubscription(
+          `${config.publicBaseUrl.replace(/\/+$/, "")}/webhooks/whatsapp`,
+          ["message.received"],
+          config.takuWaWebhookSecret,
+        );
+        logWhatsAppConnectEvent("taku_backend_wa_webhook_subscription_ok", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+        });
+      } catch (error) {
+        logWhatsAppConnectEvent("taku_backend_wa_webhook_subscription_failed", {
+          workspaceId: context.workspace.id,
+          accountId: account.id,
+          connectionId: account.externalInstanceId,
+          error: errorLogDetails(error),
+        });
+        // QR pairing should not be blocked by webhook registration.
+      }
+      const data = await qrForAccount(req.params.id, context);
+      logWhatsAppConnectEvent("taku_backend_wa_connect_qr_ok", {
+        workspaceId: context.workspace.id,
+        accountId: account.id,
+        connectionId: account.externalInstanceId,
+        hasPayload: Boolean(data.qr.payload),
+        hasImageUrl: Boolean(data.qr.imageUrl),
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "whatsapp_account.qr_requested",
+        entityType: "whatsapp_account",
+        entityId: req.params.id,
+        metadata: null,
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "whatsapp.qr.updated",
+        data,
+      );
+      ok(res, data);
+    }),
+  );
+
+  router.get(
+    "/whatsapp-accounts/:id/qr",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      ok(res, await qrForAccount(req.params.id, context));
+    }),
+  );
+
+  router.post(
+    "/whatsapp-accounts/:id/qr/regenerate",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      ok(res, await qrForAccount(req.params.id, context));
+    }),
+  );
+
+  router.post(
+    "/whatsapp-accounts/:id/disconnect",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const externalInstanceId = findAccount(
+        snapshot,
+        context.workspace.id,
+        req.params.id,
+      ).externalInstanceId;
+      await whatsappClient.stopConnection(externalInstanceId);
+      const data = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        account.status = "disconnected";
+        account.lastDisconnectedAt = now();
+        account.updatedAt = now();
+        return {
+          id: account.id,
+          status: account.status,
+          lastDisconnectedAt: account.lastDisconnectedAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "whatsapp_account.disconnected",
+        entityType: "whatsapp_account",
+        entityId: req.params.id,
+        metadata: { reason: req.body?.reason ?? null },
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "whatsapp.status.updated",
+        { whatsappAccountId: req.params.id, status: "disconnected" },
+      );
+      ok(res, data);
+    }),
+  );
+
+  router.post(
+    "/whatsapp-accounts/:id/sync",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const snapshotAccount = findAccount(
+        snapshot,
+        context.workspace.id,
+        req.params.id,
+      );
+      const remoteStatus = await whatsappClient.getConnectionStatus(
+        snapshotAccount.externalInstanceId,
+      );
+      const data = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        applyRemoteWhatsAppStatus(account, remoteStatus);
+        return whatsappAccountView(account, database);
+      });
+      if (data.status === "connected") {
+        realtime.emitToWorkspace(
+          context.workspace.id,
+          "whatsapp.status.updated",
+          data,
+        );
+      }
+      ok(res, data);
+    }),
+  );
+
+  router.delete(
+    "/whatsapp-accounts/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        account.status = "disabled";
+        account.enabled = false;
+        account.updatedAt = now();
+        return { id: account.id, status: account.status };
+      });
+      ok(res, data);
+    }),
+  );
+
+  router.get(
+    "/contacts",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const search = readOptionalString(req.query.search)?.toLowerCase();
+      const phone = readOptionalString(req.query.phone);
+      const rows = database.contacts
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) => (phone ? item.phoneNumber.includes(phone) : true))
+        .filter((item) =>
+          search
+            ? `${item.name ?? ""} ${item.phoneNumber}`
+                .toLowerCase()
+                .includes(search)
+            : true,
+        )
+        .map((item) => contactView(item, database));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.get(
+    "/contacts/:id",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const contact = database.contacts.find(
+        (item) =>
+          item.id === req.params.id &&
+          item.workspaceId === context.workspace.id,
+      );
+      if (!contact)
+        throw new ApiError({
+          status: 404,
+          code: "CONTACT_NOT_FOUND",
+          message: "Contacto no encontrado.",
+        });
+      ok(res, contactView(contact));
+    }),
+  );
+
+  router.patch(
+    "/contacts/:id",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        const contact = database.contacts.find(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (!contact)
+          throw new ApiError({
+            status: 404,
+            code: "CONTACT_NOT_FOUND",
+            message: "Contacto no encontrado.",
+          });
+        const name = readOptionalString(req.body?.name);
+        const notes =
+          typeof req.body?.notes === "string" ? req.body.notes : undefined;
+        if (name && name.length > 120)
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "Nombre maximo 120 caracteres.",
+          });
+        if (notes && notes.length > 2000)
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "Notas maximo 2000 caracteres.",
+          });
+        if ("name" in req.body) contact.name = name ?? null;
+        if ("notes" in req.body) contact.notes = notes ?? null;
+        if ("phoneNumber" in req.body) {
+          const rawPhone = requireString(
+            req.body.phoneNumber,
+            "phoneNumber",
+          ).trim();
+          const nextPhone = isGroupRecipient(rawPhone)
+            ? rawPhone
+            : canonicalDirectPhone(rawPhone);
+          if (!nextPhone) {
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Ingresa un telefono valido.",
+            });
+          }
+          const duplicate = database.contacts.find((item) => {
+            if (
+              item.id === contact.id ||
+              item.workspaceId !== contact.workspaceId
+            ) {
+              return false;
+            }
+            if (item.kind !== "group" && !isGroupRecipient(item.phoneNumber)) {
+              return false;
+            }
+            if (
+              isGroupRecipient(nextPhone) ||
+              isGroupRecipient(item.phoneNumber)
+            ) {
+              return item.phoneNumber === nextPhone;
+            }
+            return directPhonesMatch(item.phoneNumber, nextPhone);
+          });
+          if (duplicate) {
+            throw new ApiError({
+              status: 409,
+              code: "VALIDATION_ERROR",
+              message: "Ese numero ya es el otro destino de pedidos.",
+            });
+          }
+          contact.phoneNumber = nextPhone;
+          if (isGroupRecipient(nextPhone) || contact.kind === "group") {
+            contact.kind = "group";
+          }
+        }
+        contact.updatedAt = now();
+        return contactView(contact);
+      });
+      ok(res, data);
+    }),
+  );
+
+  router.post(
+    "/conversations",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const phone =
+        canonicalDirectPhone(
+          requireString(req.body?.phoneNumber, "phoneNumber"),
+        ) ?? "";
+      if (phone.length < 8)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Ingresa un telefono valido.",
+        });
+      const name = readOptionalString(req.body?.name) ?? null;
+      const requestedAccountId = readOptionalString(
+        req.body?.whatsappAccountId,
+      );
+      const result = await store.update((database) => {
+        const accounts = database.whatsappAccounts.filter(
+          (item) => item.workspaceId === context.workspace.id && item.enabled,
+        );
+        const account = requestedAccountId
+          ? findAccount(database, context.workspace.id, requestedAccountId)
+          : (accounts.find((item) => item.status === "connected") ??
+            accounts[0]);
+        if (!account)
+          throw new ApiError({
+            status: 409,
+            code: "WHATSAPP_ACCOUNT_NOT_FOUND",
+            message: "No hay un numero de WhatsApp para iniciar el chat.",
+          });
+
+        let contact = database.contacts.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            directPhonesMatch(item.phoneNumber, phone),
+        );
+        if (!contact) {
+          contact = {
+            id: id("contact"),
+            workspaceId: context.workspace.id,
+            phoneNumber: phone,
+            name,
+            profilePictureUrl: null,
+            notes: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.contacts.push(contact);
+        } else if (name && !contact.name) {
+          contact.name = name;
+          contact.updatedAt = now();
+        }
+
+        const existing = database.conversations
+          .filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.contactId === contact.id &&
+              item.whatsappAccountId === account.id,
+          )
+          .sort((left, right) =>
+            (right.lastMessageAt ?? "").localeCompare(left.lastMessageAt ?? ""),
+          )[0];
+        if (existing) {
+          return {
+            created: false,
+            conversation: conversationView(existing, database),
+          };
+        }
+
+        const conversation: Conversation = {
+          id: id("conversation"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: account.id,
+          contactId: contact.id,
+          status: "open",
+          lastMessageBody: null,
+          lastMessageAt: now(),
+          assignedUserId: context.user.id,
+          unreadCount: 0,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.conversations.push(conversation);
+        return {
+          created: true,
+          conversation: conversationView(conversation, database),
+        };
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        result.conversation,
+      );
+      ok(res, result.conversation, result.created ? 201 : 200);
+    }),
+  );
+
+  router.post(
+    "/conversations/groups",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const rawTarget = (
+        readOptionalString(req.body?.groupJid) ??
+        readOptionalString(req.body?.phoneNumber) ??
+        ""
+      ).trim();
+      const incomingIsGroup = isGroupRecipient(rawTarget);
+      const groupJid = incomingIsGroup
+        ? rawTarget
+        : (canonicalDirectPhone(rawTarget) ?? "");
+      if (!groupJid) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Ingresa un telefono o un grupo de WhatsApp valido.",
+        });
+      }
+      const rawName = readOptionalString(req.body?.name) ?? "Grupo";
+      const requestedRole = readOptionalString(req.body?.role);
+      const name =
+        requestedRole === "test" && !isTestDriversGroupName(rawName)
+          ? `${rawName} (prueba)`
+          : rawName;
+      const requestedAccountId = requireString(
+        req.body?.whatsappAccountId,
+        "whatsappAccountId",
+      );
+      const result = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          requestedAccountId,
+        );
+        if (account.status !== "connected") {
+          throw new ApiError({
+            status: 409,
+            code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+            message: "El numero esta desconectado.",
+          });
+        }
+        let contact = database.contacts.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.phoneNumber === groupJid &&
+            (incomingIsGroup ||
+              item.kind === "group" ||
+              isGroupRecipient(item.phoneNumber)),
+        );
+        if (!contact) {
+          contact = {
+            id: id("contact"),
+            workspaceId: context.workspace.id,
+            phoneNumber: groupJid,
+            name,
+            profilePictureUrl: null,
+            notes: null,
+            kind: "group",
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.contacts.push(contact);
+        } else {
+          contact.kind = "group";
+          if (requestedRole === "test") contact.name = name;
+          else if (name && !contact.name) contact.name = name;
+          contact.updatedAt = now();
+        }
+        const existing = database.conversations.find(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.whatsappAccountId === account.id &&
+            item.contactId === contact.id,
+        );
+        if (
+          existing &&
+          requestedRole === "test" &&
+          existing.pinned &&
+          driversGroupKind(database, existing) === "prod"
+        ) {
+          throw new ApiError({
+            status: 409,
+            code: "VALIDATION_ERROR",
+            message: "Ese grupo es el de produccion. Elige otro para pruebas.",
+          });
+        }
+        if (existing) {
+          pinExclusiveGroup(database, context.workspace.id, existing);
+          return {
+            created: false,
+            conversation: conversationView(existing, database),
+          };
+        }
+        const conversation: Conversation = {
+          id: id("conversation"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: account.id,
+          contactId: contact.id,
+          status: "open",
+          lastMessageBody: null,
+          lastMessageAt: now(),
+          assignedUserId: context.user.id,
+          unreadCount: 0,
+          pinned: true,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.conversations.push(conversation);
+        pinExclusiveGroup(database, context.workspace.id, conversation);
+        return {
+          created: true,
+          conversation: conversationView(conversation, database),
+        };
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        result.conversation,
+      );
+      ok(res, result.conversation, result.created ? 201 : 200);
+    }),
+  );
+
+  const weAreOpenInFlight = new Set<string>();
+
+  router.post(
+    "/conversations/we-are-open",
+    requireRole(ownerAdmin),
+    rateLimit({
+      key: (req) =>
+        `we-are-open:${req.workspaceContext?.workspace.id ?? req.ip}`,
+      limit: 6,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId =
+        readOptionalString(req.body?.whatsappAccountId) ??
+        readOptionalString(req.query.whatsappAccountId) ??
+        null;
+      const lockKey = `${context.workspace.id}:${accountId ?? "all"}`;
+      if (weAreOpenInFlight.has(lockKey)) {
+        throw new ApiError({
+          status: 409,
+          code: "WE_ARE_OPEN_IN_FLIGHT",
+          message: "Ya se esta enviando el aviso de apertura.",
+        });
+      }
+      weAreOpenInFlight.add(lockKey);
+      try {
+        const database = await store.read();
+        const targets = database.conversations.filter((conversation) => {
+          if (conversation.workspaceId !== context.workspace.id) return false;
+          if (accountId && conversation.whatsappAccountId !== accountId) {
+            return false;
+          }
+          if (isGroupConversation(database, conversation)) return false;
+          const contact = database.contacts.find(
+            (item) => item.id === conversation.contactId,
+          );
+          if (!contact?.phoneNumber) return false;
+          if (
+            findBlockedAutomationContact(
+              database,
+              context.workspace.id,
+              contact.phoneNumber,
+            )
+          ) {
+            return false;
+          }
+          const account = database.whatsappAccounts.find(
+            (item) => item.id === conversation.whatsappAccountId,
+          );
+          if (!account || account.status !== "connected" || !account.enabled) {
+            return false;
+          }
+          return conversationWroteWhileClosed({
+            conversation,
+            messages: database.messages,
+            logs: database.automationDecisionLogs,
+            hours: hoursForAccount(
+              database.businessHours,
+              context.workspace.id,
+              conversation.whatsappAccountId,
+            ),
+            timeZone: workspaceTimeZone(
+              database,
+              context.workspace.id,
+              conversation.whatsappAccountId,
+            ),
+          });
+        });
+
+        let sent = 0;
+        let failed = 0;
+        const recipients: Array<{
+          conversationId: string;
+          name: string | null;
+          phoneNumber: string;
+        }> = [];
+        for (const conversation of targets) {
+          const contact = database.contacts.find(
+            (item) => item.id === conversation.contactId,
+          );
+          if (!contact) {
+            failed += 1;
+            continue;
+          }
+          try {
+            const status = await sendAutomationReply({
+              workspaceId: context.workspace.id,
+              accountId: conversation.whatsappAccountId,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              inboundMessageId: conversation.id,
+              to: contact.phoneNumber,
+              text: WE_ARE_OPEN_MESSAGE,
+              botId: null,
+              assignmentId: null,
+              reason: WE_ARE_OPEN_REASON,
+              skipDecisionLog: true,
+            });
+            if (status === "failed") {
+              failed += 1;
+              continue;
+            }
+            await store.update((current) => {
+              current.automationDecisionLogs.push({
+                id: id("automation_decision"),
+                workspaceId: context.workspace.id,
+                whatsappAccountId: conversation.whatsappAccountId,
+                conversationId: conversation.id,
+                messageId: conversation.id,
+                botId: null,
+                assignmentId: null,
+                decision: "static_reply",
+                reason: WE_ARE_OPEN_REASON,
+                responseText: WE_ARE_OPEN_MESSAGE,
+                createdAt: now(),
+              });
+            });
+            recipients.push({
+              conversationId: conversation.id,
+              name: contact.name,
+              phoneNumber: contact.phoneNumber,
+            });
+            sent += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+
+        ok(res, {
+          message: WE_ARE_OPEN_MESSAGE,
+          targeted: targets.length,
+          sent,
+          failed,
+          recipients,
+        });
+      } finally {
+        weAreOpenInFlight.delete(lockKey);
+      }
+    }),
+  );
+
+  router.get(
+    "/conversations",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      await sweepUnansweredFaqAutoReplies(context.workspace.id);
+      const database = await store.read();
+      const search = readOptionalString(req.query.search)?.toLowerCase();
+      const rows = database.conversations
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.status ? item.status === req.query.status : true,
+        )
+        .filter((item) =>
+          req.query.whatsappAccountId
+            ? item.whatsappAccountId === req.query.whatsappAccountId
+            : true,
+        )
+        .filter((item) => {
+          if (req.query.assignedTo === "me")
+            return item.assignedUserId === context.user.id;
+          if (req.query.assignedTo === "unassigned")
+            return item.assignedUserId === null;
+          if (typeof req.query.assignedTo === "string")
+            return item.assignedUserId === req.query.assignedTo;
+          return true;
+        })
+        .filter((item) =>
+          req.query.unread === "true" ? item.unreadCount > 0 : true,
+        )
+        .filter((item) => {
+          const phone = readOptionalString(req.query.phone);
+          if (!phone) return true;
+          const contact = database.contacts.find(
+            (entry) => entry.id === item.contactId,
+          );
+          if (phone.trim().toLowerCase().endsWith("@g.us")) {
+            return (contact?.phoneNumber ?? "") === phone.trim();
+          }
+          return directPhonesMatch(contact?.phoneNumber, phone);
+        })
+        .map((item) => conversationView(item, database))
+        .filter((item) => {
+          if (readOptionalString(req.query.phone)) return true;
+          const blockedOnly = req.query.blocked === "true";
+          return blockedOnly ? item.blocked : !item.blocked;
+        })
+        .filter((item) => {
+          if (!search) return true;
+          return `${item.contact?.name ?? ""} ${item.contact?.phoneNumber ?? ""} ${item.lastMessage?.body ?? ""}`
+            .toLowerCase()
+            .includes(search);
+        })
+        .filter((item) => {
+          if (readOptionalString(req.query.phone)) return true;
+          if (!item.isGroup) return true;
+          return item.pinned;
+        })
+        .sort((left, right) => {
+          const pin =
+            Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
+          if (pin !== 0) return pin;
+          return (right.lastMessageAt ?? "").localeCompare(
+            left.lastMessageAt ?? "",
+          );
+        });
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.get(
+    "/conversations/:id",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      ok(
+        res,
+        conversationView(
+          findConversation(database, context.workspace.id, req.params.id),
+          database,
+        ),
+      );
+    }),
+  );
+
+  router.patch(
+    "/conversations/:id/pin",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const pinned = req.body?.pinned !== false;
+      const result = await store.update((database) => {
+        const conversation = findConversation(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        if (!isGroupConversation(database, conversation)) {
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "Solo se pueden fijar grupos.",
+          });
+        }
+        if (pinned) {
+          pinExclusiveGroup(database, context.workspace.id, conversation);
+        } else {
+          conversation.pinned = false;
+          conversation.updatedAt = now();
+        }
+        return conversationView(conversation, database);
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        result,
+      );
+      ok(res, result);
+    }),
+  );
+
+  router.patch(
+    "/conversations/:id/status",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const status = requireString(req.body?.status, "status");
+      if (!statusValid(status))
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_STATUS",
+          message: "Estado invalido.",
+        });
+      const data = await store.update((database) => {
+        const conversation = findConversation(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        conversation.status = status;
+        conversation.updatedAt = now();
+        database.messages.push({
+          id: id("message"),
+          workspaceId: context.workspace.id,
+          conversationId: conversation.id,
+          whatsappAccountId: conversation.whatsappAccountId,
+          contactId: conversation.contactId,
+          externalMessageId: null,
+          direction: "system",
+          type: "text",
+          body: `Conversacion actualizada a ${status}.`,
+          mediaUrl: null,
+          mediaMimeType: null,
+          mediaFilename: null,
+          status: "created",
+          sentByUserId: context.user.id,
+          createdAt: now(),
+          updatedAt: now(),
+        });
+        return {
+          id: conversation.id,
+          status: conversation.status,
+          updatedAt: conversation.updatedAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "conversation.status_updated",
+        entityType: "conversation",
+        entityId: req.params.id,
+        metadata: { status },
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        data,
+      );
+      ok(res, data);
+    }),
+  );
+
+  router.patch(
+    "/conversations/:id/assignment",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      if (context.role === "agent") {
+        const database = await store.read();
+        const preferences = database.preferences.find(
+          (item) => item.workspaceId === context.workspace.id,
+        );
+        if (!preferences?.agentsCanReassignConversations) {
+          throw new ApiError({
+            status: 403,
+            code: "FORBIDDEN",
+            message: "No tienes permiso para reasignar.",
+          });
+        }
+      }
+      const assignedUserId =
+        typeof req.body?.assignedUserId === "string"
+          ? req.body.assignedUserId
+          : null;
+      const data = await store.update((database) => {
+        const conversation = findConversation(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        if (assignedUserId) {
+          const membership = database.memberships.find(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.userId === assignedUserId &&
+              item.status === "active",
+          );
+          if (!membership)
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "El agente debe pertenecer al workspace.",
+            });
+        }
+        conversation.assignedUserId = assignedUserId;
+        conversation.updatedAt = now();
+        const assignedUser = assignedUserId
+          ? database.users.find((item) => item.id === assignedUserId)
+          : null;
+        return {
+          id: conversation.id,
+          assignedUser: assignedUser
+            ? { id: assignedUser.id, name: assignedUser.name }
+            : null,
+          updatedAt: conversation.updatedAt,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "conversation.assigned",
+        entityType: "conversation",
+        entityId: req.params.id,
+        metadata: { assignedUserId },
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        data,
+      );
+      ok(res, data);
+    }),
+  );
+
+  router.post(
+    "/conversations/:id/read",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        const conversation = findConversation(
+          database,
+          context.workspace.id,
+          req.params.id,
+        );
+        conversation.unreadCount = 0;
+        conversation.updatedAt = now();
+        return {
+          id: conversation.id,
+          unreadCount: conversation.unreadCount,
+          updatedAt: conversation.updatedAt,
+        };
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        data,
+      );
+      ok(res, data);
+    }),
+  );
+
+  router.get(
+    "/conversations/:conversationId/messages",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const conversation = findConversation(
+        database,
+        context.workspace.id,
+        req.params.conversationId,
+      );
+      const rows = database.messages
+        .filter(
+          (item) =>
+            item.conversationId === conversation.id &&
+            item.workspaceId === context.workspace.id,
+        )
+        .filter((item) =>
+          req.query.before ? item.createdAt < String(req.query.before) : true,
+        )
+        .filter((item) =>
+          req.query.after ? item.createdAt > String(req.query.after) : true,
+        )
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+        .map((item) => messageView(item, database));
+      const page = pageResponse(rows, {
+        ...req.query,
+        pageSize: req.query.pageSize ?? 50,
+      });
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/conversations/:conversationId/messages",
+    rateLimit({
+      key: (req) => `messages:${req.workspaceContext?.workspace.id ?? req.ip}`,
+      limit: 60,
+      windowMs: 60_000,
+    }),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const type = (readOptionalString(req.body?.type) ??
+        "text") as MessageType;
+      const body = requireString(req.body?.body, "body");
+      if (type === "text" && !body.trim())
+        throw new ApiError({
+          status: 400,
+          code: "EMPTY_MESSAGE",
+          message: "No se permite mensaje vacio.",
+        });
+      const snapshot = await store.read();
+      const snapshotConversation = findConversation(
+        snapshot,
+        context.workspace.id,
+        req.params.conversationId,
+      );
+      const snapshotAccount = findAccount(
+        snapshot,
+        context.workspace.id,
+        snapshotConversation.whatsappAccountId,
+      );
+      if (snapshotAccount.status !== "connected") {
+        throw new ApiError({
+          status: 409,
+          code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+          message: "El numero esta desconectado.",
+        });
+      }
+      const snapshotContact = snapshot.contacts.find(
+        (item) => item.id === snapshotConversation.contactId,
+      );
+      if (!snapshotContact)
+        throw new ApiError({
+          status: 404,
+          code: "CONTACT_NOT_FOUND",
+          message: "Contacto no encontrado.",
+        });
+
+      let externalMessageId: string | null = null;
+      let status: Message["status"] = "queued";
+      try {
+        const external = await whatsappClient.sendTextMessage(
+          snapshotAccount.externalInstanceId,
+          snapshotContact.phoneNumber,
+          body,
+        );
+        externalMessageId = external.messageId ?? null;
+        status = external.status === "failed" ? "failed" : "sent";
+      } catch {
+        status = "failed";
+      }
+
+      const result = await store.update((database) => {
+        const conversation = findConversation(
+          database,
+          context.workspace.id,
+          req.params.conversationId,
+        );
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          conversation.whatsappAccountId,
+        );
+        if (account.status !== "connected") {
+          throw new ApiError({
+            status: 409,
+            code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+            message: "El numero esta desconectado.",
+          });
+        }
+        const contact = database.contacts.find(
+          (item) => item.id === conversation.contactId,
+        );
+        if (!contact)
+          throw new ApiError({
+            status: 404,
+            code: "CONTACT_NOT_FOUND",
+            message: "Contacto no encontrado.",
+          });
+        const message: Message = {
+          id: id("message"),
+          workspaceId: context.workspace.id,
+          conversationId: conversation.id,
+          whatsappAccountId: account.id,
+          contactId: contact.id,
+          externalMessageId,
+          direction: "outbound",
+          type,
+          body,
+          mediaUrl: null,
+          mediaMimeType: null,
+          mediaFilename: null,
+          status,
+          sentByUserId: context.user.id,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.messages.push(message);
+        conversation.lastMessageBody = body;
+        conversation.lastMessageAt = message.createdAt;
+        if (status !== "failed") conversation.unreadCount = 0;
+        conversation.updatedAt = now();
+        return { message: messageView(message, database), conversation };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "message.sent",
+        entityType: "conversation",
+        entityId: req.params.conversationId,
+        metadata: null,
+      });
+      realtime.emitToWorkspace(context.workspace.id, "message.created", {
+        conversationId: req.params.conversationId,
+        message: result.message,
+      });
+      realtime.emitToWorkspace(
+        context.workspace.id,
+        "conversation.updated",
+        conversationView(result.conversation, await store.read()),
+      );
+      ok(res, result.message, 201);
+    }),
+  );
+
+  router.post(
+    "/conversations/:conversationId/messages/attachments",
+    asyncHandler(async (_req, res) => {
+      ok(
+        res,
+        {
+          message:
+            "Endpoint preparado para MVP futuro; media depende de WhatsApp Service.",
+        },
+        201,
+      );
+    }),
+  );
+
+  router.post(
+    "/messages/:id/retry",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        const message = database.messages.find(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (!message)
+          throw new ApiError({
+            status: 404,
+            code: "MESSAGE_NOT_FOUND",
+            message: "Mensaje no encontrado.",
+          });
+        message.status = "queued";
+        message.updatedAt = now();
+        return { id: message.id, status: message.status };
+      });
+      ok(res, data);
+    }),
+  );
+
+  router.get(
+    "/business-hours",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const whatsappAccountId =
+        readOptionalString(req.query.whatsappAccountId) ?? null;
+      const days = database.businessHours
+        .filter(
+          (item) =>
+            item.workspaceId === context.workspace.id &&
+            item.whatsappAccountId === whatsappAccountId,
+        )
+        .sort((left, right) => left.dayOfWeek - right.dayOfWeek);
+      ok(res, {
+        scope: whatsappAccountId ? "whatsapp_account" : "workspace",
+        whatsappAccountId,
+        timezone: context.workspace.timezone,
+        currentStatus: {
+          isOpen: true,
+          label: "Abierto ahora",
+          nextChangeAt: new Date().toISOString(),
+        },
+        days,
+      });
+    }),
+  );
+
+  router.put(
+    "/business-hours",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const whatsappAccountId =
+        readOptionalString(req.body?.whatsappAccountId) ?? null;
+      const days = Array.isArray(req.body?.days) ? req.body.days : [];
+      if (!days.length)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "days requerido.",
+        });
+      await store.update((database) => {
+        if (whatsappAccountId)
+          findAccount(database, context.workspace.id, whatsappAccountId);
+        const seen = new Set<number>();
+        for (const day of days) {
+          const dayOfWeek = Number(day.dayOfWeek);
+          if (
+            !Number.isInteger(dayOfWeek) ||
+            dayOfWeek < 0 ||
+            dayOfWeek > 6 ||
+            seen.has(dayOfWeek)
+          ) {
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Dia invalido o duplicado.",
+            });
+          }
+          seen.add(dayOfWeek);
+          if (
+            !day.isClosed &&
+            (!day.opensAt ||
+              !day.closesAt ||
+              String(day.closesAt) <= String(day.opensAt))
+          ) {
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Horario invalido.",
+            });
+          }
+        }
+        database.businessHours = database.businessHours.filter(
+          (item) =>
+            !(
+              item.workspaceId === context.workspace.id &&
+              item.whatsappAccountId === whatsappAccountId
+            ),
+        );
+        for (const day of days) {
+          database.businessHours.push({
+            id: id("business_hour"),
+            workspaceId: context.workspace.id,
+            whatsappAccountId,
+            dayOfWeek: Number(day.dayOfWeek),
+            opensAt: day.isClosed ? null : String(day.opensAt),
+            closesAt: day.isClosed ? null : String(day.closesAt),
+            isClosed: Boolean(day.isClosed),
+            createdAt: now(),
+            updatedAt: now(),
+          });
+        }
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "business_hours.updated",
+        entityType: "business_hours",
+        entityId: null,
+        metadata: { whatsappAccountId },
+      });
+      ok(res, { message: "Horario actualizado correctamente." });
+    }),
+  );
+
+  router.get("/business-hours/status", requireRole(ownerAdmin), (req, res) => {
+    const context = assertWorkspace(req);
+    ok(res, {
+      isOpen: true,
+      label: "Abierto ahora",
+      nextOpenAt: null,
+      timezone: context.workspace.timezone,
+    });
+  });
+
+  router.get(
+    "/bot-settings",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const whatsappAccountId =
+        readOptionalString(req.query.whatsappAccountId) ?? null;
+      const settings = database.botSettings.find(
+        (item) =>
+          item.workspaceId === context.workspace.id &&
+          item.whatsappAccountId === whatsappAccountId,
+      );
+      if (!settings)
+        throw new ApiError({
+          status: 404,
+          code: "BOT_SETTINGS_NOT_FOUND",
+          message: "Configuracion no encontrada.",
+        });
+      ok(res, {
+        scope: whatsappAccountId ? "whatsapp_account" : "workspace",
+        ...settings,
+      });
+    }),
+  );
+
+  router.patch(
+    "/bot-settings",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const whatsappAccountId =
+        readOptionalString(req.body?.whatsappAccountId) ?? null;
+      const afterHoursEnabled = Boolean(req.body?.afterHoursEnabled);
+      const afterHoursResponder = afterHoursResponderValid(
+        req.body?.afterHoursResponder,
+      )
+        ? req.body.afterHoursResponder
+        : "static_message";
+      const afterHoursMessage =
+        readOptionalString(req.body?.afterHoursMessage) ?? null;
+      if (
+        afterHoursEnabled &&
+        afterHoursResponder === "static_message" &&
+        !afterHoursMessage
+      )
+        throw new ApiError({
+          status: 400,
+          code: "AFTER_HOURS_MESSAGE_REQUIRED",
+          message:
+            "Mensaje fuera de horario requerido cuando el responder es mensaje fijo.",
+        });
+      const settings = await store.update((database) => {
+        if (whatsappAccountId)
+          findAccount(database, context.workspace.id, whatsappAccountId);
+        let item = database.botSettings.find(
+          (setting) =>
+            setting.workspaceId === context.workspace.id &&
+            setting.whatsappAccountId === whatsappAccountId,
+        );
+        if (!item) {
+          item = {
+            id: id("bot_settings"),
+            workspaceId: context.workspace.id,
+            whatsappAccountId,
+            enabled: false,
+            afterHoursEnabled: false,
+            afterHoursResponder: "static_message",
+            afterHoursMessage: null,
+            rulesEnabled: false,
+            aiEnabled: false,
+            externalBotId: null,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.botSettings.push(item);
+        }
+        if (typeof req.body?.enabled === "boolean")
+          item.enabled = req.body.enabled;
+        if (typeof req.body?.afterHoursEnabled === "boolean")
+          item.afterHoursEnabled = req.body.afterHoursEnabled;
+        if (afterHoursResponderValid(req.body?.afterHoursResponder))
+          item.afterHoursResponder = req.body.afterHoursResponder;
+        if ("afterHoursMessage" in req.body)
+          item.afterHoursMessage = afterHoursMessage;
+        if (typeof req.body?.rulesEnabled === "boolean")
+          item.rulesEnabled = req.body.rulesEnabled;
+        if (typeof req.body?.aiEnabled === "boolean")
+          item.aiEnabled = req.body.aiEnabled;
+        item.updatedAt = now();
+        return item;
+      });
+      void botClient.syncSettings(settings);
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot_settings.updated",
+        entityType: "bot_settings",
+        entityId: settings.id,
+        metadata: null,
+      });
+      ok(res, settings);
+    }),
+  );
+
+  router.post(
+    "/bot-settings/test-after-hours",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      ok(res, {
+        wouldRespond: true,
+        reason: "Actualmente está fuera de horario.",
+        responseText:
+          "Gracias por escribir. Estamos fuera de horario. Te responderemos mañana a partir de las 9:00 AM.",
+        workspaceId: context.workspace.id,
+        whatsappAccountId: req.body?.whatsappAccountId ?? null,
+        incomingText: req.body?.incomingText ?? "Hola",
+      });
+    }),
+  );
+
+  router.get(
+    "/automation-rules",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const search = readOptionalString(req.query.search)?.toLowerCase();
+      const rows = database.automationRules
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.enabled
+            ? String(item.enabled) === String(req.query.enabled)
+            : true,
+        )
+        .filter((item) =>
+          req.query.whatsappAccountId
+            ? item.whatsappAccountId === req.query.whatsappAccountId
+            : true,
+        )
+        .filter((item) =>
+          search
+            ? `${item.keyword} ${item.responseText}`
+                .toLowerCase()
+                .includes(search)
+            : true,
+        )
+        .map((item) => ({
+          ...item,
+          scope: item.whatsappAccountId ? "whatsapp_account" : "workspace",
+          whatsappAccount: item.whatsappAccountId
+            ? (database.whatsappAccounts.find(
+                (account) => account.id === item.whatsappAccountId,
+              ) ?? null)
+            : null,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.get(
+    "/faq-auto-replies",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
+      const items = await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
+        return listFaqAutoRepliesForAccount(
+          database,
+          context.workspace.id,
+          accountId,
+        );
+      });
+      ok(res, items);
+    }),
+  );
+
+  router.post(
+    "/faq-auto-replies",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
+      const title =
+        typeof req.body?.title === "string" && req.body.title.trim()
+          ? req.body.title.trim()
+          : "Nueva respuesta";
+      const phrases = parsePhrases(req.body?.phrases);
+      const responseText =
+        typeof req.body?.responseText === "string" ? req.body.responseText : "";
+      if (title.length > 80 || responseText.length > 1000) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Respuesta invalida.",
+        });
+      }
+      const enabled =
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const threshold = parseThreshold(req.body?.threshold);
+      const item = await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
+        const created: FaqAutoReply = {
+          id: id("faq_auto_reply"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: accountId,
+          intent: id("faq_intent"),
+          title,
+          phrases,
+          responseText,
+          enabled,
+          threshold,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.faqAutoReplies.push(created);
+        return created;
+      });
+      void sweepUnansweredFaqAutoReplies(context.workspace.id);
+      ok(res, item, 201);
+    }),
+  );
+
+  router.put(
+    "/faq-auto-replies/:key",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
+      const key = String(req.params.key ?? "");
+      const phrases = parsePhrases(req.body?.phrases);
+      const responseText =
+        typeof req.body?.responseText === "string" ? req.body.responseText : "";
+      const title =
+        typeof req.body?.title === "string" ? req.body.title.trim() : "";
+      if (title.length > 80 || responseText.length > 1000) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Respuesta invalida.",
+        });
+      }
+      const enabled =
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const threshold = parseThreshold(req.body?.threshold);
+      const item = await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
+        const existing = database.faqAutoReplies.find(
+          (row) =>
+            row.workspaceId === context.workspace.id &&
+            row.whatsappAccountId === accountId &&
+            (row.id === key || row.intent === key),
+        );
+        if (existing) {
+          if (title) existing.title = title;
+          existing.phrases = phrases;
+          existing.responseText = responseText;
+          existing.enabled = enabled;
+          existing.threshold = threshold;
+          existing.updatedAt = now();
+          return existing;
+        }
+        if (!isFaqAutoReplyIntent(key)) {
+          throw new ApiError({
+            status: 404,
+            code: "NOT_FOUND",
+            message: "Respuesta automatica no encontrada.",
+          });
+        }
+        const defaults = FAQ_AUTO_REPLY_DEFAULTS[key];
+        const created: FaqAutoReply = {
+          id: id("faq_auto_reply"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: accountId,
+          intent: key,
+          title: title || defaults.title,
+          phrases,
+          responseText,
+          enabled,
+          threshold,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.faqAutoReplies.push(created);
+        return created;
+      });
+      void sweepUnansweredFaqAutoReplies(context.workspace.id);
+      ok(res, item);
+    }),
+  );
+
+  router.delete(
+    "/faq-auto-replies/:key",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId = requireWhatsAppAccountId(req);
+      const key = String(req.params.key ?? "");
+      await store.update((database) => {
+        findAccount(database, context.workspace.id, accountId);
+        const index = database.faqAutoReplies.findIndex(
+          (row) =>
+            row.workspaceId === context.workspace.id &&
+            row.whatsappAccountId === accountId &&
+            (row.id === key || row.intent === key),
+        );
+        if (index < 0) {
+          throw new ApiError({
+            status: 404,
+            code: "NOT_FOUND",
+            message: "Respuesta automatica no encontrada.",
+          });
+        }
+        const item = database.faqAutoReplies[index];
+        if (isFaqAutoReplyIntent(item.intent)) {
+          throw new ApiError({
+            status: 400,
+            code: "VALIDATION_ERROR",
+            message: "No se pueden eliminar las respuestas de banderas.",
+          });
+        }
+        database.faqAutoReplies.splice(index, 1);
+      });
+      ok(res, { deleted: true });
+    }),
+  );
+
+  router.post(
+    "/automation-rules",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const keyword = requireString(req.body?.keyword, "keyword");
+      const matchType = requireString(req.body?.matchType, "matchType");
+      const responseText = requireString(
+        req.body?.responseText,
+        "responseText",
+      );
+      if (
+        keyword.length > 80 ||
+        responseText.length > 1000 ||
+        !matchTypeValid(matchType)
+      ) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Regla invalida.",
+        });
+      }
+      const whatsappAccountId =
+        readOptionalString(req.body?.whatsappAccountId) ?? null;
+      const rule = await store.update((database) => {
+        if (whatsappAccountId)
+          findAccount(database, context.workspace.id, whatsappAccountId);
+        if (
+          database.automationRules.some(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.whatsappAccountId === whatsappAccountId &&
+              item.keyword.toLowerCase() === keyword.toLowerCase() &&
+              item.matchType === matchType,
+          )
+        ) {
+          throw new ApiError({
+            status: 409,
+            code: "DUPLICATED_AUTOMATION_RULE",
+            message: "Regla duplicada.",
+          });
+        }
+        const item: AutomationRule = {
+          id: id("rule"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId,
+          keyword,
+          matchType,
+          responseText,
+          enabled: req.body?.enabled !== false,
+          avoidIfAgentResponded: req.body?.avoidIfAgentResponded !== false,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.automationRules.push(item);
+        return item;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_rule.created",
+        entityType: "automation_rule",
+        entityId: rule.id,
+        metadata: null,
+      });
+      ok(res, rule, 201);
+    }),
+  );
+
+  router.get(
+    "/automation-rules/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rule = database.automationRules.find(
+        (item) =>
+          item.id === req.params.id &&
+          item.workspaceId === context.workspace.id,
+      );
+      if (!rule)
+        throw new ApiError({
+          status: 404,
+          code: "AUTOMATION_RULE_NOT_FOUND",
+          message: "Regla no encontrada.",
+        });
+      ok(res, rule);
+    }),
+  );
+
+  router.patch(
+    "/automation-rules/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const rule = await store.update((database) => {
+        const item = database.automationRules.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!item)
+          throw new ApiError({
+            status: 404,
+            code: "AUTOMATION_RULE_NOT_FOUND",
+            message: "Regla no encontrada.",
+          });
+        const keyword = readOptionalString(req.body?.keyword);
+        const matchType = readOptionalString(req.body?.matchType);
+        const responseText = readOptionalString(req.body?.responseText);
+        if (keyword) item.keyword = keyword;
+        if (matchType) {
+          if (!matchTypeValid(matchType))
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Tipo de coincidencia invalido.",
+            });
+          item.matchType = matchType;
+        }
+        if (responseText) item.responseText = responseText;
+        if (typeof req.body?.enabled === "boolean")
+          item.enabled = req.body.enabled;
+        item.updatedAt = now();
+        return item;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_rule.updated",
+        entityType: "automation_rule",
+        entityId: rule.id,
+        metadata: null,
+      });
+      ok(res, rule);
+    }),
+  );
+
+  router.delete(
+    "/automation-rules/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      await store.update((database) => {
+        const index = database.automationRules.findIndex(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (index === -1)
+          throw new ApiError({
+            status: 404,
+            code: "AUTOMATION_RULE_NOT_FOUND",
+            message: "Regla no encontrada.",
+          });
+        database.automationRules.splice(index, 1);
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_rule.deleted",
+        entityType: "automation_rule",
+        entityId: req.params.id,
+        metadata: null,
+      });
+      ok(res, { id: req.params.id, deleted: true });
+    }),
+  );
+
+  router.get(
+    "/automation-blocked-contacts",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const search = readOptionalString(req.query.search)?.toLowerCase();
+      const rows = database.automationBlockedContacts
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          search
+            ? `${item.phoneNumber} ${item.label ?? ""} ${item.reason ?? ""}`
+                .toLowerCase()
+                .includes(search)
+            : true,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/automation-blocked-contacts",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const phoneNumber = requireString(req.body?.phoneNumber, "phoneNumber");
+      const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+      if (normalizedPhoneNumber.length < 8)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Numero invalido.",
+        });
+      const label = readOptionalString(req.body?.label) ?? null;
+      const reason = readOptionalString(req.body?.reason) ?? null;
+      const enabled =
+        typeof req.body?.enabled === "boolean" ? req.body.enabled : true;
+      const item = await store.update((database) => {
+        const existing = database.automationBlockedContacts.find(
+          (blocked) =>
+            blocked.workspaceId === context.workspace.id &&
+            normalizePhoneNumber(blocked.phoneNumber) === normalizedPhoneNumber,
+        );
+        if (existing) {
+          existing.phoneNumber = normalizedPhoneNumber;
+          existing.label = label;
+          existing.reason = reason;
+          existing.enabled = enabled;
+          existing.updatedAt = now();
+          return existing;
+        }
+        const blockedContact: AutomationBlockedContact = {
+          id: id("automation_blocked_contact"),
+          workspaceId: context.workspace.id,
+          phoneNumber: normalizedPhoneNumber,
+          label,
+          reason,
+          enabled,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.automationBlockedContacts.push(blockedContact);
+        return blockedContact;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_blocked_contact.upserted",
+        entityType: "automation_blocked_contact",
+        entityId: item.id,
+        metadata: null,
+      });
+      ok(res, item, 201);
+    }),
+  );
+
+  router.patch(
+    "/automation-blocked-contacts/:id",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const item = await store.update((database) => {
+        const blockedContact = database.automationBlockedContacts.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!blockedContact)
+          throw new ApiError({
+            status: 404,
+            code: "BLOCKED_CONTACT_NOT_FOUND",
+            message: "Numero bloqueado no encontrado.",
+          });
+        if ("phoneNumber" in req.body) {
+          const phoneNumber = requireString(
+            req.body?.phoneNumber,
+            "phoneNumber",
+          );
+          const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber);
+          if (normalizedPhoneNumber.length < 8)
+            throw new ApiError({
+              status: 400,
+              code: "VALIDATION_ERROR",
+              message: "Numero invalido.",
+            });
+          blockedContact.phoneNumber = normalizedPhoneNumber;
+        }
+        if ("label" in req.body)
+          blockedContact.label = readOptionalString(req.body?.label) ?? null;
+        if ("reason" in req.body)
+          blockedContact.reason = readOptionalString(req.body?.reason) ?? null;
+        if (typeof req.body?.enabled === "boolean")
+          blockedContact.enabled = req.body.enabled;
+        blockedContact.updatedAt = now();
+        return blockedContact;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_blocked_contact.updated",
+        entityType: "automation_blocked_contact",
+        entityId: item.id,
+        metadata: null,
+      });
+      ok(res, item);
+    }),
+  );
+
+  router.delete(
+    "/automation-blocked-contacts/:id",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      await store.update((database) => {
+        const index = database.automationBlockedContacts.findIndex(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (index < 0)
+          throw new ApiError({
+            status: 404,
+            code: "BLOCKED_CONTACT_NOT_FOUND",
+            message: "Numero bloqueado no encontrado.",
+          });
+        database.automationBlockedContacts.splice(index, 1);
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "automation_blocked_contact.deleted",
+        entityType: "automation_blocked_contact",
+        entityId: req.params.id,
+        metadata: null,
+      });
+      ok(res, { id: req.params.id, deleted: true });
+    }),
+  );
+
+  router.post(
+    "/automation-rules/test",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const incomingText = requireString(
+        req.body?.incomingText,
+        "incomingText",
+      ).toLowerCase();
+      const database = await store.read();
+      const rule = database.automationRules.find((item) => {
+        if (item.workspaceId !== context.workspace.id || !item.enabled)
+          return false;
+        const keyword = item.keyword.toLowerCase();
+        if (item.matchType === "exact") return incomingText === keyword;
+        if (item.matchType === "starts_with")
+          return incomingText.startsWith(keyword);
+        return incomingText.includes(keyword);
+      });
+      ok(
+        res,
+        rule
+          ? {
+              matched: true,
+              rule: {
+                id: rule.id,
+                keyword: rule.keyword,
+                matchType: rule.matchType,
+              },
+              responseText: rule.responseText,
+            }
+          : { matched: false, rule: null, responseText: null },
+      );
+    }),
+  );
+
+  router.get(
+    "/bots",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.bots
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .map((bot) => ({
+          id: bot.id,
+          name: bot.name,
+          instructions: bot.instructions,
+          status: bot.status,
+          externalAssistantId: bot.externalAssistantId,
+          clientId: bot.clientId,
+          hasClientToken: Boolean(bot.clientToken),
+          createdAt: bot.createdAt,
+          updatedAt: bot.updatedAt,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/bots",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const name = requireString(req.body?.name, "name");
+      const instructions = requireString(
+        req.body?.instructions,
+        "instructions",
+      );
+      const status = botStatusValid(req.body?.status)
+        ? req.body.status
+        : "active";
+      if (name.length > 100 || instructions.length > 8000) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Bot invalido.",
+        });
+      }
+      const normalizedName = normalizeBotName(name);
+      const snapshot = await store.read();
+      if (
+        snapshot.bots.some(
+          (bot) =>
+            bot.workspaceId === context.workspace.id &&
+            normalizeBotName(bot.name) === normalizedName,
+        )
+      ) {
+        throw new ApiError({
+          status: 409,
+          code: "DUPLICATED_BOT_NAME",
+          message: "Ya existe un bot con ese nombre.",
+        });
+      }
+
+      const clientId =
+        readOptionalString(req.body?.clientId) ??
+        `taku_${context.workspace.id}_${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+      let clientToken = readOptionalString(req.body?.clientToken) ?? null;
+      if (!clientToken) {
+        try {
+          logBotProvisioningEvent("taku_backend_bot_client_create_attempt", {
+            workspaceId: context.workspace.id,
+            clientId,
+          });
+          clientToken = await botClient.ensureClientAccount(clientId);
+          logBotProvisioningEvent("taku_backend_bot_client_create_ok", {
+            workspaceId: context.workspace.id,
+            clientId,
+            hasClientToken: Boolean(clientToken),
+          });
+        } catch (error) {
+          logBotProvisioningEvent("taku_backend_bot_client_create_failed", {
+            workspaceId: context.workspace.id,
+            clientId,
+            error: errorLogDetails(error),
+          });
+          throw error;
+        }
+      }
+      if (!clientToken) {
+        throw new ApiError({
+          status: 502,
+          code: "BOT_CLIENT_TOKEN_UNAVAILABLE",
+          message: "Bot Service no regreso un client_token.",
+        });
+      }
+      let assistant;
+      try {
+        logBotProvisioningEvent("taku_backend_bot_assistant_create_attempt", {
+          workspaceId: context.workspace.id,
+          clientId,
+          name,
+        });
+        assistant = await botClient.createAssistant({
+          clientId,
+          clientToken,
+          name,
+          instructions,
+        });
+        logBotProvisioningEvent("taku_backend_bot_assistant_create_ok", {
+          workspaceId: context.workspace.id,
+          clientId,
+          assistantId: assistant?.id ?? null,
+        });
+      } catch (error) {
+        logBotProvisioningEvent("taku_backend_bot_assistant_create_failed", {
+          workspaceId: context.workspace.id,
+          clientId,
+          error: errorLogDetails(error),
+        });
+        throw error;
+      }
+      if (!assistant?.id) {
+        throw new ApiError({
+          status: 502,
+          code: "BOT_SERVICE_INVALID_RESPONSE",
+          message: "Bot Service no regreso un assistant id.",
+        });
+      }
+
+      const bot = await store.update((database) => {
+        const item = {
+          id: id("bot"),
+          workspaceId: context.workspace.id,
+          name,
+          instructions,
+          status,
+          externalAssistantId: assistant?.id ?? null,
+          clientId,
+          clientToken,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.bots.push(item);
+        return item;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot.created",
+        entityType: "bot",
+        entityId: bot.id,
+        metadata: { externalAssistantId: bot.externalAssistantId },
+      });
+      ok(
+        res,
+        {
+          ...bot,
+          clientToken: undefined,
+          hasClientToken: Boolean(bot.clientToken),
+        },
+        201,
+      );
+    }),
+  );
+
+  router.patch(
+    "/bots/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const snapshot = await store.read();
+      const current = snapshot.bots.find(
+        (item) =>
+          item.id === req.params.id &&
+          item.workspaceId === context.workspace.id,
+      );
+      if (!current)
+        throw new ApiError({
+          status: 404,
+          code: "BOT_NOT_FOUND",
+          message: "Bot no encontrado.",
+        });
+      const name = readOptionalString(req.body?.name) ?? current.name;
+      const instructions =
+        readOptionalString(req.body?.instructions) ?? current.instructions;
+      const status = botStatusValid(req.body?.status)
+        ? req.body.status
+        : current.status;
+      const normalizedName = normalizeBotName(name);
+      if (
+        snapshot.bots.some(
+          (bot) =>
+            bot.id !== current.id &&
+            bot.workspaceId === context.workspace.id &&
+            normalizeBotName(bot.name) === normalizedName,
+        )
+      ) {
+        throw new ApiError({
+          status: 409,
+          code: "DUPLICATED_BOT_NAME",
+          message: "Ya existe un bot con ese nombre.",
+        });
+      }
+
+      if (
+        current.clientId &&
+        current.clientToken &&
+        current.externalAssistantId
+      ) {
+        await botClient.updateAssistant({
+          clientId: current.clientId,
+          clientToken: current.clientToken,
+          assistantId: current.externalAssistantId,
+          name,
+          instructions,
+        });
+      }
+
+      const bot = await store.update((database) => {
+        const item = database.bots.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!item)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        item.name = name;
+        item.instructions = instructions;
+        item.status = status;
+        item.updatedAt = now();
+        return item;
+      });
+      ok(res, { ...bot, clientToken: undefined, hasClientToken: true });
+    }),
+  );
+
+  router.delete(
+    "/bots/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const result = await store.update((database) => {
+        const botIndex = database.bots.findIndex(
+          (item) =>
+            item.id === req.params.id &&
+            item.workspaceId === context.workspace.id,
+        );
+        if (botIndex < 0)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        const [bot] = database.bots.splice(botIndex, 1);
+        let disabledAssignments = 0;
+        for (const assignment of database.botAssignments) {
+          if (
+            assignment.workspaceId === context.workspace.id &&
+            assignment.botId === req.params.id
+          ) {
+            assignment.enabled = false;
+            assignment.mode = "disabled";
+            assignment.updatedAt = now();
+            disabledAssignments += 1;
+          }
+        }
+        return {
+          bot,
+          disabledAssignments,
+        };
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot.deleted",
+        entityType: "bot",
+        entityId: req.params.id,
+        metadata: { disabledAssignments: result.disabledAssignments },
+      });
+      ok(res, {
+        deleted: true,
+        id: req.params.id,
+        disabledAssignments: result.disabledAssignments,
+      });
+    }),
+  );
+
+  router.get(
+    "/bot-assignments",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.botAssignments
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.whatsappAccountId
+            ? item.whatsappAccountId === req.query.whatsappAccountId
+            : true,
+        )
+        .map((assignment) => ({
+          ...assignment,
+          bot:
+            database.bots.find((item) => item.id === assignment.botId) ?? null,
+          whatsappAccount:
+            database.whatsappAccounts.find(
+              (item) => item.id === assignment.whatsappAccountId,
+            ) ?? null,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.post(
+    "/bot-assignments",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const whatsappAccountId = requireString(
+        req.body?.whatsappAccountId,
+        "whatsappAccountId",
+      );
+      const botId = requireString(req.body?.botId, "botId");
+      const mode = botAssignmentModeValid(req.body?.mode)
+        ? req.body.mode
+        : "outside_business_hours";
+      const assignment = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          whatsappAccountId,
+        );
+        const bot = database.bots.find(
+          (item) =>
+            item.id === botId && item.workspaceId === context.workspace.id,
+        );
+        if (!bot)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        if (bot.status !== "active")
+          throw new ApiError({
+            status: 400,
+            code: "BOT_NOT_ACTIVE",
+            message: "Solo puedes asignar bots activos.",
+          });
+        let item = database.botAssignments.find(
+          (found) =>
+            found.workspaceId === context.workspace.id &&
+            found.whatsappAccountId === account.id,
+        );
+        if (!item) {
+          item = {
+            id: id("bot_assignment"),
+            workspaceId: context.workspace.id,
+            whatsappAccountId: account.id,
+            botId: bot.id,
+            enabled: req.body?.enabled !== false,
+            mode,
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.botAssignments.push(item);
+        } else {
+          item.botId = bot.id;
+          item.enabled = req.body?.enabled !== false;
+          item.mode = mode;
+          item.updatedAt = now();
+        }
+        return item;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "bot_assignment.upserted",
+        entityType: "bot_assignment",
+        entityId: assignment.id,
+        metadata: null,
+      });
+      ok(res, assignment, 201);
+    }),
+  );
+
+  router.patch(
+    "/bot-assignments/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const assignment = await store.update((database) => {
+        const item = database.botAssignments.find(
+          (found) =>
+            found.id === req.params.id &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (!item)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_ASSIGNMENT_NOT_FOUND",
+            message: "Asignacion no encontrada.",
+          });
+        if (readOptionalString(req.body?.botId)) {
+          const bot = database.bots.find(
+            (found) =>
+              found.id === req.body.botId &&
+              found.workspaceId === context.workspace.id,
+          );
+          if (!bot)
+            throw new ApiError({
+              status: 404,
+              code: "BOT_NOT_FOUND",
+              message: "Bot no encontrado.",
+            });
+          item.botId = bot.id;
+        }
+        if (typeof req.body?.enabled === "boolean")
+          item.enabled = req.body.enabled;
+        if (botAssignmentModeValid(req.body?.mode)) item.mode = req.body.mode;
+        item.updatedAt = now();
+        return item;
+      });
+      ok(res, assignment);
+    }),
+  );
+
+  router.get(
+    "/automation-decisions",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.automationDecisionLogs
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          req.query.whatsappAccountId
+            ? item.whatsappAccountId === req.query.whatsappAccountId
+            : true,
+        )
+        .filter((item) =>
+          req.query.decision ? item.decision === req.query.decision : true,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .map((item) => ({
+          ...item,
+          bot: item.botId
+            ? (database.bots.find((bot) => bot.id === item.botId) ?? null)
+            : null,
+          whatsappAccount:
+            database.whatsappAccounts.find(
+              (account) => account.id === item.whatsappAccountId,
+            ) ?? null,
+        }));
+      const page = pageResponse(rows, req.query);
+      paginated(res, page.items, { ...page.pagination, total: page.total });
+    }),
+  );
+
+  router.get(
+    "/dashboard/overview",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      if (context.role === "agent") {
+        ok(res, {
+          metrics: {
+            myOpenConversations: database.conversations.filter(
+              (item) =>
+                item.workspaceId === context.workspace.id &&
+                item.assignedUserId === context.user.id &&
+                item.status === "open",
+            ).length,
+            unassignedConversations: database.conversations.filter(
+              (item) =>
+                item.workspaceId === context.workspace.id &&
+                !item.assignedUserId,
+            ).length,
+            unansweredMessages: database.conversations.filter(
+              (item) =>
+                item.workspaceId === context.workspace.id &&
+                item.unreadCount > 0,
+            ).length,
+          },
+          shortcuts: [
+            {
+              label: "Ver mis conversaciones",
+              href: "/conversations?assignedTo=me",
+            },
+            { label: "Ver sin responder", href: "/conversations?unread=true" },
+          ],
+        });
+        return;
+      }
+      ok(res, {
+        metrics: {
+          openConversations: database.conversations.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.status === "open",
+          ).length,
+          unansweredMessages: database.conversations.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id && item.unreadCount > 0,
+          ).length,
+          connectedWhatsappAccounts: database.whatsappAccounts.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.status === "connected",
+          ).length,
+          disconnectedWhatsappAccounts: database.whatsappAccounts.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.status === "disconnected",
+          ).length,
+          activeAutomationRules: database.automationRules.filter(
+            (item) => item.workspaceId === context.workspace.id && item.enabled,
+          ).length,
+        },
+        alerts: database.whatsappAccounts
+          .filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.status === "disconnected",
+          )
+          .map((item) => ({
+            type: "warning",
+            code: "WHATSAPP_ACCOUNT_DISCONNECTED",
+            message: `El número ${item.displayName} está desconectado.`,
+            action: {
+              label: "Reconectar",
+              href: `/whatsapp-accounts/${item.id}/connect`,
+            },
+          })),
+        recentActivity: database.auditLogs
+          .filter((item) => item.workspaceId === context.workspace.id)
+          .slice(-10)
+          .reverse()
+          .map((item) => ({
+            id: item.id,
+            type: item.action,
+            message: item.action,
+            createdAt: item.createdAt,
+          })),
+      });
+    }),
+  );
+
+  router.get("/profile", (req, res) => {
+    const context = assertWorkspace(req);
+    ok(res, publicUser(context.user));
+  });
+
+  router.patch(
+    "/profile",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const name = requireString(req.body?.name, "name");
+      const data = await store.update((database) => {
+        const user = database.users.find((item) => item.id === context.user.id);
+        if (!user)
+          throw new ApiError({
+            status: 404,
+            code: "USER_NOT_FOUND",
+            message: "Usuario no encontrado.",
+          });
+        user.name = name;
+        user.updatedAt = now();
+        return publicUser(user);
+      });
+      ok(res, data);
+    }),
+  );
+
+  router.post(
+    "/profile/change-password",
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const currentPassword = requireString(
+        req.body?.currentPassword,
+        "currentPassword",
+      );
+      const newPassword = requireString(req.body?.newPassword, "newPassword");
+      const confirmation = requireString(
+        req.body?.newPasswordConfirmation,
+        "newPasswordConfirmation",
+      );
+      if (newPassword.length < 8 || newPassword !== confirmation)
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La contraseña debe tener minimo 8 caracteres y coincidir.",
+        });
+      await store.update((database) => {
+        const user = database.users.find((item) => item.id === context.user.id);
+        if (!user || !verifyPassword(currentPassword, user.passwordHash))
+          throw new ApiError({
+            status: 401,
+            code: "INVALID_CREDENTIALS",
+            message: "Contraseña actual incorrecta.",
+          });
+        user.passwordHash = hashPassword(newPassword);
+        user.updatedAt = now();
+      });
+      ok(res, { message: "Contraseña actualizada correctamente." });
+    }),
+  );
+
+  router.get(
+    "/preferences",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const preferences =
+        database.preferences.find(
+          (item) => item.workspaceId === context.workspace.id,
+        ) ?? null;
+      ok(
+        res,
+        preferences
+          ? {
+              ...preferences,
+              driversGroupMode: driversGroupModeOf(preferences),
+            }
+          : null,
+      );
+    }),
+  );
+
+  router.patch(
+    "/preferences",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const data = await store.update((database) => {
+        let preferences = database.preferences.find(
+          (item) => item.workspaceId === context.workspace.id,
+        );
+        if (!preferences) {
+          preferences = {
+            id: id("preferences"),
+            workspaceId: context.workspace.id,
+            defaultConversationStatus: "open",
+            autoCloseEnabled: false,
+            autoCloseAfterHours: null,
+            showBotMessages: true,
+            agentsCanCloseConversations: true,
+            agentsCanReassignConversations: false,
+            driversGroupMode: "prod",
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          database.preferences.push(preferences);
+        }
+        if (statusValid(req.body?.defaultConversationStatus))
+          preferences.defaultConversationStatus =
+            req.body.defaultConversationStatus;
+        if (typeof req.body?.autoCloseEnabled === "boolean")
+          preferences.autoCloseEnabled = req.body.autoCloseEnabled;
+        if (
+          typeof req.body?.autoCloseAfterHours === "number" ||
+          req.body?.autoCloseAfterHours === null
+        )
+          preferences.autoCloseAfterHours = req.body.autoCloseAfterHours;
+        if (typeof req.body?.showBotMessages === "boolean")
+          preferences.showBotMessages = req.body.showBotMessages;
+        if (typeof req.body?.agentsCanCloseConversations === "boolean")
+          preferences.agentsCanCloseConversations =
+            req.body.agentsCanCloseConversations;
+        if (typeof req.body?.agentsCanReassignConversations === "boolean")
+          preferences.agentsCanReassignConversations =
+            req.body.agentsCanReassignConversations;
+        if (isDriversGroupMode(req.body?.driversGroupMode))
+          preferences.driversGroupMode = req.body.driversGroupMode;
+        preferences.updatedAt = now();
+        return {
+          ...preferences,
+          driversGroupMode: driversGroupModeOf(preferences),
+        } as Preferences;
+      });
+      ok(res, {
+        message: "Preferencias actualizadas correctamente.",
+        preferences: data,
+      });
+    }),
+  );
+
+  router.post(
+    "/webhooks/bot",
+    asyncHandler(async (req, res) => {
+      validateWebhook(req, config.botServiceWebhookSecret);
+      const externalBotId = requireString(
+        req.body?.externalBotId,
+        "externalBotId",
+      );
+      const event = requireString(req.body?.event, "event");
+      const data =
+        req.body?.data && typeof req.body.data === "object"
+          ? (req.body.data as Record<string, unknown>)
+          : {};
+      const result = await store.update((database) => {
+        const settings = database.botSettings.find(
+          (item) => item.externalBotId === externalBotId,
+        );
+        if (!settings)
+          throw new ApiError({
+            status: 404,
+            code: "BOT_SETTINGS_NOT_FOUND",
+            message: "Bot no encontrado.",
+          });
+        if (event !== "bot.message_generated")
+          return { workspaceId: settings.workspaceId };
+        const conversationId = requireString(
+          data.conversationId,
+          "conversationId",
+        );
+        const text = requireString(data.text, "text");
+        const conversation = findConversation(
+          database,
+          settings.workspaceId,
+          conversationId,
+        );
+        const message: Message = {
+          id: id("message"),
+          workspaceId: settings.workspaceId,
+          conversationId,
+          whatsappAccountId: conversation.whatsappAccountId,
+          contactId: conversation.contactId,
+          externalMessageId: null,
+          direction: "bot",
+          type: "text",
+          body: text,
+          mediaUrl: null,
+          mediaMimeType: null,
+          mediaFilename: null,
+          status: "sent",
+          sentByUserId: null,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        database.messages.push(message);
+        conversation.lastMessageBody = text;
+        conversation.lastMessageAt = message.createdAt;
+        conversation.updatedAt = now();
+        return {
+          workspaceId: settings.workspaceId,
+          message: messageView(message, database),
+          conversation: conversationView(conversation, database),
+        };
+      });
+      if ("message" in result)
+        realtime.emitToWorkspace(
+          result.workspaceId,
+          "bot.reply.created",
+          result,
+        );
+      ok(res, { received: true });
+    }),
+  );
+
+  router.get(
+    "/week-closes",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.weekCloses
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .sort((left, right) => right.weekStart.localeCompare(left.weekStart));
+      ok(res, rows);
+    }),
+  );
+
+  router.get(
+    "/week-closes/:weekStart",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const weekStart = requireString(req.params.weekStart, "weekStart");
+      const database = await store.read();
+      const item = database.weekCloses.find(
+        (found) =>
+          found.workspaceId === context.workspace.id &&
+          found.weekStart === weekStart,
+      );
+      if (!item)
+        throw new ApiError({
+          status: 404,
+          code: "WEEK_CLOSE_NOT_FOUND",
+          message: "Cierre de semana no encontrado.",
+        });
+      ok(res, item);
+    }),
+  );
+
+  router.put(
+    "/week-closes/:weekStart",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const weekStart = requireString(req.params.weekStart, "weekStart");
+      if (!isMondayDateKey(weekStart)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La semana debe empezar en lunes.",
+        });
+      }
+      const weekEnd = weekEndFromStart(weekStart);
+      if (!weekEnd) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Semana invalida.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      if (!isPastWeek(weekStart, new Date(), timeZone)) {
+        throw new ApiError({
+          status: 400,
+          code: "WEEK_STILL_OPEN",
+          message: "Solo se puede cerrar una semana que ya termino.",
+        });
+      }
+      const mojarrasBought = requireNonNegativeNumber(
+        req.body?.mojarrasBought,
+        "mojarrasBought",
+        true,
+      );
+      const mojarraKg = requireNonNegativeNumber(
+        req.body?.mojarraKg,
+        "mojarraKg",
+      );
+      const kgCost = requireNonNegativeNumber(req.body?.kgCost, "kgCost");
+      const platosPerMojarra = requireNonNegativeNumber(
+        req.body?.platosPerMojarra ?? 3,
+        "platosPerMojarra",
+      );
+      const gasPerMojarra = requireNonNegativeNumber(
+        req.body?.gasPerMojarra ?? 5,
+        "gasPerMojarra",
+      );
+      const aceite = requireNonNegativeNumber(req.body?.aceite, "aceite");
+      const raya = requireNonNegativeNumber(req.body?.raya, "raya");
+      const publi = requireNonNegativeNumber(req.body?.publi, "publi");
+      const comidaVerduras = requireNonNegativeNumber(
+        req.body?.comidaVerduras,
+        "comidaVerduras",
+      );
+      const otros = requireNonNegativeNumber(req.body?.otros, "otros");
+      const ingresos = requireNonNegativeNumber(req.body?.ingresos, "ingresos");
+      const mojarrasVendidas = requireNonNegativeNumber(
+        req.body?.mojarrasVendidas,
+        "mojarrasVendidas",
+        true,
+      );
+      const totals = computeWeekCloseTotals({
+        mojarrasBought,
+        mojarraKg,
+        kgCost,
+        platosPerMojarra,
+        gasPerMojarra,
+        aceite,
+        raya,
+        publi,
+        comidaVerduras,
+        otros,
+        ingresos,
+      });
+      const item = await store.update((database) => {
+        const current = database.weekCloses.find(
+          (found) =>
+            found.workspaceId === context.workspace.id &&
+            found.weekStart === weekStart,
+        );
+        const stamp = now();
+        if (current) {
+          current.mojarrasBought = mojarrasBought;
+          current.mojarraKg = mojarraKg;
+          current.kgCost = kgCost;
+          current.platosPerMojarra = platosPerMojarra;
+          current.gasPerMojarra = gasPerMojarra;
+          current.aceite = aceite;
+          current.raya = raya;
+          current.publi = publi;
+          current.comidaVerduras = comidaVerduras;
+          current.otros = otros;
+          current.ingresos = ingresos;
+          current.mojarrasVendidas = mojarrasVendidas;
+          current.mojarraCost = totals.mojarraCost;
+          current.platos = totals.platos;
+          current.gas = totals.gas;
+          current.gastos = totals.gastos;
+          current.neto = totals.neto;
+          current.closedByUserId = context.user.id;
+          current.updatedAt = stamp;
+          return current;
+        }
+        const created: WeekClose = {
+          id: id("weekclose"),
+          workspaceId: context.workspace.id,
+          weekStart,
+          weekEnd,
+          mojarrasBought,
+          mojarraKg,
+          kgCost,
+          platosPerMojarra,
+          gasPerMojarra,
+          aceite,
+          raya,
+          publi,
+          comidaVerduras,
+          otros,
+          ingresos,
+          mojarrasVendidas,
+          mojarraCost: totals.mojarraCost,
+          platos: totals.platos,
+          gas: totals.gas,
+          gastos: totals.gastos,
+          neto: totals.neto,
+          closedByUserId: context.user.id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
+        database.weekCloses.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "week_close.saved",
+        entityType: "week_close",
+        entityId: item.id,
+        metadata: { weekStart },
+      });
+      ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
+    }),
+  );
+
+  router.get(
+    "/day-closes",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const database = await store.read();
+      const rows = database.dayCloses
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .sort((left, right) => right.dayKey.localeCompare(left.dayKey));
+      ok(res, rows);
+    }),
+  );
+
+  router.get(
+    "/day-closes/:dayKey",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const dayKey = requireString(req.params.dayKey, "dayKey");
+      const database = await store.read();
+      const item = database.dayCloses.find(
+        (found) =>
+          found.workspaceId === context.workspace.id && found.dayKey === dayKey,
+      );
+      if (!item)
+        throw new ApiError({
+          status: 404,
+          code: "DAY_CLOSE_NOT_FOUND",
+          message: "Cierre de caja no encontrado.",
+        });
+      ok(res, item);
+    }),
+  );
+
+  router.put(
+    "/day-closes/:dayKey",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const dayKey = requireString(req.params.dayKey, "dayKey");
+      if (!isDateKey(dayKey)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "El dia es invalido.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      if (!canCloseCashDay(dayKey, new Date(), timeZone)) {
+        throw new ApiError({
+          status: 400,
+          code: "DAY_STILL_OPEN",
+          message: "El cierre de caja se puede hacer despues de las 5:00 pm.",
+        });
+      }
+      const expectedEfectivo = requireNonNegativeNumber(
+        req.body?.expectedEfectivo,
+        "expectedEfectivo",
+      );
+      const expectedBanco = requireNonNegativeNumber(
+        req.body?.expectedBanco,
+        "expectedBanco",
+      );
+      const expectedTotal = requireNonNegativeNumber(
+        req.body?.expectedTotal,
+        "expectedTotal",
+      );
+      const countedEfectivo = requireNonNegativeNumber(
+        req.body?.countedEfectivo,
+        "countedEfectivo",
+      );
+      const countedBanco = requireNonNegativeNumber(
+        req.body?.countedBanco,
+        "countedBanco",
+      );
+      const extraGastos = requireNonNegativeNumber(
+        req.body?.extraGastos,
+        "extraGastos",
+      );
+      const orderCount = requireNonNegativeNumber(
+        req.body?.orderCount,
+        "orderCount",
+        true,
+      );
+      const mojarras = requireNonNegativeNumber(
+        req.body?.mojarras,
+        "mojarras",
+        true,
+      );
+      const empanadas = requireNonNegativeNumber(
+        req.body?.empanadas,
+        "empanadas",
+        true,
+      );
+      const diferencia = computeDayCloseDiferencia({
+        expectedTotal,
+        countedEfectivo,
+        countedBanco,
+        extraGastos,
+      });
+      const item = await store.update((database) => {
+        const current = database.dayCloses.find(
+          (found) =>
+            found.workspaceId === context.workspace.id &&
+            found.dayKey === dayKey,
+        );
+        const stamp = now();
+        if (current) {
+          current.expectedEfectivo = expectedEfectivo;
+          current.expectedBanco = expectedBanco;
+          current.expectedTotal = expectedTotal;
+          current.countedEfectivo = countedEfectivo;
+          current.countedBanco = countedBanco;
+          current.extraGastos = extraGastos;
+          current.diferencia = diferencia;
+          current.orderCount = orderCount;
+          current.mojarras = mojarras;
+          current.empanadas = empanadas;
+          current.closedByUserId = context.user.id;
+          current.updatedAt = stamp;
+          return current;
+        }
+        const created: DayClose = {
+          id: id("dayclose"),
+          workspaceId: context.workspace.id,
+          dayKey,
+          expectedEfectivo,
+          expectedBanco,
+          expectedTotal,
+          countedEfectivo,
+          countedBanco,
+          extraGastos,
+          diferencia,
+          orderCount,
+          mojarras,
+          empanadas,
+          closedByUserId: context.user.id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
+        database.dayCloses.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "day_close.saved",
+        entityType: "day_close",
+        entityId: item.id,
+        metadata: { dayKey },
+      });
+      ok(res, item, item.createdAt === item.updatedAt ? 201 : 200);
+    }),
+  );
+
+  router.get(
+    "/expenses",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const date = readOptionalString(req.query?.date);
+      if (date && !isDateKey(date)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La fecha es invalida.",
+        });
+      }
+      const database = await store.read();
+      const rows = sortDailyExpenses(
+        database.dailyExpenses.filter((item) => {
+          if (item.workspaceId !== context.workspace.id) return false;
+          return date ? item.date === date : true;
+        }),
+      ).map(dailyExpenseView);
+      ok(res, rows);
+    }),
+  );
+
+  router.post(
+    "/expenses",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const concept = requireString(req.body?.concept, "concept");
+      const amountCents = parseAmountCents({
+        amount: req.body?.amount,
+        amountCents: req.body?.amountCents,
+      });
+      if (amountCents == null) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La cantidad debe ser mayor a 0.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      const date =
+        readOptionalString(req.body?.date) ??
+        todayDateKey(new Date(), timeZone);
+      if (!isDateKey(date)) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La fecha es invalida.",
+        });
+      }
+      const item = await store.update((database) => {
+        const stamp = now();
+        const created: DailyExpense = {
+          id: id("expense"),
+          workspaceId: context.workspace.id,
+          date,
+          concept,
+          amountCents,
+          createdByUserId: context.user.id,
+          createdAt: stamp,
+          updatedAt: stamp,
+        };
+        database.dailyExpenses.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "daily_expense.created",
+        entityType: "daily_expense",
+        entityId: item.id,
+        metadata: { date, amountCents },
+      });
+      ok(res, dailyExpenseView(item), 201);
+    }),
+  );
+
+  router.delete(
+    "/expenses/:id",
+    requireRole(ownerAdmin),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const expenseId = requireString(req.params.id, "id");
+      const item = await store.update((database) => {
+        const index = database.dailyExpenses.findIndex(
+          (found) =>
+            found.id === expenseId &&
+            found.workspaceId === context.workspace.id,
+        );
+        if (index < 0) {
+          throw new ApiError({
+            status: 404,
+            code: "EXPENSE_NOT_FOUND",
+            message: "Gasto no encontrado.",
+          });
+        }
+        const [removed] = database.dailyExpenses.splice(index, 1);
+        return removed;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "daily_expense.deleted",
+        entityType: "daily_expense",
+        entityId: item.id,
+        metadata: { date: item.date, amountCents: item.amountCents },
+      });
+      ok(res, { id: item.id });
+    }),
+  );
+
+  router.get(
+    "/attendance/punches",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const accountId = readOptionalString(req.query?.whatsappAccountId);
+      const database = await store.read();
+      const rows = database.attendancePunches
+        .filter((item) => item.workspaceId === context.workspace.id)
+        .filter((item) =>
+          accountId ? item.whatsappAccountId === accountId : true,
+        )
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      ok(res, rows);
+    }),
+  );
+
+  router.post(
+    "/attendance/punches",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      const context = assertWorkspace(req);
+      const whatsappAccountId = requireString(
+        req.body?.whatsappAccountId,
+        "whatsappAccountId",
+      );
+      const phoneNumber = requireString(req.body?.phoneNumber, "phoneNumber");
+      const pin = requireString(req.body?.pin, "pin");
+      const employee = findEmployee(phoneNumber, pin);
+      if (!employee) {
+        throw new ApiError({
+          status: 400,
+          code: "INVALID_TIME_CLOCK",
+          message: "Numero o PIN incorrecto.",
+        });
+      }
+      const timeZone = context.workspace.timezone || "America/Mexico_City";
+      const punch = await store.update((database) => {
+        const account = findAccount(
+          database,
+          context.workspace.id,
+          whatsappAccountId,
+        );
+        if (!account.timeClockEnabled) {
+          throw new ApiError({
+            status: 403,
+            code: "TIME_CLOCK_DISABLED",
+            message: "El checador no esta activo para este numero.",
+          });
+        }
+        database.attendancePunches ??= [];
+        const at = new Date();
+        const dayKey = punchDayKey(at, timeZone);
+        const decision = evaluateDayPunch({
+          punches: database.attendancePunches.filter(
+            (item) =>
+              item.workspaceId === context.workspace.id &&
+              item.whatsappAccountId === account.id,
+          ),
+          employeeId: employee.id,
+          dayKey,
+          now: at,
+          timeZone,
+        });
+        if (!decision.ok) {
+          throw new ApiError({
+            status: 400,
+            code: decision.code,
+            message: decision.message,
+          });
+        }
+        const created: AttendancePunch = {
+          id: id("punch"),
+          workspaceId: context.workspace.id,
+          whatsappAccountId: account.id,
+          employeeId: employee.id,
+          employeeName: employee.name,
+          phoneNumber: employee.phone,
+          type: decision.type,
+          dayKey,
+          createdAt: now(),
+        };
+        database.attendancePunches.push(created);
+        return created;
+      });
+      await store.audit({
+        workspaceId: context.workspace.id,
+        userId: context.user.id,
+        action: "attendance.punched",
+        entityType: "attendance_punch",
+        entityId: punch.id,
+        metadata: {
+          employeeId: punch.employeeId,
+          type: punch.type,
+          whatsappAccountId: punch.whatsappAccountId,
+        },
+      });
+      ok(res, punch, 201);
+    }),
+  );
+
+  return router;
+}

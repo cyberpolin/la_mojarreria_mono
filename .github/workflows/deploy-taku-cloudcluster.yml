@@ -1,25 +1,12 @@
-name: Deploy TAKU to CloudCluster
+name: Deploy Taku-api to Cloudcluster
 
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Branch, tag, or commit SHA to deploy"
+      disabled:
+        description: "This legacy all-in-one TAKU CloudCluster deploy is disabled. Use service-specific workflows."
         required: true
-        default: "taku-deployment"
-  push:
-    branches:
-      - taku-deployment
-    paths:
-      - "apps/taku-api-service/**"
-      - "apps/taku-web/**"
-      - "apps/wa-service/**"
-      - "apps/bot-service/**"
-      - "scripts/dev-taku.sh"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - "package.json"
-      - ".github/workflows/deploy-taku-cloudcluster.yml"
+        default: "disabled"
 
 concurrency:
   group: taku-cloudcluster
@@ -27,23 +14,24 @@ concurrency:
 
 jobs:
   deploy:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: cloudcluster
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 9.15.5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20.19.4
 
@@ -84,6 +72,7 @@ jobs:
           DEPLOY_PATH="${CLOUDCLUSTER_TAKU_DEPLOY_PATH:-$(read_push_value CLOUDCLUSTER_TAKU_DEPLOY_PATH)}"
           DEPLOY_PATH="${DEPLOY_PATH:-/var/www/taku}"
           PORT="${PORT:-22}"
+          PORT="$(printf '%s' "$PORT" | tr -d '\r' | xargs)"
 
           missing=0
           for name in HOST USER SSH_KEY DEPLOY_PATH; do
@@ -95,6 +84,15 @@ jobs:
               echo "$name is configured (length: ${#value})"
             fi
           done
+
+          case "$PORT" in
+            ''|*[!0-9]*)
+              echo "::error::CLOUDCLUSTER_SSH_PORT must be numeric. Check the direct secret first, then BOT_PUSH_ENV_FILE fallback."
+              echo "Resolved port length: ${#PORT}"
+              exit 1
+              ;;
+          esac
+
           echo "PORT is configured: $PORT"
 
           if [ "$missing" -ne 0 ]; then
@@ -124,8 +122,10 @@ jobs:
 
       - name: Write service env files
         env:
-          TAKU_API_SERVICE_ENV_FILE: ${{ secrets.TAKU_API_SERVICE_ENV_FILE }}
+          TAKU_BACKEND_ENV_FILE: ${{ secrets.TAKU_BACKEND_ENV_FILE }}
           TAKU_WEB_ENV_FILE: ${{ secrets.TAKU_WEB_ENV_FILE }}
+          TAKU_WA_WEB_ENV_FILE: ${{ secrets.TAKU_WA_WEB_ENV_FILE }}
+          TAKU_BOT_WEB_ENV_FILE: ${{ secrets.TAKU_BOT_WEB_ENV_FILE }}
           WA_SERVICE_ENV_FILE: ${{ secrets.WA_SERVICE_ENV_FILE }}
           BOT_SERVICE_ENV_FILE: ${{ secrets.BOT_SERVICE_ENV_FILE }}
         run: |
@@ -145,20 +145,26 @@ jobs:
             echo "$name wrote $path ($(wc -c < "$path") bytes)"
           }
 
-          write_env TAKU_API_SERVICE_ENV_FILE apps/taku-api-service/.env "${TAKU_API_SERVICE_ENV_FILE:-}"
-          write_env TAKU_WEB_ENV_FILE apps/taku-web/.env "${TAKU_WEB_ENV_FILE:-}"
+          write_env TAKU_BACKEND_ENV_FILE taku-backend/.env "${TAKU_BACKEND_ENV_FILE:-}"
+          write_env TAKU_WEB_ENV_FILE apps/taku-site/.env "${TAKU_WEB_ENV_FILE:-}"
+          write_env TAKU_WA_WEB_ENV_FILE apps/taku-wa-web/.env "${TAKU_WA_WEB_ENV_FILE:-}"
+          write_env TAKU_BOT_WEB_ENV_FILE apps/taku-bot-web/.env "${TAKU_BOT_WEB_ENV_FILE:-}"
           write_env WA_SERVICE_ENV_FILE apps/wa-service/.env "${WA_SERVICE_ENV_FILE:-}"
           write_env BOT_SERVICE_ENV_FILE apps/bot-service/.env "${BOT_SERVICE_ENV_FILE:-}"
 
       - name: Typecheck and build
         run: |
           set -eux
-          pnpm --filter @taku/api-service typecheck
-          pnpm --filter @taku/web typecheck
+          pnpm --filter @taku/backend typecheck
+          pnpm --filter @taku/site typecheck
+          pnpm --filter @taku/wa-web typecheck
+          pnpm --filter @taku/bot-web typecheck
           pnpm --filter @mojarreria/wa-service typecheck
           pnpm --filter @mojarreria/bot-service typecheck
-          pnpm --filter @taku/api-service build
-          pnpm --filter @taku/web build
+          pnpm --filter @taku/backend build
+          pnpm --filter @taku/site build
+          pnpm --filter @taku/wa-web build
+          pnpm --filter @taku/bot-web build
           pnpm --filter @mojarreria/wa-service build
           pnpm --filter @mojarreria/bot-service build
 
@@ -169,7 +175,7 @@ jobs:
           rsync -a \
             --exclude ".git" \
             --exclude "node_modules" \
-            --exclude "apps/taku-api-service/data" \
+            --exclude "taku-backend/data" \
             --exclude "apps/wa-service/auth" \
             --exclude "apps/wa-service/data" \
             --exclude "apps/bot-service/data" \
@@ -209,12 +215,14 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_PATH: ${{ steps.cloudcluster.outputs.deploy_path }}
+          CERTBOT_EMAIL: ${{ secrets.CERTBOT_EMAIL }}
+          SUDO_PASSWORD: ${{ secrets.CLOUDCLUSTER_SUDO_PASSWORD }}
         with:
           host: ${{ steps.cloudcluster.outputs.host }}
           username: ${{ steps.cloudcluster.outputs.user }}
           key: ${{ steps.cloudcluster.outputs.ssh_key }}
           port: ${{ steps.cloudcluster.outputs.port }}
-          envs: DEPLOY_PATH
+          envs: DEPLOY_PATH,CERTBOT_EMAIL,SUDO_PASSWORD
           timeout: 60s
           command_timeout: 20m
           request_pty: true
@@ -226,13 +234,34 @@ jobs:
 
             run_deploy() {
               : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
+              echo "Deploy wrapper entered run_deploy"
+
+              run_sudo() {
+                if [ "$(id -u)" -eq 0 ]; then
+                  "$@"
+                elif [ -n "${SUDO_PASSWORD:-}" ]; then
+                  printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+                else
+                  sudo -n "$@"
+                fi
+              }
 
               export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-              [ ! -s "$NVM_DIR/nvm.sh" ] || . "$NVM_DIR/nvm.sh"
+              if [ -s "$NVM_DIR/nvm.sh" ]; then
+                echo "Loading nvm from $NVM_DIR/nvm.sh"
+                . "$NVM_DIR/nvm.sh" || echo "Warning: failed to load nvm from $NVM_DIR/nvm.sh"
+              else
+                echo "nvm not found at $NVM_DIR/nvm.sh; continuing with system node"
+              fi
 
               echo "Remote user: $(whoami)"
               echo "Remote host: $(hostname)"
               echo "Deploy path: configured"
+              if [ -n "${SUDO_PASSWORD:-}" ]; then
+                echo "SUDO_PASSWORD is configured"
+              else
+                echo "SUDO_PASSWORD is not configured; passwordless sudo is required"
+              fi
               df -h .
               free -h || true
               ls -lh /tmp/taku-release.tar.gz
@@ -241,11 +270,53 @@ jobs:
               tar -xzf /tmp/taku-release.tar.gz -C "$DEPLOY_PATH" --strip-components=1
               cd "$DEPLOY_PATH"
 
-              mkdir -p apps/taku-api-service/data
+              mkdir -p taku-backend/data
               mkdir -p apps/wa-service/auth
               mkdir -p apps/wa-service/data
               mkdir -p apps/bot-service/data
               ln -sfn apps/wa-service wa-service
+
+              if [ ! -f apps/service-ports.conf ]; then
+                echo "apps/service-ports.conf is missing"
+                return 1
+              fi
+
+              set -a
+              . apps/service-ports.conf
+              set +a
+
+              for name in TAKU_WEB_PORT TAKU_BACKEND_PORT TAKU_WA_WEB_PORT TAKU_WA_SERVICE_PORT TAKU_BOT_SERVICE_PORT TAKU_BOT_WEB_PORT; do
+                value="$(eval "printf '%s' \"\${$name:-}\"")"
+                case "$value" in
+                  ''|*[!0-9]*)
+                    echo "$name must be a numeric port"
+                    return 1
+                    ;;
+                  *)
+                    echo "$name=$value"
+                    ;;
+                  esac
+              done
+
+              chmod +x scripts/ensure-taku-service-certs.sh scripts/enable-taku-nginx-sites.sh scripts/list-taku-services.sh scripts/check-taku-service-config.sh
+              echo "Checking TAKU service config"
+              scripts/check-taku-service-config.sh
+              echo "Listing TAKU services"
+              scripts/list-taku-services.sh
+              echo "Checking passwordless sudo for nginx/certbot operations"
+              run_sudo true
+              echo "Starting TAKU certificate check"
+              run_sudo env CERTBOT_EMAIL="${CERTBOT_EMAIL:-admin@taku.lat}" scripts/ensure-taku-service-certs.sh
+              echo "Finished TAKU certificate check"
+              echo "Starting TAKU nginx site enable"
+              run_sudo env DEBUG=true scripts/enable-taku-nginx-sites.sh
+              echo "Finished TAKU nginx site enable"
+              echo "Verifying /etc/nginx TAKU site files from workflow"
+              for site_file in TAKU_WEB_SITE.conf TAKU_BACKEND_SITE.conf TAKU_WA_WEB_SITE.conf TAKU_WA_SERVICE_SITE.conf TAKU_BOT_SERVICE_SITE.conf TAKU_BOT_WEB_SITE.conf; do
+                run_sudo test -f "/etc/nginx/sites-available/$site_file"
+                run_sudo test -L "/etc/nginx/sites-enabled/$site_file"
+                run_sudo ls -la "/etc/nginx/sites-available/$site_file" "/etc/nginx/sites-enabled/$site_file"
+              done
 
               if command -v nvm >/dev/null 2>&1; then
                 nvm install 20.19.4
@@ -263,49 +334,105 @@ jobs:
                 pnpm install --prod=false --no-frozen-lockfile
               fi
 
-              pnpm --filter @taku/api-service build
-              pnpm --filter @taku/web build
+              pnpm --filter @taku/backend build
+              pnpm --filter @taku/site build
+              pnpm --filter @taku/wa-web build
+              pnpm --filter @taku/bot-web build
               pnpm --filter @mojarreria/wa-service build
               pnpm --filter @mojarreria/bot-service build
 
               ROOT="$PWD"
               PM2="pnpm --dir $ROOT/apps/wa-service exec pm2"
 
-              $PM2 delete taku-api-service || true
-              $PM2 delete taku-web || true
+              assert_pm2_online() {
+                name="$1"
+                status_file="/tmp/taku-pm2-${name}.txt"
+                $PM2 describe "$name" > "$status_file"
+                cat "$status_file"
+                if ! grep -q "status.*online" "$status_file"; then
+                  echo "$name is not online"
+                  $PM2 logs "$name" --lines 80 --nostream || true
+                  return 1
+                fi
+              }
+
+              $PM2 delete taku-backend || true
+              $PM2 delete taku-site || true
+              $PM2 delete taku-wa-web || true
+              $PM2 delete taku-bot-web || true
               $PM2 delete mojarreria-bot-service || true
               $PM2 delete mojarreria-wa-service || true
 
-              $PM2 start "$ROOT/apps/taku-api-service/dist/index.js" \
-                --name taku-api-service \
-                --cwd "$ROOT/apps/taku-api-service" \
+              PORT="$TAKU_BACKEND_PORT" \
+              WA_SERVICE_BASE_URL="http://127.0.0.1:$TAKU_WA_SERVICE_PORT" \
+              $PM2 start "$ROOT/taku-backend/dist/index.js" \
+                --name taku-backend \
+                --cwd "$ROOT/taku-backend" \
                 --update-env
+              PORT="$TAKU_WEB_PORT" \
               $PM2 start pnpm \
-                --name taku-web \
-                --cwd "$ROOT" \
-                -- --filter @taku/web start
+                --name taku-site \
+                --cwd "$ROOT/apps/taku-site" \
+                --update-env \
+                -- start
+              PORT="$TAKU_WA_WEB_PORT" \
+              $PM2 start pnpm \
+                --name taku-wa-web \
+                --cwd "$ROOT/apps/taku-wa-web" \
+                --update-env \
+                -- start
+              PORT="$TAKU_BOT_WEB_PORT" \
+              $PM2 start pnpm \
+                --name taku-bot-web \
+                --cwd "$ROOT/apps/taku-bot-web" \
+                --update-env \
+                -- start
               (
                 cd "$ROOT/apps/bot-service"
+                PORT="$TAKU_BOT_SERVICE_PORT" \
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
               (
                 cd "$ROOT/apps/wa-service"
+                PORT="$TAKU_WA_SERVICE_PORT" \
+                BOT_SERVICE_BASE_URL="http://127.0.0.1:$TAKU_BOT_SERVICE_PORT" \
                 pnpm exec pm2 start ecosystem.config.cjs --env production --update-env
               )
 
-              $PM2 describe taku-api-service
-              $PM2 describe taku-web
+              assert_pm2_online taku-backend
+              assert_pm2_online taku-site
+              assert_pm2_online taku-wa-web
+              assert_pm2_online taku-bot-web
+              assert_pm2_online mojarreria-bot-service
+              assert_pm2_online mojarreria-wa-service
               $PM2 save
               $PM2 status
             }
 
+            STATUS_FILE="/tmp/taku-deploy.status"
+            rm -f "$STATUS_FILE"
+
             set +e
-            run_deploy > "$LOG_FILE" 2>&1
+            (
+              set -e
+              run_deploy
+            ) > "$LOG_FILE" 2>&1 &
+            DEPLOY_PID="$!"
+
+            tail -n +1 -f "$LOG_FILE" &
+            TAIL_PID="$!"
+
+            wait "$DEPLOY_PID"
             DEPLOY_STATUS="$?"
             set -e
 
+            kill "$TAIL_PID" 2>/dev/null || true
+            wait "$TAIL_PID" 2>/dev/null || true
+            printf '%s' "$DEPLOY_STATUS" > "$STATUS_FILE"
+
             echo "Remote deploy log:"
             cat "$LOG_FILE"
+            echo "Remote deploy log saved to $LOG_FILE"
             exit "$DEPLOY_STATUS"
 
       - name: Fetch remote deploy log

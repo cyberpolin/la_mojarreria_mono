@@ -20,6 +20,8 @@ export type PromotionUsedWebhookPayload = {
 export type WaServiceStatusWebhookPayload = {
   service: "wa-service";
   instanceId: string;
+  connectionId?: string;
+  businessId?: string | null;
   active: boolean;
   connected: boolean;
   connection: "connecting" | "open" | "close";
