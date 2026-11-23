@@ -88,6 +88,16 @@ export type CustomerLocation = {
   longitude: number;
 };
 
+export async function searchGoogleMapsLocation(query: string) {
+  const params = new URLSearchParams({ q: query });
+  return takuApi<{
+    name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+  }>(`/maps-search?${params.toString()}`);
+}
+
 export async function fetchCustomerLocations(phone: string) {
   const query = new URLSearchParams({ phone });
   return takuList<CustomerLocation>(`/customer-locations?${query.toString()}`);

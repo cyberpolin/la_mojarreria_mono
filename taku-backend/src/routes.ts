@@ -90,6 +90,7 @@ import {
   createMercadoPagoCardPayment,
   MercadoPagoRequestError,
 } from "./services/mercadoPagoClient.js";
+import { searchGoogleMaps } from "./services/googleMapsSearch.js";
 import { whatsappClient } from "./services/whatsappClient.js";
 import { id, now, type JsonStore } from "./store/jsonStore.js";
 import type {
@@ -7217,6 +7218,38 @@ export function createApiRouter(store: JsonStore, realtime: Realtime) {
         user.updatedAt = now();
       });
       ok(res, { message: "Contraseña actualizada correctamente." });
+    }),
+  );
+
+  router.get(
+    "/maps-search",
+    requireRole(allRoles),
+    asyncHandler(async (req, res) => {
+      assertWorkspace(req);
+      const query = readOptionalString(req.query.q);
+      if (!query || query.length < 2) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "Escribe que lugar quieres buscar.",
+        });
+      }
+      if (query.length > 160) {
+        throw new ApiError({
+          status: 400,
+          code: "VALIDATION_ERROR",
+          message: "La busqueda es demasiado larga.",
+        });
+      }
+      const place = await searchGoogleMaps(query);
+      if (!place) {
+        throw new ApiError({
+          status: 404,
+          code: "NOT_FOUND",
+          message: "Google Maps no encontro ese lugar.",
+        });
+      }
+      ok(res, place);
     }),
   );
 

@@ -8,11 +8,12 @@ import {
   fetchPinnedGroupConversation,
   fetchWhatsAppAccounts,
   saveCustomerLocation,
+  searchGoogleMapsLocation,
   sendConversationMessage,
   type CustomerLocation,
 } from "./api";
 import { AddGroupModal } from "./AddGroupModal";
-import { locationsMatch, mockFoundLocation } from "./customerLocations";
+import { locationsMatch } from "./customerLocations";
 import { Field, Input } from "./ui";
 import {
   DELIVERY_BASE,
@@ -71,9 +72,13 @@ export function RaiseOrderModal({
   const [chosen, setChosen] = useState<ChosenLocation | null>(null);
   const [locationName, setLocationName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchHit, setSearchHit] = useState<ReturnType<
-    typeof mockFoundLocation
-  > | null>(null);
+  const [searchingMap, setSearchingMap] = useState(false);
+  const [searchHit, setSearchHit] = useState<{
+    name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [savingLocation, setSavingLocation] = useState(false);
   const [driversMessage, setDriversMessage] = useState(DRIVERS_ORDER_MESSAGE);
   const [kilometers, setKilometers] = useState("");
@@ -387,14 +392,32 @@ export function RaiseOrderModal({
           onSubmit={(event) => {
             event.preventDefault();
             const query = searchQuery.trim();
-            if (!query) return;
-            setSearchHit(mockFoundLocation(query));
+            if (!query || searchingMap) return;
+            setSearchingMap(true);
+            setError(null);
+            setSearchHit(null);
+            void searchGoogleMapsLocation(query)
+              .then((place) => {
+                setSearchHit(place);
+              })
+              .catch((caught: unknown) => {
+                const message =
+                  caught instanceof Error
+                    ? caught.message
+                    : "Google Maps no encontro ese lugar.";
+                setError(
+                  message === "Failed to fetch"
+                    ? "No se pudo conectar con Google Maps. Intenta de nuevo."
+                    : message,
+                );
+              })
+              .finally(() => setSearchingMap(false));
           }}
         >
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
             <Field
-              label="Buscar"
-              hint="Busqueda de ejemplo. Elige el resultado para guardarlo."
+              label="Buscar en Google Maps"
+              hint="Escribe la calle, colonia o lugar. El mapa es de Google Maps."
             >
               <Input
                 placeholder="Calle, colonia o referencia"
@@ -406,15 +429,25 @@ export function RaiseOrderModal({
               />
             </Field>
             {searchHit ? (
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-sm font-semibold text-slate-950">
-                  {searchHit.name}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Ubicacion de ejemplo
-                </p>
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <iframe
+                  title="Google Maps"
+                  src={`https://maps.google.com/maps?q=${searchHit.latitude},${searchHit.longitude}&z=16&hl=es&output=embed`}
+                  className="h-56 w-full border-0"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+                <div className="px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">
+                    {searchHit.name}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    {searchHit.address}
+                  </p>
+                </div>
               </div>
             ) : null}
+            {error ? <p className="text-sm text-slate-700">{error}</p> : null}
           </div>
           <div className="grid gap-2 border-t border-slate-200 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {searchHit ? (
@@ -437,9 +470,17 @@ export function RaiseOrderModal({
             ) : (
               <button
                 type="submit"
-                disabled={!searchQuery.trim()}
-                className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!searchQuery.trim() || searchingMap}
+                aria-busy={searchingMap}
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
+                {searchingMap ? (
+                  <span
+                    className="size-4 shrink-0 animate-spin rounded-full border-2 border-slate-400 border-t-white motion-reduce:animate-none"
+                    role="status"
+                    aria-label="Cargando"
+                  />
+                ) : null}
                 Buscar
               </button>
             )}
