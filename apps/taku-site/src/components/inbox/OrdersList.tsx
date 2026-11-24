@@ -28,6 +28,7 @@ import { useInboxView } from "./inboxView";
 import {
   closeDeliveryOrder,
   orderNumber,
+  orderCloseLabel,
   orderStatus,
   todayOrderKey,
   type DeliveryOrder,
@@ -118,7 +119,7 @@ function matchesQuery(order: DeliveryOrder, query: string) {
     order.assignedDriver?.phone,
     order.assignedDriver?.name,
     order.payment,
-    orderStatus(order) === "closed" ? "cerrado" : "abierto",
+    orderCloseLabel(order),
   ]
     .filter(Boolean)
     .join(" ")
@@ -184,7 +185,7 @@ function OrderRow({
               closed ? "text-slate-400" : "text-slate-700",
             )}
           >
-            {closed ? "Cerrado" : "Abierto"}
+            {orderCloseLabel(order)}
           </p>
         </div>
       </button>

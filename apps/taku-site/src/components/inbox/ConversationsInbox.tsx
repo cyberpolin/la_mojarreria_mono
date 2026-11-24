@@ -42,6 +42,7 @@ import type {
 } from "./types";
 import { useInboxRealtime } from "./useInboxRealtime";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
+import { useSystemOrderClose } from "./useSystemOrderClose";
 import { DailyCashCloseGate } from "./DailyCashCloseGate";
 import { WeeklyReportGate } from "./WeeklyReportGate";
 
@@ -91,6 +92,7 @@ export function ConversationsInbox({
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [dailyOrdersOpen, setDailyOrdersOpen] = useState(false);
   useOverdueOwnerAlerts();
+  useSystemOrderClose();
 
   const selectedIdRef = useRef(conversationId);
   const queryRef = useRef({ filter, search, accountId });

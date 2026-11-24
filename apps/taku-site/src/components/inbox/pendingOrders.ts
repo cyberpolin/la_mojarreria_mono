@@ -8,6 +8,9 @@ export const ORDERS_CHANGED_EVENT = "mojarreria-orders-changed";
 
 export type DeliveryPayment = "efectivo" | "transferencia";
 export type DeliveryOrderStatus = "open" | "closed";
+export type DeliveryOrderClose = "user" | "system";
+
+export const SYSTEM_CLOSE_HOUR = 18;
 
 export type DeliveryOrder = RaiseOrderTotals & {
   id: string;
@@ -19,6 +22,8 @@ export type DeliveryOrder = RaiseOrderTotals & {
   customerConversationId?: string | null;
   whatsappAccountId?: string | null;
   status?: DeliveryOrderStatus | null;
+  closedBy?: DeliveryOrderClose | null;
+  closedAt?: string | null;
   dailyListedAt?: string | null;
   dayKey?: string | null;
   assignedDriver?: {
@@ -153,6 +158,58 @@ export function orderStatus(order: DeliveryOrder): DeliveryOrderStatus {
   return order.status === "closed" ? "closed" : "open";
 }
 
+export function orderCloseLabel(order: DeliveryOrder) {
+  if (orderStatus(order) !== "closed") return "Abierto";
+  return order.closedBy === "system" ? "Cerrado por sistema" : "Cerrado";
+}
+
+function zonedClock(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ORDER_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const read = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  let hour = Number(read("hour"));
+  if (!Number.isFinite(hour) || hour === 24) hour = 0;
+  return {
+    dayKey: `${read("year")}-${read("month")}-${read("day")}`,
+    hour,
+  };
+}
+
+function addDayKey(dayKey: string, amount: number) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  if (!match) return null;
+  const date = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + amount),
+  );
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function isSystemCloseDue(order: DeliveryOrder, now = new Date()) {
+  if (orderStatus(order) !== "open") return false;
+  const createdAt = new Date(order.createdAt);
+  if (Number.isNaN(createdAt.getTime())) return false;
+  const created = zonedClock(createdAt);
+  const deadlineDay =
+    created.hour >= SYSTEM_CLOSE_HOUR
+      ? addDayKey(created.dayKey, 1)
+      : created.dayKey;
+  if (!deadlineDay) return false;
+  const current = zonedClock(now);
+  if (current.dayKey > deadlineDay) return true;
+  if (current.dayKey < deadlineDay) return false;
+  return current.hour >= SYSTEM_CLOSE_HOUR;
+}
+
 export function activeOrderCustomerKeys(orders: DeliveryOrder[]) {
   const keys = new Set<string>();
   for (const order of orders) {
@@ -187,13 +244,32 @@ export function listOrdersByStatus() {
   });
 }
 
-export function closeDeliveryOrder(orderId: string) {
+export function closeDeliveryOrder(orderId: string, now = new Date()) {
   const current = listDeliveryOrders().find((item) => item.id === orderId);
-  if (!current) return null;
+  if (!current || orderStatus(current) === "closed") return current ?? null;
   return replaceOrder({
     ...current,
     status: "closed",
+    closedBy: "user",
+    closedAt: now.toISOString(),
   });
+}
+
+export function closeDueOrders(now = new Date()) {
+  const items = listDeliveryOrders();
+  let changed = false;
+  const next = items.map((item) => {
+    if (!isSystemCloseDue(item, now)) return item;
+    changed = true;
+    return {
+      ...item,
+      status: "closed" as const,
+      closedBy: "system" as const,
+      closedAt: now.toISOString(),
+    };
+  });
+  if (changed) writePayload(next);
+  return changed;
 }
 
 export function orderNumber(phone?: string | null) {

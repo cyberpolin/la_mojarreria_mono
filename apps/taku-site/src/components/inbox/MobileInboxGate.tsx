@@ -16,6 +16,7 @@ import { MobileConversation } from "./MobileConversation";
 import { MobileConversationList } from "./MobileConversationList";
 import { MobileAuthGate, MobilePhoneFrame } from "./mobile-shell";
 import { useOverdueOwnerAlerts } from "./useOverdueOwnerAlerts";
+import { useSystemOrderClose } from "./useSystemOrderClose";
 import { ChecadorFab } from "./ChecadorFab";
 import { ChecadorGate } from "./ChecadorGate";
 import { DailyCashCloseGate } from "./DailyCashCloseGate";
@@ -127,6 +128,7 @@ export function MobileInboxApp() {
   const { needsAuth, loading, error, accounts, fromApp } =
     useAssignedAccounts();
   useOverdueOwnerAlerts();
+  useSystemOrderClose();
 
   if (needsAuth && !fromApp) {
     return (
