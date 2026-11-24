@@ -17,6 +17,7 @@ import { orderFoodTotal } from "./orderMessages";
 import {
   closeDeliveryOrder,
   orderNumber,
+  orderCloseLabel,
   orderStatus,
   type DeliveryOrder,
 } from "./pendingOrders";
@@ -178,7 +179,7 @@ export function OrderDetailPanel({
               {number ? `Pedido #${number}` : "Detalle del pedido"}
             </h2>
             <p className="text-xs text-slate-500">
-              {closed ? "Cerrado" : "Abierto"}
+              {orderCloseLabel(order)}
             </p>
           </div>
         </header>

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activeOrderCustomerKeys,
+  isSystemCloseDue,
   phoneHasActiveOrder,
   type DeliveryOrder,
 } from "./pendingOrders";
@@ -23,6 +24,32 @@ function order(phone: string, status: DeliveryOrder["status"]): DeliveryOrder {
     status,
   };
 }
+
+test("an open order closes at 6pm on the day it was made", () => {
+  const made = {
+    ...order("5219931175435", "open"),
+    createdAt: "2026-11-23T21:00:00.000Z",
+  };
+  assert.equal(isSystemCloseDue(made, new Date("2026-11-23T23:59:00.000Z")), false);
+  assert.equal(isSystemCloseDue(made, new Date("2026-11-24T00:00:00.000Z")), true);
+  assert.equal(isSystemCloseDue(made, new Date("2026-11-24T14:00:00.000Z")), true);
+  assert.equal(
+    isSystemCloseDue(
+      { ...made, status: "closed", closedBy: "user" },
+      new Date("2026-11-24T00:00:00.000Z"),
+    ),
+    false,
+  );
+});
+
+test("an order made after 6pm waits until 6pm the next day", () => {
+  const late = {
+    ...order("5219931175435", "open"),
+    createdAt: "2026-11-24T00:30:00.000Z",
+  };
+  assert.equal(isSystemCloseDue(late, new Date("2026-11-24T02:00:00.000Z")), false);
+  assert.equal(isSystemCloseDue(late, new Date("2026-11-25T00:00:00.000Z")), true);
+});
 
 test("active orders match the customer phone with or without the country code", () => {
   const keys = activeOrderCustomerKeys([
